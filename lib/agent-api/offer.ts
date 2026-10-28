@@ -142,7 +142,7 @@ export async function offerNext(db: Db, caller: { agentId?: string; tenantId: st
       ...(caller.level && hasLevel(caller.level, "dispatcher") && caller.ownerId ? { dispatcherUserId: caller.ownerId } : {}),
     } });
     const event = await publish(db, { tenantId: caller.tenantId, type: "claim.offered", actorAgentId: caller.agentId, bugId: bug.id,
-      payload: { claimId: claim.id, issueId: bug.id, projectId: bug.projectId, beneficiaryUserId: next.beneficiaryUserId, expiresAt: new Date(claim.offeredAt!.getTime() + offerWindowMs).toISOString() } });
+      payload: { claimId: claim.id, issueId: bug.id, projectId: bug.projectId, beneficiaryUserId: next.beneficiaryUserId, agentId: next.agentId, expiresAt: new Date(claim.offeredAt!.getTime() + offerWindowMs).toISOString() } });
     return { claim, beneficiaryUserId: next.beneficiaryUserId, bugTitle: bug.title, eventId: event.id };
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

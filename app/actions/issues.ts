@@ -897,7 +897,13 @@ export async function updateBugAction(
               type: "claim.offered",
               actorAgentId: agent.id,
               bugId,
-              payload: { claimId: claim.id, issueId: bugId, beneficiaryUserId: data.assigneeId },
+              payload: {
+                claimId: claim.id,
+                issueId: bugId,
+                beneficiaryUserId: data.assigneeId,
+                agentId: agent.id,
+                offeredAt: claim.offeredAt,
+              },
             });
           }
         }

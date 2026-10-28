@@ -6,6 +6,7 @@ import { extractMentionedAgentIds, extractMentionedUserIds } from "@/lib/mention
 import { commentPermalinkPath } from "@/lib/comment-window";
 import { absoluteUrl } from "@/lib/site-url";
 import { markMessagesRead } from "@/lib/agent-messages";
+import { isOfferExpired } from "@/lib/agent-api/offer";
 import {
   EVENT_MAX_WAIT_SECONDS,
   nextPollDelayMs,
@@ -193,7 +194,7 @@ export async function listInbox(
   cursor: EventCursor | null,
   options: { unread?: boolean } = {},
 ): Promise<InboxItemRow[]> {
-  return prisma.agentInboxItem.findMany({
+  const rows = await prisma.agentInboxItem.findMany({
     where: {
       agentId: agent.agentId,
       ...(options.unread ? { readAt: null } : {}),
@@ -205,6 +206,19 @@ export async function listInbox(
     take: 101,
     select: itemSelect,
   });
+  const now = Date.now();
+  // #580: never surface expired claim offers in the inbox. An offer expires
+  // when its `expiresAt` (or `offeredAt` + default TTL) is in the past.
+  const filtered = rows.filter((item) => {
+    if (item.eventType !== "claim.offered") return true;
+    const payload = item.payload as Record<string, unknown> | null;
+    if (!payload) return true;
+    const expiresAt = payload.expiresAt ? new Date(payload.expiresAt as string) : null;
+    if (expiresAt) return now < expiresAt.getTime();
+    const offeredAt = payload.offeredAt ? new Date(payload.offeredAt as string) : null;
+    return !isOfferExpired(offeredAt, now);
+  });
+  return filtered.slice(0, 101);
 }
 
 /** Long poll: returns as soon as an item exists, or empty at the deadline. Same backoff as `/events` (#545). */

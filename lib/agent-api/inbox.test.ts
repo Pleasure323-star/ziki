@@ -184,6 +184,27 @@ describe("inbox reads", () => {
     expect(db.agentInboxItem.findMany).toHaveBeenCalledTimes(2);
   });
 
+  it("filters out expired claim.offered items (#580)", async () => {
+    const expiredItem = { ...item, eventType: "claim.offered", payload: { claimId: "claim-1", expiresAt: new Date(Date.now() - 10_000).toISOString() } };
+    const validItem = { ...item, eventType: "claim.offered", payload: { claimId: "claim-2", expiresAt: new Date(Date.now() + 10_000).toISOString() } };
+    const otherKind = { ...item, eventType: "mention", payload: { claimId: "claim-3" } };
+    db.agentInboxItem.findMany.mockResolvedValue([expiredItem, validItem, otherKind]);
+    const result = await listInbox({ agentId: "agent-bob" }, null, {});
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.id)).toContain(validItem.id);
+    expect(result.map((r) => r.id)).toContain(otherKind.id);
+    expect(result.map((r) => r.id)).not.toContain(expiredItem.id);
+  });
+
+  it("filters out expired claim.offered items using offeredAt when no expiresAt (#580)", async () => {
+    const expiredItem = { ...item, eventType: "claim.offered", payload: { claimId: "claim-1", offeredAt: new Date(Date.now() - 1_000_000_000).toISOString() } }; // ~11 days ago, well past default TTL
+    const validItem = { ...item, eventType: "claim.offered", payload: { claimId: "claim-2", offeredAt: new Date().toISOString() } };
+    db.agentInboxItem.findMany.mockResolvedValue([expiredItem, validItem]);
+    const result = await listInbox({ agentId: "agent-bob" }, null, {});
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(validItem.id);
+  });
+
   it("links an item to its comment or issue", () => {
     expect(serializeInboxItem(item)).toMatchObject({ kind: "offer", issueId: "bug-1", read: false, readAt: null, createdAt: "2026-10-20T10:00:00.000Z" });
     expect(serializeInboxItem(item).url).toMatch(/\/issues\/bug-1$/);
