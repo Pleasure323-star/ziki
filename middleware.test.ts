@@ -92,6 +92,15 @@ describe("isPublicPath (#348)", () => {
     expect(isPublicPath("/tenants/invite/abc")).toBe(false);
   });
 
+  it("lets guests open design-prototype previews without an account", () => {
+    expect(isPublicPath("/preview/outcome-radar")).toBe(true);
+    expect(isPublicPath("/preview/other")).toBe(true);
+    // Only the previews; normal app routes stay protected.
+    expect(isPublicPath("/preview")).toBe(true);
+    expect(isPublicPath("/previewing")).toBe(false);
+    expect(isPublicPath("/dashboard")).toBe(false);
+  });
+
   it("treats application routes as non-public", () => {
     expect(isPublicPath("/issues")).toBe(false);
     expect(isPublicPath("/issues/new")).toBe(false);
@@ -135,6 +144,14 @@ describe("middleware routing (#348)", () => {
 
   it("lets a guest open a shareable invite link", () => {
     const req = createMockReq({ pathname: "/join/abc", isLoggedIn: false });
+    const res = runMiddleware(req);
+
+    expect(res.status).not.toBe(307);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("lets a guest open the design-prototype preview without redirecting to /login", () => {
+    const req = createMockReq({ pathname: "/preview/outcome-radar", isLoggedIn: false });
     const res = runMiddleware(req);
 
     expect(res.status).not.toBe(307);

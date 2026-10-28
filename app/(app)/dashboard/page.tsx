@@ -19,6 +19,7 @@ import {
   type OverviewAssignedIssue,
 } from "@/components/overview/assigned-issues-table";
 import { PointsChart } from "@/components/overview/points-chart";
+import { OutcomeRadar } from "@/components/overview/outcome-radar";
 import {
   loadPointHistory,
   pointsThisWeek,
@@ -263,6 +264,8 @@ export default async function DashboardPage() {
           New issue
         </Link>
       </div>
+
+      <OutcomeRadar />
 
       <OverviewStatCards stats={stats} />
 

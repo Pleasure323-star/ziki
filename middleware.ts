@@ -41,6 +41,10 @@ export function isPublicPath(
     // spends a use.
     pathWithoutBase === "/join" ||
     pathWithoutBase.startsWith("/join/") ||
+    // Design-prototype previews: static pages with sample data, marked
+    // noindex; reviewers can see the interaction without an account.
+    pathWithoutBase === "/preview" ||
+    pathWithoutBase.startsWith("/preview/") ||
     pathWithoutBase.startsWith("/api/auth") ||
     pathWithoutBase.startsWith("/api/health") ||
     // GitHub calls this with an HMAC signature, not a session (#474).
