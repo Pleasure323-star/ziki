@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Severity } from "@prisma/client";
+import type { ProjectRewardConfig } from "./project-rewards";
 import {
   ALREADY_CORRECTED,
   ALREADY_RESOLVED,
@@ -140,6 +141,24 @@ describe("missingAwardEntry", () => {
     expect(entry?.sourceKey).toBe("reporter:bug-1:user-me");
   });
 
+  it("honors a project's custom reward configuration (#600)", () => {
+    const config: ProjectRewardConfig = {
+      solver: { low: 10, medium: 30, high: 44, critical: 55 },
+      reporter: 7,
+      reviewer: 10,
+      guidelines: null,
+    };
+    // Configured amounts...
+    expect(missingAwardEntry(bugOn, "solver", config)?.points).toBe(44);
+    expect(missingAwardEntry(bugOn, "reporter", config)?.points).toBe(7);
+    // ...with the sourceKey untouched, so grants still dedupe.
+    expect(missingAwardEntry(bugOn, "solver", config)?.sourceKey).toBe("solver:bug-1:user-solver");
+    expect(missingAwardEntry(bugOn, "reporter", config)?.sourceKey).toBe("reporter:bug-1:user-me");
+    // A project without overrides keeps the standard amounts.
+    expect(missingAwardEntry(bugOn, "solver", null)?.points).toBe(40);
+    expect(missingAwardEntry(bugOn, "reporter", null)?.points).toBe(5);
+  });
+
   it("returns null for a solver award when nobody is assigned", () => {
     expect(missingAwardEntry({ ...bugOn, assigneeId: null }, "solver")).toBeNull();
   });
@@ -268,6 +287,59 @@ describe("grantMissingAward", () => {
       expect.objectContaining({
         where: { id: "dispute-1" },
         data: expect.objectContaining({ status: "granted", resolvedById: ADMIN }),
+      }),
+    );
+  });
+
+  it("reads the bug's project reward config when granting (#600)", async () => {
+    const { db, raw } = fakeLedger();
+    const config: ProjectRewardConfig = {
+      solver: { low: 10, medium: 30, high: 44, critical: 55 },
+      reporter: 7,
+      reviewer: 10,
+      guidelines: null,
+    };
+    const projectFindUnique = vi.fn(
+      async (): Promise<{ rewardConfig: ProjectRewardConfig } | null> => ({ rewardConfig: config }),
+    );
+    (db as unknown as { project: unknown }).project = { findUnique: projectFindUnique };
+
+    const result = await grantMissingAward(db, {
+      dispute: openDisputeRow(),
+      bug: { ...bugOn, projectId: "proj-1" },
+      role: "solver",
+      resolvedById: ADMIN,
+    });
+
+    expect(result).toEqual({ ok: true, awarded: true });
+    expect(raw.pointEntry.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [
+          expect.objectContaining({
+            role: "solver",
+            points: 44,
+            sourceKey: "solver:bug-1:user-solver",
+          }),
+        ],
+      }),
+    );
+    expect(projectFindUnique).toHaveBeenCalledWith({ where: { id: "proj-1" }, select: { rewardConfig: true } });
+  });
+
+  it("keeps the standard amounts when the project config can't be read (#600)", async () => {
+    const { db, raw } = fakeLedger(); // fake has no `project` model
+
+    const result = await grantMissingAward(db, {
+      dispute: openDisputeRow(),
+      bug: { ...bugOn, projectId: "proj-1" },
+      role: "solver",
+      resolvedById: ADMIN,
+    });
+
+    expect(result).toEqual({ ok: true, awarded: true });
+    expect(raw.pointEntry.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ role: "solver", points: 40 })],
       }),
     );
   });
@@ -568,6 +640,35 @@ describe("creditMissingAwards", () => {
       role: "reporter",
       points: 5,
       sourceKey: "reporter:bug-269:user-me",
+    });
+  });
+
+  it("pays the project's configured amounts when crediting (#600)", async () => {
+    const config: ProjectRewardConfig = {
+      solver: { low: 10, medium: 30, high: 44, critical: 55 },
+      reporter: 7,
+      reviewer: 10,
+      guidelines: null,
+    };
+    const { db, raw } = fakeLedger();
+    raw.bug.findMany.mockResolvedValue([{ ...solved, projectId: "proj-1" }]);
+    (db as unknown as { project: { findUnique: unknown } }).project = {
+      findUnique: vi.fn(async (): Promise<{ rewardConfig: ProjectRewardConfig } | null> => ({
+        rewardConfig: config,
+      })),
+    };
+
+    const result = await creditMissingAwards(db, {
+      tenantId: TENANT,
+      numbers: [269],
+      role: "solver",
+    });
+
+    expect(result).toEqual({ credited: [269], already: [], skipped: [] });
+    expect(raw.pointEntry.createMany.mock.calls[0][0].data[0]).toMatchObject({
+      role: "solver",
+      points: 44,
+      sourceKey: "solver:bug-269:user-solver",
     });
   });
 });

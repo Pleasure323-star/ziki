@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { backfillEntries, backfillPoints, parseBackfillArgs, type HistoricalBug } from "./backfill";
+import type { ProjectRewardConfig } from "./project-rewards";
 
 const bug = (overrides: Partial<HistoricalBug>): HistoricalBug => ({
   id: "bug-1",
@@ -152,6 +153,40 @@ describe("backfill points (#435)", () => {
         { role: "reporter", points: 5 },
       ]);
     });
+    it("honors the project's reward configuration when given (#600)", () => {
+      const config: ProjectRewardConfig = {
+        solver: { low: 10, medium: 30, high: 44, critical: 55 },
+        reporter: 7,
+        reviewer: 10,
+        guidelines: null,
+      };
+      expect(backfillEntries(bug({}), { rewardConfig: config })).toEqual([
+        {
+          tenantId: "tenant-zedu",
+          userId: "solver-1",
+          bugId: "bug-1",
+          role: "solver",
+          points: 30,
+          sourceKey: "solver:bug-1:solver-1",
+        },
+        {
+          tenantId: "tenant-zedu",
+          userId: "reporter-1",
+          bugId: "bug-1",
+          role: "reporter",
+          points: 7,
+          sourceKey: "reporter:bug-1:reporter-1",
+        },
+      ]);
+      // A project without overrides (null config) keeps the standard amounts,
+      // and the canonical sourceKeys never change.
+      expect(
+        backfillEntries(bug({}), { rewardConfig: null }).map((e) => [e.role, e.points]),
+      ).toEqual([
+        ["solver", 25],
+        ["reporter", 5],
+      ]);
+    });
   });
 
   it("lists one solver and one reporter line in a dry run, and writes nothing", async () => {
@@ -206,6 +241,45 @@ describe("backfill points (#435)", () => {
     const { db, ledger } = fixture(bugs);
     expect(await backfillPoints(db, { batchSize: 3 })).toMatchObject({ bugs: 7, written: 7 });
     expect(ledger).toHaveLength(7);
+  });
+
+  it("pays each project's configured amounts and reads every project's config once (#600)", async () => {
+    // proj-a overrides; proj-b and the projectless bug keep defaults, but
+    // their configs are still resolved (once each, not once per issue).
+    const config: ProjectRewardConfig = {
+      solver: { low: 10, medium: 30, high: 44, critical: 55 },
+      reporter: 7,
+      reviewer: 10,
+      guidelines: null,
+    };
+    const projectFindUnique = vi.fn(
+      async ({ where }: { where: { id: string } }) =>
+        where.id === "proj-a" ? { rewardConfig: config } : { rewardConfig: null },
+    );
+    const { db, ledger } = fixture([
+      bug({ id: "bug-a1", projectId: "proj-a", severity: "high" }),
+      bug({ id: "bug-a2", projectId: "proj-a", assigneeId: null }),
+      bug({ id: "bug-b1", projectId: "proj-b" }),
+      bug({ id: "bug-c1", projectId: null }),
+    ]);
+    (db as unknown as { project: { findUnique: typeof projectFindUnique } }).project = {
+      findUnique: projectFindUnique,
+    };
+
+    const result = await backfillPoints(db);
+
+    expect(result).toMatchObject({ bugs: 4, written: 7 });
+    expect(ledger.map((r) => [r.role, r.points]).sort((a, b) => a.join().localeCompare(b.join()))).toEqual([
+      ["reporter", 5],
+      ["reporter", 5],
+      ["reporter", 7],
+      ["reporter", 7],
+      ["solver", 25],
+      ["solver", 25],
+      ["solver", 44],
+    ]);
+    expect(projectFindUnique).toHaveBeenCalledTimes(2);
+    expect(projectFindUnique).toHaveBeenCalledWith({ where: { id: "proj-a" }, select: { rewardConfig: true } });
   });
 });
 

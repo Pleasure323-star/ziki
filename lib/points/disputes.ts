@@ -1,7 +1,13 @@
 import type { Prisma, PrismaClient, DisputeStatus, Severity } from "@prisma/client";
 import { z } from "zod";
 import { award, type PointAward } from "./award";
-import { pointSourceKey, REPORTER_POINTS, solverPoints, type PointRole } from "./rules";
+import { pointSourceKey, type PointRole } from "./rules";
+import {
+  calculateReporterPoints,
+  calculateSolverPoints,
+  getProjectRewardConfig,
+  type ProjectRewardConfig,
+} from "./project-rewards";
 
 /**
  * Dispute logic (#436). A member says an award is missing or wrong; a
@@ -11,6 +17,9 @@ import { pointSourceKey, REPORTER_POINTS, solverPoints, type PointRole } from ".
  * A grant reuses the canonical `pointSourceKey`, so granting twice adds one
  * row. A correction never edits a row: it marks `correctedAt` and writes a
  * new entry with negative points.
+ *
+ * Granted awards follow the project's reward configuration, like live awards
+ * do (#600); a project with the defaults configured pays the same as before.
  */
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -57,6 +66,8 @@ export type DisputableBug = {
   reporterId: string;
   assigneeId: string | null;
   severity: Severity;
+  /** Optional; present only to resolve the project's reward configuration (#600). */
+  projectId?: string | null;
 };
 
 export type DisputeRow = {
@@ -75,6 +86,7 @@ export type GrantResult = { ok: true; awarded: boolean } | { ok: false; error: s
 export function missingAwardEntry(
   bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "severity">,
   role: DisputeRole,
+  rewardConfig?: ProjectRewardConfig | null,
 ): PointAward | null {
   if (role === "reporter") {
     return {
@@ -82,7 +94,7 @@ export function missingAwardEntry(
       userId: bug.reporterId,
       bugId: bug.id,
       role: "reporter",
-      points: REPORTER_POINTS,
+      points: calculateReporterPoints(rewardConfig),
       sourceKey: pointSourceKey("reporter", bug.id, bug.reporterId),
     };
   }
@@ -92,7 +104,7 @@ export function missingAwardEntry(
     userId: bug.assigneeId,
     bugId: bug.id,
     role: "solver",
-    points: solverPoints(bug.severity),
+    points: calculateSolverPoints(bug.severity, rewardConfig),
     sourceKey: pointSourceKey("solver", bug.id, bug.assigneeId),
   };
 }
@@ -148,6 +160,31 @@ export async function openDispute(
 }
 
 /**
+ * The reward configuration for `bug`'s project, or null when it can't be
+ * read (missing projectId, or a test fake without the `project` model —
+ * those callers keep historical default amounts).
+ */
+export async function rewardConfigForBug(
+  db: Db,
+  bug: { id: string; projectId?: string | null },
+): Promise<ProjectRewardConfig | null> {
+  let projectId = bug.projectId ?? null;
+  const shape = db as {
+    bug?: { findUnique?: unknown };
+    project?: { findUnique?: unknown };
+  };
+  if (!projectId && typeof shape.bug?.findUnique === "function") {
+    const row = await (db as PrismaClient).bug.findUnique({
+      where: { id: bug.id },
+      select: { projectId: true },
+    });
+    projectId = row?.projectId ?? null;
+  }
+  if (!projectId || typeof shape.project?.findUnique !== "function") return null;
+  return getProjectRewardConfig(db, projectId);
+}
+
+/**
  * Grants the missing solver or reporter award once. The canonical sourceKey
  * means a second grant adds no rows, so points never double (#436).
  */
@@ -155,7 +192,9 @@ export async function grantMissingAward(
   db: Db,
   args: {
     dispute: DisputeRow;
-    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "severity">;
+    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "severity"> & {
+      projectId?: string | null;
+    };
     role: DisputeRole;
     resolvedById: string;
   },
@@ -166,7 +205,8 @@ export async function grantMissingAward(
     return { ok: false, error: NOT_IN_WORKSPACE };
   }
 
-  const entry = missingAwardEntry(bug, role);
+  const rewardConfig = await rewardConfigForBug(db, bug);
+  const entry = missingAwardEntry(bug, role, rewardConfig);
   if (!entry) return { ok: false, error: NOBODY_TO_AWARD };
 
   const awarded = await award(db, entry);
@@ -434,6 +474,7 @@ export async function creditMissingAwards(
       id: true,
       number: true,
       tenantId: true,
+      projectId: true,
       reporterId: true,
       assigneeId: true,
       severity: true,
@@ -443,6 +484,16 @@ export async function creditMissingAwards(
     },
   })) as CreditBug[];
   const byNumber = new Map(bugs.map((bug) => [bug.number, bug]));
+  // One config read per project: granted points honor the project's reward
+  // configuration, like live awards do (#600).
+  const rewardConfigs = new Map<string, ProjectRewardConfig | null>();
+  const rewardConfigFor = async (bug: CreditBug): Promise<ProjectRewardConfig | null> => {
+    if (!bug.projectId) return null;
+    if (!rewardConfigs.has(bug.projectId)) {
+      rewardConfigs.set(bug.projectId, await rewardConfigForBug(db, bug));
+    }
+    return rewardConfigs.get(bug.projectId) ?? null;
+  };
 
   for (const number of numbers) {
     const bug = byNumber.get(number);
@@ -468,7 +519,7 @@ export async function creditMissingAwards(
       continue;
     }
 
-    const entry = missingAwardEntry(bug, args.role);
+    const entry = missingAwardEntry(bug, args.role, await rewardConfigFor(bug));
     if (!entry) {
       skipped.push({ number, reason: "no assignee" });
       continue;

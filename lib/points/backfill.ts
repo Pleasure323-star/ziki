@@ -1,6 +1,12 @@
 import type { Prisma, PrismaClient, Severity, Status } from "@prisma/client";
 import { award, type PointAward } from "./award";
 import { pointSourceKey, REPORTER_POINTS, solverPoints } from "./rules";
+import {
+  calculateReporterPoints,
+  calculateSolverPoints,
+  getProjectRewardConfig,
+  type ProjectRewardConfig,
+} from "./project-rewards";
 import { isConfirmed } from "@/lib/agent-api/validation";
 
 /**
@@ -10,6 +16,9 @@ import { isConfirmed } from "@/lib/agent-api/validation";
  * Every entry uses the key `award()` uses, so running this twice, or after a
  * real award for the same ticket, pays once. There were no test verdicts
  * before the platform, so no reviewer points are invented.
+ *
+ * Amounts honor each issue's project reward configuration (#600) — the same
+ * configuration live awards use — with the standard values as the fallback.
  */
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -20,6 +29,8 @@ export const PLATFORM_CUTOFF_DATE = new Date("2026-10-21T00:00:00.000Z");
 export type HistoricalBug = {
   id: string;
   tenantId: string;
+  /** Optional; only used to resolve the issue's project reward config (#600). */
+  projectId?: string | null;
   status: Status;
   severity: Severity;
   assigneeId: string | null;
@@ -45,10 +56,11 @@ export function isModernBug(bug: HistoricalBug, cutoffDate?: Date): boolean {
  */
 export function backfillEntries(
   bug: HistoricalBug,
-  options?: { cutoffDate?: Date },
+  options?: { cutoffDate?: Date; rewardConfig?: ProjectRewardConfig | null },
 ): PointAward[] {
   // A deleted ticket was taken back; it earns nothing.
   if (bug.isDeleted) return [];
+  const rewardConfig = options?.rewardConfig;
   const entries: PointAward[] = [];
   if (FINISHED.has(bug.status) && bug.assigneeId) {
     entries.push({
@@ -56,7 +68,7 @@ export function backfillEntries(
       userId: bug.assigneeId,
       bugId: bug.id,
       role: "solver",
-      points: solverPoints(bug.severity),
+      points: rewardConfig ? calculateSolverPoints(bug.severity, rewardConfig) : solverPoints(bug.severity),
       sourceKey: pointSourceKey("solver", bug.id, bug.assigneeId),
     });
   }
@@ -70,7 +82,7 @@ export function backfillEntries(
         userId: recipientId,
         bugId: bug.id,
         role: "reporter",
-        points: REPORTER_POINTS,
+        points: rewardConfig ? calculateReporterPoints(rewardConfig) : REPORTER_POINTS,
         sourceKey: pointSourceKey("reporter", bug.id, recipientId),
       });
     }
@@ -115,6 +127,16 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
   }
   const result: BackfillResult = { bugs: 0, planned: 0, written: 0, existing: 0 };
   let cursor: string | undefined;
+  // One reward config read per project, across batches (the config is per
+  // project, not per issue, so walking 5,000 issues reads each project once).
+  const rewardConfigs = new Map<string, ProjectRewardConfig>();
+  const rewardConfigFor = async (bug: HistoricalBug): Promise<ProjectRewardConfig | null> => {
+    if (!bug.projectId) return null;
+    if (!rewardConfigs.has(bug.projectId)) {
+      rewardConfigs.set(bug.projectId, await getProjectRewardConfig(db, bug.projectId));
+    }
+    return rewardConfigs.get(bug.projectId) ?? null;
+  };
 
   for (;;) {
     const bugs: HistoricalBug[] = await db.bug.findMany({
@@ -124,6 +146,7 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
       select: {
         id: true,
         tenantId: true,
+        projectId: true,
         status: true,
         severity: true,
         assigneeId: true,
@@ -145,7 +168,11 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
       }
     }
 
-    const entries = bugs.flatMap((b) => backfillEntries(b, { cutoffDate }));
+    const entries: Array<PointAward & { projectId?: string | null }> = [];
+    for (const b of bugs) {
+      const rewardConfig = await rewardConfigFor(b);
+      entries.push(...backfillEntries(b, { cutoffDate, rewardConfig }));
+    }
     if (entries.length > 0) {
       const present = await db.pointEntry.findMany({
         where: { sourceKey: { in: entries.map((e) => e.sourceKey) } },
