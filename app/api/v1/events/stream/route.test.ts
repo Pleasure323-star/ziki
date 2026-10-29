@@ -423,9 +423,17 @@ describe("events/stream SSE endpoint", () => {
     // Let the failed replay promise settle and flush live buffer
     await new Promise((r) => setTimeout(r, 20));
 
-    const { value } = await reader!.read();
-    const text = new TextDecoder().decode(value);
+    // #611: the failed replay is reported with an error event, then live events still arrive.
+    let text = "";
+    while (!text.includes("evt-live-after-err")) {
+      const { value, done } = await reader!.read();
+      if (done) break;
+      text += new TextDecoder().decode(value);
+    }
+    expect(text).toContain("event: error");
+    expect(text).toContain("Could not replay missed events");
     expect(text).toContain("evt-live-after-err");
+    expect(text.indexOf("event: error")).toBeLessThan(text.indexOf("evt-live-after-err"));
 
     reader!.cancel();
   });

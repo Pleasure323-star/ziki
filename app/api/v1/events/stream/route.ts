@@ -147,7 +147,22 @@ export async function GET(request: NextRequest) {
             createdAt: event.createdAt,
           });
         })
-          .catch(() => {})
+          .catch((error) => {
+            // #611: a failed replay must not leave the client believing it has the whole
+            // backlog. Log it and send an error event; live events still flow after it.
+            logger.error("[agent-api] event stream replay failed", {
+              tenantId: agent.tenantId,
+              agentId: agent.agentId,
+            }, error);
+            if (closed) return;
+            try {
+              controller.enqueue(
+                encoder.encode(
+                  `event: error\ndata: ${JSON.stringify({ error: "Could not replay missed events. Reconnect with the same cursor to retry." })}\n\n`,
+                ),
+              );
+            } catch {}
+          })
           .finally(() => {
             if (closed) return;
             replaying = false;
