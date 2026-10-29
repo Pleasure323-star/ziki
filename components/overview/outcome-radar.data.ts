@@ -1,11 +1,15 @@
 /**
- * Prototype data for the Outcome Radar.
+ * Fictional prototype data for the Outcome Radar.
  *
- * The Outcome Radar is a human→agent interaction design exploration (HNG15
- * design submission): it shows a signed-in human what their agents are doing
- * towards one intended outcome, and surfaces the single decision that needs a
- * human call. Everything here is static, realistic sample data — no backend
- * or schema changes — so both states can be reviewed and tested standalone.
+ * The Outcome Radar is a human→agent interaction design exploration: it shows
+ * a signed-in human what their agents are doing towards one intended outcome,
+ * and surfaces the single decision that needs a human call. Everything here is
+ * invented sample data (issues #1390/#1412/#1427/#1436/#1441, agents
+ * Mika/Atlas/Piper/Sweep) — none of these references exist in the product;
+ * the component renders them verbatim and the UI labels them "fictional
+ * prototype data". No backend or schema changes; moving to real data later
+ * means feeding serialised `OutcomeRadarData` from the dashboard's server
+ * queries — its props/type contract is designed for that.
  */
 
 export type RadarTone = "ok" | "info" | "warn";
@@ -16,7 +20,7 @@ export type RadarActivity = {
   id: string;
   agentName: string;
   action: string;
-  /** Relative label — static so the prototype never looks stale hard-coded to "now". */
+  /** Relative label — static so the prototype never reads hard-coded to "now". */
   when: string;
   tone: RadarTone;
 };
@@ -99,7 +103,7 @@ export const OUTCOME_RADAR_PROTOTYPE: OutcomeRadarData = {
     {
       id: "act-2",
       agentName: "Atlas",
-      action: "last deployment check run for #1390 is green (14 checks passed)",
+      action: "green deployment check run for #1390 — 14 checks passed",
       when: "26 min ago",
       tone: "ok",
     },
@@ -131,7 +135,7 @@ export const OUTCOME_RADAR_PROTOTYPE: OutcomeRadarData = {
       riskDetails: [
         "The failing path reproduces on production next.js only — CI is green without the test.",
         "Merging #1441 after 16:45 cuts the release-check window to under 15 minutes.",
-        "Two HR-related escalation reports today cite the same signed-out symptoms.",
+        "Two of today's escalation reports cite the same signed-out symptoms.",
       ],
       evidence: [
         {
@@ -178,21 +182,25 @@ export const OUTCOME_RADAR_PROTOTYPE: OutcomeRadarData = {
           id: "verify-first",
           label: "Verify first (hold the merge)",
           description: "Mika writes the regression test; merge waits for a green run.",
-          effect: "Agents hold #1441 and write the regression test before re-review",
+          effect: "hold #1441 until the regression test is green, then re-review",
         },
         {
           id: "fast-track",
           label: "Fast-track (accept the risk)",
           description: "Merge now; the test becomes a follow-up issue owned by Piper.",
-          effect: "Agents fast-track #1441 into tonight's release check and file the follow-up test",
+          effect: "fast-track #1441 into tonight's release check and file the follow-up test",
         },
         {
           id: "bring-me-in",
           label: "Bring me in before deciding",
           description: "Agents pause and call you back with a live summary.",
-          effect: "Agents pause #1441 and prepare a live call-back summary for you",
+          effect: "pause #1441 and prepare a live call-back summary for you",
         },
       ],
     },
   ],
 };
+
+/** The provenance line rendered under the radar on both surfaces. */
+export const OUTCOME_RADAR_FOOTNOTE =
+  "Fictional prototype data — issues, agents and verdicts are invented for this design, not live product information. Choices stay in this view; nothing is sent.";

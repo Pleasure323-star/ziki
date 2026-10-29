@@ -1,0 +1,55 @@
+Outcome Radar prototype — test evidence (2026-10-29)
+=====================================================
+
+Scope: branch feat/outcome-radar (base: origin/main @ 9cc1ea60)
+Command: `pnpm test` (Vitest, Node 24, --max-old-space-size=4096)
+
+Full suite result
+-----------------
+Test files: 474 → 468 passed / 6 failed
+Tests:      4813 → 4794 passed / 19 failed
+
+The 6 failing files overlap ZERO files changed by this branch.
+
+Failure triage
+--------------
+Flaky under the memory-constrained run (pass in isolation:
+`vitest run <files>`): 
+  - components/mark-all-read-button.dom.test.tsx (1)   → 1/1 pass isolated
+  - components/webhook-management.dom.test.tsx (3)     → 4/4 pass isolated
+
+Genuinely failing / timing out in areas untouched by this branch
+(pre-existing on this Windows environment or upstream; files absent
+from `git diff origin/main..HEAD --name-only`):
+  - scripts/migrate-exit.test.ts (4)        → child-process exit codes
+  - docs/llms-doc.test.ts (1)               → 5 s timeout on cold transform
+  - components/create-bug-form.test.tsx (1) → 5 s timeout (#764)
+  - scripts/ziki-agent.test.ts (file level) → SyntaxError at parse, unmodified file
+
+This branch's own tests (all passing)
+--------------------------------------
+  - components/overview/outcome-radar.dom.test.tsx   7/7
+      overview state content · expanded panel (risk / evidence /
+      trade-offs / choices) · choice preview updates · confirm records
+      choice · collapse via button with focus restore · collapse via
+      Escape · initialExpanded preselect
+  - middleware.test.ts                               20/20
+      (covers the /preview public-path entry used by the demo route)
+
+Checks
+------
+  - pnpm typecheck           ✅ clean (needs NODE_OPTIONS heap bump on this machine)
+  - eslint on all changed files  ✅ clean (0 errors, 0 warnings)
+
+Preview evidence
+----------------
+delivery/screenshots/
+  - outcome-radar-overview-light.png   State 1, light: intended outcome,
+    agent activity, highest-priority decision banner
+  - outcome-radar-decision-light.png   State 2, light: risk (HIGH RISK),
+    evidence, trade-offs (Pro/Con), and the three human choices
+  - outcome-radar-overview-dark.png    State 1, dark
+  - outcome-radar-decision-dark.png    State 2, dark
+
+All four render the real app shell (sample identity, no sign-in) at
+/preview/outcome-radar (?theme=dark&expanded=1 preselect state).
