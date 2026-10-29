@@ -48,6 +48,14 @@ describe("llms.txt accuracy", () => {
     for (const kind of INBOX_KINDS) expect(doc).toContain(`| \`${kind}\` |`);
   });
 
+  it("documents pairing's project scoping (#609)", () => {
+    expect(doc).toContain("The pairing body has no `projectId` field");
+    expect(doc).toMatch(/a `projectId` sent here is \*\*ignored\*\*/);
+    expect(doc).toMatch(/accepts unknown body fields silently/);
+    expect(doc).toMatch(/approval requires choosing a project in the workspace/);
+    expect(doc).toContain("`project_id`");
+  });
+
   it("defines agent persona, user interaction protocol, and capability explanation (#756)", () => {
     expect(doc).toContain("Agent Persona & Interaction Protocol");
     expect(doc).toContain("Introduction & Ziki Briefing");
