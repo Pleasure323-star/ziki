@@ -27,12 +27,13 @@ describe("Bug detail header responsive layout (#698)", () => {
     );
   });
 
-  it("shows status, severity, stage and the opened date together in the rail's Status box", () => {
+  it("shows status, severity and the opened date together in the rail's Status box, and no separate stage", () => {
     const rail = pageSource.slice(pageSource.indexOf("{/* SIDE RAIL */}"));
     const statusBox = rail.slice(rail.indexOf('aria-label="Status"'), rail.indexOf(">People<"));
     expect(statusBox).toContain("issueStatusChipClass[bug.status]");
     expect(statusBox).toContain("issueSeverityChipClass[bug.severity]");
-    expect(statusBox).toContain("issueStageLabels[intakeStage]");
+    // #requires-confirmation: Requires confirmation is the status, so no stage chip repeats it.
+    expect(statusBox).not.toContain("issueStageLabels");
     expect(statusBox).toMatch(/Opened[\s\S]*?<LocalTime compact date=\{bug\.createdAt\}/);
   });
 

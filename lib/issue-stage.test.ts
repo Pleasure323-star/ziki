@@ -4,14 +4,14 @@ import { confirmationCount, isConfirmedCount, issueStage, parseIssueStageView } 
 const bug = { beneficiaryUserId: "beneficiary", reporterId: "reporter", createdByAgent: null, claims: [] };
 
 describe("issueStage", () => {
-  it("calls an open issue confirming until reviewers confirm it, then ready", () => {
-    expect(issueStage({ status: "open", confirmed: false })).toBe("confirming");
-    expect(issueStage({ status: "open", confirmed: true })).toBe("ready");
+  it("follows the status: Requires confirmation is confirming, Open is ready (#requires-confirmation)", () => {
+    expect(issueStage({ status: "requires_confirmation" })).toBe("confirming");
+    expect(issueStage({ status: "open" })).toBe("ready");
   });
 
-  it("leaves the work status alone once someone starts it", () => {
-    expect(issueStage({ status: "in_progress", confirmed: true })).toBeNull();
-    expect(issueStage({ status: "resolved", confirmed: false })).toBeNull();
+  it("has no stage once someone starts the work", () => {
+    expect(issueStage({ status: "in_progress" })).toBeNull();
+    expect(issueStage({ status: "resolved" })).toBeNull();
   });
 });
 

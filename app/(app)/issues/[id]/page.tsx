@@ -15,7 +15,7 @@ import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicat
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { openIssueConfirmations, stageDetail, type IssueConfirmation, type IssueStage } from "@/lib/issue-stage";
+import { openIssueConfirmations, type IssueConfirmation, type IssueStage } from "@/lib/issue-stage";
 import { buildCommentTree } from "@/lib/comments";
 import {
   COMMENT_PARAM,
@@ -94,14 +94,12 @@ import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
-import { issueStageLabels } from "@/lib/issue-stage";
 import { ReviewStatusBadge } from "@/components/review-status-badge";
 import { SubmissionEvidence } from "@/components/submission-evidence";
 import { voteDirection } from "@/lib/voting";
 import {
   issueChipBaseClass,
   issueSeverityChipClass,
-  issueStageChipClass,
   issueStatusChipClass,
 } from "./issue-ui";
 import "./issue-detail.css";
@@ -1225,15 +1223,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               <Badge className={`${issueChipBaseClass} ${issueSeverityChipClass[bug.severity]}`}>
                 {severityLabels[bug.severity]}
               </Badge>
-              {intakeStage ? (
-                // What the stage means stays one hover away now the note under the chips is gone.
-                <span
-                  title={stageDetail(intakeStage)} className="inline-flex">
-                  <Badge className={`${issueChipBaseClass} ${issueStageChipClass[intakeStage]}`}>
-                    {issueStageLabels[intakeStage]}
-                  </Badge>
-                </span>
-              ) : null}
               {sourceIdea ? (
                 <Link
                   href={ideaPath(sourceIdea.number)}

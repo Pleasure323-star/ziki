@@ -15,6 +15,7 @@ import { severities } from "@/lib/validations/issue";
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
+import { statusChangedSummary } from "@/lib/activity-log";
 
 /** Severity order for the reviewer agreement rule (#528). */
 const SEVERITY_RANK: Record<(typeof severities)[number], number> = {
@@ -598,6 +599,19 @@ export async function submitValidation(
         (await countedConfirmations(tx, bug)) >= confirmationsNeeded &&
         (await isTriageCleared(tx, bug));
       const newlyConfirmed = confirmed && !wasConfirmed;
+      // #requires-confirmation: a confirmed issue leaves Requires confirmation for Open.
+      if (confirmed && bug.status === "requires_confirmation") {
+        await tx.bug.update({ where: { id: bug.id }, data: { status: "open" } });
+        await tx.bugActivity.create({
+          data: {
+            bugId: bug.id,
+            actorId: onBehalfOfUserId,
+            type: "status_changed",
+            summary: statusChangedSummary("requires_confirmation", "open"),
+            metadata: { from: "requires_confirmation", to: "open", via: "confirmed" },
+          },
+        });
+      }
       const duplicate = await isDuplicate(tx, bug);
       const platform = await getPlatformRewardConfig(tx);
       if (body.kind === "duplicate") {

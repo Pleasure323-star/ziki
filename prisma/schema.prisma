@@ -15,7 +15,10 @@ enum Severity {
   critical
 }
 
+/// `requires_confirmation`: a converted idea waiting for independent reviewers
+/// to confirm it is real and not a duplicate. Confirmed, it becomes `open`.
 enum Status {
+  requires_confirmation
   open
   in_progress
   resolved
@@ -309,7 +312,7 @@ model Bug {
   title             String
   description       String
   severity          Severity           @default(medium)
-  status            Status             @default(open)
+  status            Status             @default(requires_confirmation)
   typeId            String?
   type              IssueType?         @relation(fields: [typeId], references: [id], onDelete: SetNull)
   voteCount         Int                @default(0)

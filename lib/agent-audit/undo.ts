@@ -3,6 +3,7 @@ import { audit } from "@/lib/agents/audit";
 import { correct } from "@/lib/points/correct";
 import { pointSourceKey } from "@/lib/points/rules";
 import { isTenantAdminRole } from "@/lib/agents/membership";
+import { isConfirmed } from "@/lib/agent-api/validation";
 
 /**
  * Reverses an agent action recorded in the audit log (#450).
@@ -209,6 +210,12 @@ async function undoValidation(tx: Db, event: AuditEvent): Promise<UndoResult> {
         await correct(tx, { entry });
       }
     }
+  }
+
+  // #requires-confirmation: an Open issue that loses its confirmation goes back.
+  const issue = await tx.bug.findUnique({ where: { id: validation.bugId }, select: { status: true } });
+  if (issue?.status === "open" && !(await isConfirmed(validation.bugId, tx))) {
+    await tx.bug.update({ where: { id: validation.bugId }, data: { status: "requires_confirmation" } });
   }
 
   return { ok: true, message: "Validation undone." };

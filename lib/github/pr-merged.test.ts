@@ -32,9 +32,9 @@ describe("resolveIssuesForMergedPullRequest (#474)", () => {
     const ids = await resolveIssuesForMergedPullRequest("https://github.com/o/r/pull/1", db as never);
     expect(ids).toEqual(["bug-1"]);
     expect(db.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { pullRequestUrl: "https://github.com/o/r/pull/1", isDeleted: false, status: { in: ["open", "in_progress"] } },
+      where: { pullRequestUrl: "https://github.com/o/r/pull/1", isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] } },
     }));
-    expect(tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug-1", status: { in: ["open", "in_progress"] } }, data: { status: "resolved" } });
+    expect(tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug-1", status: { in: ["requires_confirmation", "open", "in_progress"] } }, data: { status: "resolved" } });
     expect(tx.bugActivity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ bugId: "bug-1", actorId: "person", type: "status_changed" }) });
     expect(tx.issueClaim.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ releaseReason: "resolved" }) }));
     expect(publish.mock.calls.map((c) => c[1].type)).toEqual(["claim.released", "issue.updated"]);
@@ -75,7 +75,7 @@ describe("resolveIssuesForMergedPullRequest (#474)", () => {
       $transaction: vi.fn((fn: (t: typeof tx) => Promise<boolean>) => fn(tx)),
     };
     expect(await resolveIssuesForMergedPullRequest("https://github.com/o/r/pull/4", db as never)).toEqual([]);
-    expect(tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug-2", status: { in: ["open", "in_progress"] } }, data: { status: "resolved" } });
+    expect(tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug-2", status: { in: ["requires_confirmation", "open", "in_progress"] } }, data: { status: "resolved" } });
     expect(tx.bugActivity.create).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });

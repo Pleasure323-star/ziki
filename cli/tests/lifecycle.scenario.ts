@@ -63,7 +63,7 @@ describe("a report from idea to merge", () => {
     expect(converted.issueId).not.toBe(ideaId);
     id = converted.issueId;
     const issue = (await ok("ada", "get-issue", { id })).issue;
-    expect(issue).toMatchObject({ stage: "confirming", confirmed: false, idea: { id: ideaId } });
+    expect(issue).toMatchObject({ status: "requires_confirmation", stage: "confirming", confirmed: false, idea: { id: ideaId } });
     expect((await ok("bob", "get-idea", { id: ideaId })).idea).toMatchObject({ status: "converted", issueId: id, issueNumber: converted.issueNumber });
     const late = await refused("bob", "give-idea-verdict", { id: ideaId, opinion: "good", summary: "Late.", description: "Too late." }, 409);
     expect(late.error).toBe("idea_converted");
@@ -76,7 +76,7 @@ describe("a report from idea to merge", () => {
 
   it("is confirmed by two independent owners plus a duplicate clearance, then ready without upvotes", async () => {
     await confirm(id, ["bob", "cara"], "eli");
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ confirmed: true, stage: "ready" });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, stage: "ready" });
   });
 
   it("waits for bids or dispatch once ready: nobody is offered it automatically", async () => {

@@ -302,7 +302,7 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
         reporterId: idea.reporterId,
         beneficiaryUserId: idea.beneficiaryUserId,
         createdByAgentId: idea.createdByAgentId,
-        status: "open",
+        status: "requires_confirmation",
         watches: { create: { userId: idea.reporterId } },
         activities: {
           create: { actorId: idea.reporterId, type: "created", summary: createdSummary(idea.title), metadata: { fromIdea: locked.number } },

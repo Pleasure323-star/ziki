@@ -164,7 +164,7 @@ describe("convertIdea", () => {
         reporterId: "ada",
         beneficiaryUserId: "ada",
         createdByAgentId: "agent-ada",
-        status: "open",
+        status: "requires_confirmation",
       }),
     }));
     expect(db.attachment.updateMany).toHaveBeenCalledWith({ where: { ideaId: "i1" }, data: { bugId: "b9" } });

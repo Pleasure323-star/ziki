@@ -23,7 +23,7 @@ export const MIN_SCORE = 0.35;
 export const SIMILAR_RATE_LIMIT = { max: 60, windowMs: 60 * 1000 };
 
 /** Only issues someone could still be reporting a duplicate of. */
-export const SIMILAR_STATUSES: readonly Status[] = ["open", "in_progress"];
+export const SIMILAR_STATUSES: readonly Status[] = ["requires_confirmation", "open", "in_progress"];
 
 export const MAX_QUERY_LENGTH = 200;
 

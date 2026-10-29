@@ -168,7 +168,7 @@ export async function teamAssignedWorkForMembers(
   if (ownerUserIds.length === 0) return result;
 
   const bugs = await db.bug.findMany({
-    where: { tenantId, isDeleted: false, status: { in: ["open", "in_progress"] }, assigneeId: { in: ownerUserIds } },
+    where: { tenantId, isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] }, assigneeId: { in: ownerUserIds } },
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,

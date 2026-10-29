@@ -65,7 +65,7 @@ describe("GET /api/issues/similar (#284)", () => {
     const sql = (raw.mock.calls[0][0] as TemplateStringsArray).join("?");
     expect(sql).toContain('"isDeleted" = false');
     expect(sql).toContain('"status"::text = ANY');
-    expect(raw.mock.calls[0]).toContainEqual(["open", "in_progress"]);
+    expect(raw.mock.calls[0]).toContainEqual(["requires_confirmation", "open", "in_progress"]);
   });
 
   it("falls back to word matching when pg_trgm is missing", async () => {

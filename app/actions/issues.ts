@@ -996,6 +996,7 @@ export async function editBugContentAction(
       description: true,
       reporterId: true,
       beneficiaryUserId: true,
+      status: true,
       tenantId: true,
       isDeleted: true,
     },
@@ -1103,6 +1104,8 @@ export async function editBugContentAction(
         title: parsed.data.title,
         description: normalizedDescription,
         updatedAt: new Date(),
+        // #requires-confirmation: the edit voided its confirmations, so an Open issue needs confirming again.
+        ...(existing.status === "open" ? { status: "requires_confirmation" as const } : {}),
       },
     });
 

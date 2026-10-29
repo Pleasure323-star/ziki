@@ -180,7 +180,7 @@ describe("assigned work no agent has claimed (Ziki #447)", () => {
     const findMany = vi.fn().mockResolvedValue([]);
     await teamAssignedWorkForMembers({ bug: { findMany } } as never, "tenant-1", new Map([["p1", []], ["p2", []]]));
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", isDeleted: false, status: { in: ["open", "in_progress"] }, assigneeId: { in: ["p1", "p2"] } },
+      where: { tenantId: "tenant-1", isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] }, assigneeId: { in: ["p1", "p2"] } },
     }));
   });
 

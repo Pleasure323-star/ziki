@@ -191,8 +191,8 @@ describe("issue list layout", () => {
     expect(html).not.toContain("No issues yet");
   });
 
-  it("lists ideas on their own tab, from the Idea table, with their score and no upvote button (#idea-table)", async () => {
-    const html = await renderList({ status: "ideas" });
+  it("lists ideas in the Inbox's New ideas, from the Idea table, with their score and no upvote button (#idea-table)", async () => {
+    const html = await renderList({ status: "escalated", inbox: "ideas" });
     expect(ideaFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "tenant-acme", projectId: "project-acme", status: "open", isDeleted: false }),
     }));
@@ -201,8 +201,30 @@ describe("issue list layout", () => {
     expect(html).toContain('aria-label="Idea score 2 of 4"');
     expect(html).toContain("3 verdicts");
     expect(html).not.toMatch(/click to upvote/);
-    // No issue row matches the Ideas tab.
+    // No issue row matches an idea list.
     expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
+  });
+
+  it("lists a person's ideas without the standard headings under Drafted ideas", async () => {
+    ideaFindMany.mockImplementation(async (args: { where: { createdByAgentId?: null; id?: { in: string[] } } }) =>
+      args.where.createdByAgentId === null && !args.where.id
+        ? [
+            { id: "idea-1", description: "Make the export faster", createdByAgentId: null },
+            { id: "idea-2", description: "## Summary\nx\n\n## Acceptance Criteria\n- y", createdByAgentId: null },
+          ]
+        : [IDEA]);
+    const html = await renderList({ status: "escalated", inbox: "drafts" });
+    expect(ideaFindMany.mock.calls.at(-1)![0].where.id).toEqual({ in: ["idea-1"] });
+    expect(html).toContain('href="/ideas/12"');
+    const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(tabs).toMatch(/Drafted ideas<span[^>]*>1<\/span>/);
+  });
+
+  it("opens the Inbox's New ideas from the old ?status=ideas link", async () => {
+    const html = await renderList({ status: "ideas" });
+    expect(html).toContain('href="/ideas/12"');
+    const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(tabs).toMatch(/aria-current="page"[^>]*>New ideas/);
   });
 
   it("keeps the upvote button on an issue", async () => {
@@ -269,7 +291,7 @@ describe("issue list layout", () => {
     // It sits with the other heading controls, not in the status tab row.
     const heading = html.match(/<div class="issues-heading[\s\S]*?<div class="issues-tabs-row/)?.[0] ?? "";
     expect(heading).toMatch(/<nav [^>]*aria-label="Platforms"/);
-    const tabsRow = html.match(/<div class="issues-tabs-row[\s\S]*?<\/nav><\/div>/)?.[0] ?? "";
+    const tabsRow = html.match(/<div class="issues-tabs-row[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(tabsRow).toContain('aria-label="Issue status"');
     expect(tabsRow).not.toContain('aria-label="Platforms"');
     // The trigger names the chosen platform; the list stays hidden until opened.
@@ -343,31 +365,38 @@ describe("issue list layout", () => {
     }
   });
 
-  it("puts Inbox at the left of the tab row: it lists the escalated issues, like a tab, with the tabs on the right", async () => {
+  it("puts the Inbox first in one left-aligned bar, as an envelope with its count, then Requires confirmation before Open", async () => {
     count.mockResolvedValue(2 as never);
     const html = await renderList({ status: "escalated" });
-    const row = html.match(/<div class="issues-tabs-row[\s\S]*?<\/nav>/)?.[0] ?? "";
-    const status = row.slice(row.indexOf('<nav aria-label="Issue status"'));
-    const labels = [...status.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Ideas", "Open", "In progress", "Done", "Ready to Merge", "Live", "All"]);
-    expect(row).toMatch(/class="issues-status-nav ml-auto/);
-    const inbox = row.slice(0, row.indexOf('<nav aria-label="Issue status"'));
-    expect(inbox).toMatch(/<a [^>]*href="\/issues"/);
+    const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(nav).toMatch(/class="issues-status-nav min-w-0"/);
+    expect(nav).not.toContain("ml-auto");
+    const labels = [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">/g)].map((m) => m[1]);
+    expect(labels).toEqual(["Requires confirmation", "Open", "In progress", "Done", "Ready to Merge", "Live", "All"]);
+    const inbox = nav.match(/<a [^>]*data-testid="inbox-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
+    expect(inbox).toMatch(/href="\/issues"/);
     expect(inbox).toContain('aria-current="page"');
-    expect(inbox).toMatch(/Inbox<span[^>]*>2<\/span>/);
-    // Still red while selected, since issues are waiting.
-    expect(inbox).toMatch(/<span class="[^"]*bg-zk-bad-bg[^"]*">2<\/span>/);
+    expect(inbox).toContain("issues-status-inbox");
+    // Red while anything waits, selected or not.
+    expect(inbox).toMatch(/<span class="issues-status-count issues-inbox-waiting">2<\/span>/);
     expect(findMany.mock.calls.at(-1)![0].where.agentQuestions).toEqual({ some: { answeredAt: null } });
   });
 
-  it("opens the Inbox with how it works, then its lists: Need your input, Design feedback needed", async () => {
+  it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
+    await renderList({ status: "requires_confirmation" });
+    expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
+  });
+
+  it("opens the Inbox with how it works, then its lists: Need your input, Design feedback needed, New ideas, Drafted ideas", async () => {
     const html = await renderList({ status: "escalated" });
     expect(html).toContain('aria-label="How the Inbox works"');
     const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
     const labels = [...tabs.matchAll(/<a [^>]*>([A-Za-z ]+)<span/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Need your input", "Design feedback needed"]);
+    expect(labels).toEqual(["Need your input", "Design feedback needed", "New ideas", "Drafted ideas"]);
     expect(tabs).toMatch(/aria-current="page"[^>]*>Need your input/);
     expect(tabs).toContain('href="/issues?inbox=design"');
+    expect(tabs).toContain('href="/issues?inbox=ideas"');
+    expect(tabs).toContain('href="/issues?inbox=drafts"');
     expect(html.indexOf('aria-label="How the Inbox works"')).toBeLessThan(html.indexOf('aria-label="Inbox lists"'));
     expect(html).not.toContain('aria-label="Filter all issues"');
   });
@@ -403,7 +432,7 @@ describe("issue list layout", () => {
     const where = findMany.mock.calls.at(-1)![0].where;
     expect(where.redesigns).toEqual({ some: { status: "proposed" } });
     expect(where).not.toHaveProperty("agentQuestions");
-    expect(where.status).toEqual({ in: ["open", "in_progress"] });
+    expect(where.status).toEqual({ in: ["requires_confirmation", "open", "in_progress"] });
   });
 
   it("drops the Inbox list choice when moving to another tab", async () => {
@@ -415,9 +444,8 @@ describe("issue list layout", () => {
 
   it("leaves Inbox unselected on the other tabs", async () => {
     const html = await renderList({ status: "open" });
-    const row = html.match(/<div class="issues-tabs-row[\s\S]*?<\/nav>/)?.[0] ?? "";
-    const inbox = row.slice(0, row.indexOf('<nav aria-label="Issue status"'));
-    expect(inbox).toContain(">Inbox<");
+    const inbox = html.match(/<a [^>]*data-testid="inbox-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
+    expect(inbox).toContain('title="Inbox"');
     expect(inbox).not.toContain('aria-current="page"');
   });
 
@@ -525,6 +553,7 @@ describe("issue list layout", () => {
             // Two fixes with two good-to-merge verdicts, still in progress.
             ? [{ status: "in_progress", _count: { _all: 2 } }]
             : [
+              { status: "requires_confirmation", _count: { _all: 4 } },
               { status: "open", _count: { _all: 9 } },
               { status: "in_progress", _count: { _all: 5 } },
               { status: "resolved", _count: { _all: 7 } },
@@ -538,10 +567,9 @@ describe("issue list layout", () => {
       [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
     );
     // In progress = 5 - 1 waiting to merge - 2 tested. Done = the 2 tested fixes (Ziki #713).
-    // Ideas are not issues, so their tab is outside the All total (#idea-table).
-    expect(counts).toEqual({ Ideas: 4, Open: 9, "In progress": 2, Done: 2, "Ready to Merge": 2, Live: 3, All: 24 });
+    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to Merge": 2, Live: 3, All: 28 });
     // The other 6 are closed (3) or were resolved without a merge (3): they stay under All only.
-    expect(counts.All - (counts.Open + counts["In progress"] + counts.Done + counts["Ready to Merge"] + counts.Live)).toBe(6);
+    expect(counts.All - (counts["Requires confirmation"] + counts.Open + counts["In progress"] + counts.Done + counts["Ready to Merge"] + counts.Live)).toBe(6);
   });
 
   it("lists an accepted fix on Ready to Merge whatever its status, and keeps it off Open and In progress", async () => {

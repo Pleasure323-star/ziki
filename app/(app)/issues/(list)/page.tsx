@@ -9,7 +9,7 @@ import { getIssueTypes, getPlatforms } from "@/lib/lookups";
 import { activeBulkOptions, loadBulkAssignees } from "@/lib/admin-list-lookups";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
-import { InboxButton } from "@/components/inbox-button";
+
 import { MergeIcon } from "@/components/merge-path";
 import { InboxAgents } from "@/components/inbox-agents";
 import { loadOwnAgents, type DashboardAgent } from "@/lib/dashboard-overview";
@@ -19,6 +19,7 @@ import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
 import { VoteButton } from "@/components/vote-button";
 import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
+import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
 import { severityLabels } from "@/lib/labels";
 import { severities } from "@/lib/validations/issue";
@@ -84,8 +85,6 @@ import {
 import { PlatformMenu, type PlatformTab } from "@/components/platform-tabs";
 import { IssueRowStatus } from "@/components/issue-row-status";
 import { mergePathOf } from "@/lib/merge-history";
-import { IssueRowStageTallies } from "@/components/issue-row-stage-tallies";
-import { claimDecisionKind, payloadMerged, tallyStages, type DecisionLike, type StageTallies } from "@/lib/decision-stages";
 import { IssuesToolsToggle } from "@/components/issues-tools-toggle";
 import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
@@ -110,14 +109,16 @@ const ESCALATED_WHERE = { some: { answeredAt: null } } satisfies Prisma.AgentQue
  * waiting on a decision, and new ideas (reported, not yet confirmed).
  */
 const INBOX_PARAM = "inbox";
-type InboxView = "input" | "design";
+type InboxView = "input" | "design" | "ideas" | "drafts";
 const INBOX_TABS: { view: InboxView; label: string }[] = [
   { view: "input", label: "Need your input" },
   { view: "design", label: "Design feedback needed" },
+  { view: "ideas", label: "New ideas" },
+  { view: "drafts", label: "Drafted ideas" },
 ];
-/** `?status=ideas`: the Ideas tab. Ideas are not issues and come from their own table (#idea-table). */
-const IDEAS_STATUS = "ideas";
-/** Most ideas the tab lists, highest score first. */
+/** The Inbox's idea lists read the Idea table: ideas are not issues (#idea-table). */
+const IDEA_VIEWS: readonly InboxView[] = ["ideas", "drafts"];
+/** Most ideas a list shows, highest score first. */
 const IDEAS_LIMIT = 100;
 const DESIGN_WHERE = { some: { status: "proposed" } } satisfies Prisma.RedesignProposalListRelationFilter;
 const AGENT_ORDER = { waiting: 0, working: 1, idle: 2, offline: 3 } as const;
@@ -151,7 +152,7 @@ const ALL_FILTERS = [ALL_STATUS, "closed", REJECTED_STATUS, DUPLICATE_STATUS].ma
   label: statusFilterLabel(value),
 }));
 /** The status tabs, left to right. */
-const STATUS_TABS = [IDEAS_STATUS, "open", "in_progress", DONE_STATUS, READY_TO_MERGE_STATUS, AUTO_MERGE_STATUS, ALL_STATUS].map((value) => ({
+const STATUS_TABS = ["requires_confirmation", "open", "in_progress", DONE_STATUS, READY_TO_MERGE_STATUS, AUTO_MERGE_STATUS, ALL_STATUS].map((value) => ({
   value,
   label: statusFilterLabel(value),
 }));
@@ -367,11 +368,13 @@ export default async function BugsPage({
   }
   // The Escalated tab: live issues with an agent question nobody has
   // answered, the same rule as the Escalations page.
-  const isEscalatedView = statusParam === ESCALATED_STATUS && !isDeletedView;
-  const inboxParam = toSingleQueryParam(params[INBOX_PARAM]);
+  // `?status=ideas` was the Ideas tab for a day; it opens the Inbox's New ideas.
+  const oldIdeasTab = statusParam === "ideas";
+  const isEscalatedView = (statusParam === ESCALATED_STATUS || oldIdeasTab) && !isDeletedView;
+  const inboxParam = oldIdeasTab ? "ideas" : toSingleQueryParam(params[INBOX_PARAM]);
   const inboxView: InboxView | null = !isEscalatedView
     ? null
-    : inboxParam === "design"
+    : inboxParam === "design" || inboxParam === "ideas" || inboxParam === "drafts"
       ? inboxParam
       : "input";
   if (inboxView === "input") {
@@ -379,8 +382,8 @@ export default async function BugsPage({
   } else if (inboxView === "design") {
     where.redesigns = DESIGN_WHERE;
   }
-  // The Ideas tab lists the Idea table, not issues: no issue row matches it.
-  const isIdeasView = statusParam === IDEAS_STATUS && !isDeletedView;
+  // The Inbox's idea lists read the Idea table, not issues: no issue row matches them.
+  const isIdeasView = inboxView !== null && IDEA_VIEWS.includes(inboxView);
   if (isIdeasView) where.id = { in: [] };
   if (statusParam === REJECTED_STATUS && !isDeletedView) {
     where.validations = REJECTED_WHERE;
@@ -639,8 +642,10 @@ export default async function BugsPage({
   }
   const bugs = listed.bugs;
 
-  // #idea-table: the Ideas tab reads open ideas from their own table, in the
-  // same tenant, project and search scope as the issues.
+  // #idea-table: the Inbox's New ideas and Drafted ideas read open ideas from
+  // their own table, in the same tenant, project and search scope as the
+  // issues. A draft is a person's idea not yet written up in the standard
+  // headings.
   const ideaWhere: Prisma.IdeaWhereInput = {
     tenantId: tenantId ?? "",
     ...(projectId && !allProjects ? { projectId } : {}),
@@ -655,11 +660,24 @@ export default async function BugsPage({
         }
       : {}),
   };
-  const ideasCount = tenantId && !isDeletedView ? await loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0;
+  // Only while the Inbox is open, like its other lists' counts.
+  const [ideasCount, draftIds] = inboxView && tenantId
+    ? await Promise.all([
+        loadOrEmpty("ideas inbox", () => prisma.idea.count({ where: ideaWhere }), 0),
+        loadOrEmpty(
+          "drafts inbox",
+          async () =>
+            (await prisma.idea.findMany({ where: { ...ideaWhere, createdByAgentId: null }, select: { id: true, description: true, createdByAgentId: true } }))
+              .filter(isUnstructuredDraft)
+              .map((idea) => idea.id),
+          [] as string[],
+        ),
+      ])
+    : [0, [] as string[]];
   const ideaRows: IdeaListRow[] = isIdeasView && tenantId
     ? await loadOrEmpty("ideas list", async () => {
         const rows = await prisma.idea.findMany({
-          where: ideaWhere,
+          where: inboxView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideaWhere,
           orderBy: [{ score: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: IDEAS_LIMIT,
           select: {
@@ -724,50 +742,6 @@ export default async function BugsPage({
       _count: { _all: true },
     }), [])).map((row) => [row.bugId, row._count._all] as const),
   );
-
-  // #1446: positive and negative agent decisions per stage, for the card's
-  // stage strip. Same rules as the issue page (lib/decision-stages.ts).
-  const stageTallies = new Map<string, StageTallies>();
-  if (bugIds.length > 0) {
-    const [validationRows, verdictRows, claimRows, auditRows] = await Promise.all([
-      loadOrEmpty("stage validations", () => prisma.issueValidation.groupBy({
-        by: ["bugId", "verdict"],
-        where: { bugId: { in: bugIds }, kind: "real" },
-        _count: { _all: true },
-      }), []),
-      loadOrEmpty("stage verdicts", () => prisma.testVerdict.groupBy({
-        by: ["bugId", "goodToMerge"],
-        where: { bugId: { in: bugIds } },
-        _count: { _all: true },
-      }), []),
-      loadOrEmpty("stage claims", () => prisma.issueClaim.groupBy({
-        by: ["bugId", "status", "releaseReason"],
-        where: { bugId: { in: bugIds }, claimedAt: { not: null } },
-        _count: { _all: true },
-      }), []),
-      loadOrEmpty("stage merges", () => prisma.agentAuditEvent.findMany({
-        where: { bugId: { in: bugIds }, action: { in: ["issue.accepted", "issue.merge_rejected", "github.merge_failed"] } },
-        select: { bugId: true, action: true, payload: true, agent: { select: { level: true } } },
-      }), []),
-    ]);
-    const rows = new Map<string, (DecisionLike & { count?: number })[]>();
-    const add = (bugId: string | null, row: DecisionLike & { count?: number }) => {
-      if (bugId) rows.set(bugId, [...(rows.get(bugId) ?? []), row]);
-    };
-    for (const r of validationRows) add(r.bugId, { kind: r.verdict === "reject" ? "rejected" : "confirmed", count: r._count._all });
-    for (const r of verdictRows) add(r.bugId, { kind: "verdict", goodToMerge: r.goodToMerge, count: r._count._all });
-    for (const r of claimRows) {
-      // The query already kept only claims that were taken up (claimedAt set).
-      const kind = claimDecisionKind({ status: r.status, claimedAt: "set", releaseReason: r.releaseReason });
-      if (kind) add(r.bugId, { kind, count: r._count._all });
-    }
-    for (const e of auditRows) {
-      const merger = e.agent.level === "manager" || e.agent.level === "merger";
-      if (e.action === "issue.accepted") add(e.bugId, { kind: "accepted", merged: payloadMerged(e.payload) });
-      else if (merger) add(e.bugId, { kind: e.action === "issue.merge_rejected" ? "merge_rejected" : "deploy_failed" });
-    }
-    for (const [bugId, bugRows] of rows) stageTallies.set(bugId, tallyStages(bugRows));
-  }
 
   // #289: filtering on one milestone shows its progress above the list.
   let milestoneSummary: Awaited<ReturnType<typeof loadMilestoneSummaries>>[number] | null = null;
@@ -885,7 +859,6 @@ export default async function BugsPage({
     countForStatus(status) - (status === "open" || status === "in_progress" ? testedFor(status) : 0);
   const tabCount = (value: string) =>
     value === ALL_STATUS ? allCount
-      : value === IDEAS_STATUS ? ideasCount
       : value === DONE_STATUS ? doneCount
         : value === "open" || value === "in_progress" ? workTabCount(value)
         : value === READY_TO_MERGE_STATUS ? readyToMergeCount
@@ -898,7 +871,7 @@ export default async function BugsPage({
   const designCount = inboxView && tenantId
     ? await loadOrEmpty("design inbox", () => prisma.bug.count({ where: { ...liveTabWhere, redesigns: DESIGN_WHERE } }), 0)
     : 0;
-  const inboxCounts: Record<InboxView, number> = { input: escalatedCount, design: designCount };
+  const inboxCounts: Record<InboxView, number> = { input: escalatedCount, design: designCount, ideas: ideasCount, drafts: draftIds.length };
   // Your agents and what they've done, for the right half of the Inbox's top box.
   let inboxAgents: DashboardAgent[] = [];
   let inboxWork = new Map<string, AgentWorkDone>();
@@ -1012,25 +985,20 @@ export default async function BugsPage({
 
   const listContent = (
     <div className="space-y-4">
-        {/* Inbox on the left (the escalated issues, formerly the Escalated tab);
-            the status tabs sit at the right of the same row. */}
+        {/* One left-aligned bar: the Inbox as an envelope (the escalated
+            issues and the ideas), then the status tabs. */}
         <div className="issues-tabs-row flex items-center gap-2.5">
           {!isDeletedView ? (
-            <InboxButton href={statusHref(null)} active={isEscalatedView} count={escalatedCount} />
-          ) : null}
-          {!isDeletedView ? (
-            <Link
-              href="/issues/history"
-              aria-label="Merge history"
-              title="Merge history"
-              className="inline-flex h-[42px] shrink-0 items-center gap-2 rounded-[10px] border border-zk-divider bg-zk-chip px-3 text-[13px] font-semibold text-zk-text hover:bg-zk-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent max-sm:h-9"
-            >
-              <MergeIcon size={16} />
-            </Link>
-          ) : null}
-          {!isDeletedView ? (
-            <nav aria-label="Issue status" className="issues-status-nav ml-auto min-w-0">
+            <nav aria-label="Issue status" className="issues-status-nav min-w-0">
               <ul>
+                <li>
+                  <Link href={statusHref(null)} aria-current={isEscalatedView ? "page" : undefined} title="Inbox" data-testid="inbox-tab">
+                    <span className="issues-status-dot issues-status-inbox" aria-hidden="true" />
+                    {/* Named in text, not aria-label, so the count stays part of its name (axe). */}
+                    <span className="sr-only">Inbox</span>
+                    <span className={`issues-status-count ${escalatedCount > 0 ? "issues-inbox-waiting" : ""}`}>{escalatedCount}</span>
+                  </Link>
+                </li>
                 {STATUS_TABS.map(({ value, label }) => (
                   <li key={value}>
                     <Link href={statusHref(value)} aria-current={(value === ALL_STATUS ? allSelected : value === statusParam) ? "page" : undefined}>
@@ -1041,6 +1009,16 @@ export default async function BugsPage({
                 ))}
               </ul>
             </nav>
+          ) : null}
+          {!isDeletedView ? (
+            <Link
+              href="/issues/history"
+              aria-label="Merge history"
+              title="Merge history"
+              className="inline-flex h-[42px] shrink-0 items-center gap-2 rounded-[10px] border border-zk-divider bg-zk-chip px-3 text-[13px] font-semibold text-zk-text hover:bg-zk-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent max-sm:h-9"
+            >
+              <MergeIcon size={16} />
+            </Link>
           ) : null}
         </div>
 
@@ -1146,7 +1124,7 @@ export default async function BugsPage({
         ) : null}
 
         {isIdeasView ? (
-          <IdeasList ideas={ideaRows} />
+          <IdeasList ideas={ideaRows} empty={inboxView === "drafts" ? "No unstructured draft ideas are waiting to be structured." : undefined} />
         ) : isFirstRun ? (
           <FirstRunWelcome isAdmin={canDelete} hasTenant={Boolean(tenantId)} />
         ) : bugs.length === 0 ? (
@@ -1306,7 +1284,6 @@ export default async function BugsPage({
                               {/* Below md (768px) the status column is hidden, so the status rides at the end of this line. */}
                               <span className="inline-flex min-w-0 md:sr-only">{rowStatus}</span>
                             </span>
-                            <IssueRowStageTallies tallies={stageTallies.get(bug.id)} />
                             {snippets.has(bug.id) ? <SearchSnippet snippet={snippets.get(bug.id)!} /> : null}
                           </span>
                         </Link>

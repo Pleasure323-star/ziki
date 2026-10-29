@@ -191,7 +191,7 @@ export default async function DashboardPage() {
             ...base,
             assigneeId: user.id,
             severity: { in: ["high", "critical"] },
-            status: { in: ["open", "in_progress"] },
+            status: { in: ["requires_confirmation", "open", "in_progress"] },
           },
         }),
         prisma.bug.count({

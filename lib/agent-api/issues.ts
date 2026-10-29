@@ -12,7 +12,7 @@ import { commentSchema, statusSchema, severitySchema } from "@/lib/validations/i
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
-import { issueStage, openIssueStages, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
+import { issueStage, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
 import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { cursorOrderBy, cursorWhere, decodeCursor, LIMIT_RANGE_ERROR, pageSize, toPage, type IssueCursor } from "@/lib/agent-api/create-policy";
@@ -216,13 +216,11 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
   };
   if (stage) {
-    // A stage only exists on an open issue. Any other status is an empty page.
-    if (filtered.status && filtered.status !== "open") return { items: [], nextCursor: null };
-    filtered.status = "open";
-    const stages = await openIssueStages(prisma, filtered);
-    const ids = [...stages.entries()].filter(([, value]) => value === stage).map(([id]) => id);
-    if (ids.length === 0) return { items: [], nextCursor: null };
-    filtered.id = { in: ids };
+    // #requires-confirmation: a stage is a status now. `confirming` is
+    // Requires confirmation and `ready` is Open; with another status, empty.
+    const stageStatus = stage === "confirming" ? "requires_confirmation" : "open";
+    if (filtered.status && filtered.status !== stageStatus) return { items: [], nextCursor: null };
+    filtered.status = stageStatus;
   }
   const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
   const rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
@@ -262,7 +260,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
   return {
     ...issue,
     confirmed,
-    stage: issueStage({ status: issue.status, confirmed }),
+    stage: issueStage({ status: issue.status }),
   };
 }
 

@@ -1,5 +1,4 @@
 import type { Severity, Status } from "@prisma/client";
-import type { IssueStage } from "@/lib/issue-stage";
 
 /** Shared card shell for the issue detail redesign. */
 export const issueCardClass =
@@ -16,6 +15,7 @@ export const issueAccentLinkClass =
 
 /** Status language from the redesign handoff (overrides shared label classes). */
 export const issueStatusChipClass: Record<Status, string> = {
+  requires_confirmation: "bg-zk-warn-bg text-zk-warn-fg",
   open: "bg-zk-info-bg text-zk-info-fg",
   in_progress: "bg-zk-info-bg text-zk-info-fg",
   resolved: "bg-zk-ok-bg text-zk-ok-fg",
@@ -27,11 +27,6 @@ export const issueSeverityChipClass: Record<Severity, string> = {
   medium: "border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg",
   high: "bg-zk-bad-bg text-zk-bad-fg",
   critical: "border border-zk-bad-bd bg-zk-bad-bg text-zk-bad-fg",
-};
-
-export const issueStageChipClass: Record<IssueStage, string> = {
-  confirming: "bg-zk-warn-bg text-zk-warn-fg",
-  ready: "bg-zk-info-bg text-zk-info-fg",
 };
 
 export const reviewStatusLabels: Record<string, string> = {

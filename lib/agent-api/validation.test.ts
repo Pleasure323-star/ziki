@@ -22,6 +22,7 @@ const notifications = vi.hoisted(() => ({ notifyClaimOffered: vi.fn() }));
 
 const db = vi.hoisted(() => ({
   bug: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  bugActivity: { create: vi.fn() },
   bugRevision: { findFirst: vi.fn() },
   membership: { findMany: vi.fn(), findUnique: vi.fn() },
   issueValidation: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), delete: vi.fn(), count: vi.fn() },
@@ -62,8 +63,6 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     duplicateOfId: null,
     createdByAgentId: null,
     createdByAgent: null,
-    // Validations apply to issues; the fixture is one converted from an idea.
-    convertedToIssueAt: new Date("2026-10-01T00:00:00Z"),
     claims: [],
     ...overrides,
   };
@@ -684,6 +683,21 @@ describe("confirmation: the triage clearance", () => {
     const clear = await submitValidation(reviewer("t1", "tia", "working"), "bug1", clearTriage);
     expect(clear).toMatchObject({ status: 201, confirmed: true, newlyConfirmed: true });
     expect(await isConfirmed("bug1")).toBe(true);
+  });
+
+  it("moves a confirmed issue from Requires confirmation to Open, and leaves it there until then (#requires-confirmation)", async () => {
+    const waiting = bugRow({ status: "requires_confirmation" });
+    db.bug.findFirst.mockResolvedValue(waiting);
+    db.bug.findUnique.mockResolvedValue(waiting);
+    await submitValidation(reviewer("r1", "rob"), "bug1", acceptReal);
+    await submitValidation(reviewer("r2", "sam"), "bug1", acceptReal);
+    expect(db.bug.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { status: "open" } }));
+
+    await submitValidation(reviewer("t1", "tia", "working"), "bug1", clearTriage);
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "open" } });
+    expect(db.bugActivity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ bugId: "bug1", type: "status_changed", metadata: { from: "requires_confirmation", to: "open", via: "confirmed" } }),
+    });
   });
 
   it.each(["working", "manager", "merger"] as const)("lets a %s agent clear triage and give any other verdict", async (level) => {

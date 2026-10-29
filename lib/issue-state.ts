@@ -85,7 +85,7 @@ export function resultCountText(count: number, status: string | null): string {
  */
 export const SHOW_RESOLVED_PARAM = "resolved";
 export const SHOW_RESOLVED = "1";
-export const LIVE_STATUS_VALUES = ["open", "in_progress"] as const;
+export const LIVE_STATUS_VALUES = ["requires_confirmation", "open", "in_progress"] as const;
 
 export function parseShowResolved(raw: string | string[] | null | undefined): boolean {
   return (Array.isArray(raw) ? raw[0] : raw) === SHOW_RESOLVED;

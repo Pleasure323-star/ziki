@@ -16,7 +16,7 @@ import { pointTotals, tenantRankFor, type PointTotals } from "@/lib/points/leade
  * The two sets are disjoint and together cover every issue, which the unit
  * tests pin down.
  */
-export const UNRESOLVED_STATUSES = ["open", "in_progress"] as const;
+export const UNRESOLVED_STATUSES = ["requires_confirmation", "open", "in_progress"] as const;
 export const RESOLVED_STATUSES = ["resolved", "closed"] as const;
 
 export type UnresolvedStatus = (typeof UNRESOLVED_STATUSES)[number];

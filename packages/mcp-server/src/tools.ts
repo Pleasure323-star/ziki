@@ -93,7 +93,7 @@ export const TOOLS: readonly ToolDef[] = [
     query: ["status", "severity", "assignee", "platform", "area", "stage", "limit", "cursor"],
     input: {
       projectId,
-      status: z.enum(["open", "in_progress", "resolved", "closed"]).optional().describe("Only issues in this status."),
+      status: z.enum(["requires_confirmation", "open", "in_progress", "resolved", "closed"]).optional().describe("Only issues in this status."),
       severity: z.enum(["low", "medium", "high", "critical"]).optional().describe("Only issues of this severity."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
       platform: z.string().optional().describe("A platform (category) id, or `none` for issues with no platform."),

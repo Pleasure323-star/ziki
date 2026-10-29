@@ -21,9 +21,8 @@ test("triage changes stick after saving and reloading", async ({ page, uniq, me 
   await expect(page.locator("#severity")).toHaveValue("high");
   await page.reload();
   await expect(page.locator("#severity")).toHaveValue("high");
-  // Saving triage leaves the status where it was.
-  await expect(page.locator("#status")).toHaveValue("open");
-  // "Open" is both the status chip and the stage there, so take the first exact match.
-  await expect(page.getByRole("region", { name: "Status" }).getByText("Open", { exact: true }).first()).toBeVisible();
+  // Saving triage leaves the status where it was: a new issue requires confirmation.
+  await expect(page.locator("#status")).toHaveValue("requires_confirmation");
+  await expect(page.getByRole("region", { name: "Status" }).getByText("Requires confirmation", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(me).filter({ visible: true }).first()).toBeVisible();
 });

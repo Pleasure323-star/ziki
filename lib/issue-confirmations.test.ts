@@ -7,15 +7,14 @@ import { openIssueConfirmations } from "./issue-stage";
 
 type Validation = { id: string; kind: "real" | "duplicate"; agentId: string; owner: string; createdAt?: Date };
 
-/** A fake Prisma client holding one converted, open issue reported by ada. */
-function db(validations: Validation[], options: { revisedAt?: Date; undone?: string[]; converted?: boolean } = {}) {
+/** A fake Prisma client holding one issue reported by ada, in `status` (Requires confirmation by default). */
+function db(validations: Validation[], options: { revisedAt?: Date; undone?: string[]; status?: string } = {}) {
   return {
     bug: {
       findMany: vi.fn(async () => [{
         id: "b1",
         projectId: "p1",
-        status: "open",
-        convertedToIssueAt: options.converted === false ? null : new Date("2026-10-01"),
+        status: options.status ?? "requires_confirmation",
         beneficiaryUserId: "ada",
         reporterId: "ada",
         createdByAgentId: "agent-ada",
@@ -36,11 +35,12 @@ const accept = (id: string, owner: string): Validation => ({ id, kind: "real", a
 const clear = (id: string, owner: string): Validation => ({ id, kind: "duplicate", agentId: `agent-${owner}`, owner });
 
 describe("openIssueConfirmations (#714): one rule for confirmed", () => {
-  it("requires confirmation until two independent accepts AND a duplicate clearance", async () => {
+  it("counts toward confirmation: two independent accepts AND a duplicate clearance", async () => {
     const accepted = await openIssueConfirmations(db([accept("v1", "bob"), accept("v2", "cara")]), {});
     expect(accepted.get("b1")).toEqual({ stage: "confirming", accepts: 2, needed: 2, triageCleared: false });
 
-    const confirmed = await openIssueConfirmations(db([accept("v1", "bob"), accept("v2", "cara"), clear("v3", "eli")]), {});
+    // Confirmed, the issue is Open, and the stage follows the status (#requires-confirmation).
+    const confirmed = await openIssueConfirmations(db([accept("v1", "bob"), accept("v2", "cara"), clear("v3", "eli")], { status: "open" }), {});
     expect(confirmed.get("b1")).toEqual({ stage: "ready", accepts: 2, needed: 2, triageCleared: true });
   });
 

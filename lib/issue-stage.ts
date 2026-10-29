@@ -27,15 +27,12 @@ export function parseIssueStageView(raw: string | null | undefined): IssueStageV
   return raw === "confirming" || raw === "ready" ? raw : null;
 }
 
-export function stageDetail(stage: IssueStage): string {
-  if (stage === "ready") return "Reviewers confirmed this issue, so it can be passed on.";
-  return "This issue can be passed on once independent reviewers confirm it is real and not a duplicate.";
-}
-
 /** The stage of an open issue. Anything no longer open has no stage. */
-export function issueStage(input: { status: string; confirmed: boolean }): IssueStage | null {
-  if (input.status !== "open") return null;
-  return input.confirmed ? "ready" : "confirming";
+export function issueStage(input: { status: string }): IssueStage | null {
+  // #requires-confirmation: the stage follows the status. Requires
+  // confirmation is a status of its own; an Open issue was confirmed.
+  if (input.status === "requires_confirmation") return "confirming";
+  return input.status === "open" ? "ready" : null;
 }
 
 type AcceptingReview = { id: string; agentId: string; ownerUserId: string; onBehalfOfUserId?: string };
@@ -195,10 +192,10 @@ export async function openIssueConfirmations(
   db: PrismaClient,
   where: Prisma.BugWhereInput,
 ): Promise<Map<string, IssueConfirmation>> {
-  const read = await readConfirmations(db, { ...where, status: "open", isDeleted: false });
+  const read = await readConfirmations(db, { ...where, status: { in: ["requires_confirmation", "open"] }, isDeleted: false });
   const result = new Map<string, IssueConfirmation>();
-  for (const [id, { status, confirmed, accepts, needed, triageCleared }] of read) {
-    const stage = issueStage({ status, confirmed });
+  for (const [id, { status, accepts, needed, triageCleared }] of read) {
+    const stage = issueStage({ status });
     if (stage) result.set(id, { stage, accepts, needed, triageCleared });
   }
   return result;

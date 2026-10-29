@@ -250,49 +250,14 @@ describe("agent issue reads", () => {
     expect(db.bug.findMany.mock.lastCall?.[0].where).not.toHaveProperty("AND");
   });
 
-  it("keeps only open issues in the requested stage, then pages them", async () => {
-    const open = {
-      id: "issue-a",
-      status: "open",
-      voteCount: 0,
-      beneficiaryUserId: "other",
-      reporterId: "other",
-      createdByAgentId: null,
-      createdByAgent: null,
-      claims: [],
-    };
-    db.bug.findMany.mockResolvedValueOnce([open]).mockResolvedValueOnce([issue]);
-    const response = await list(request("GET", undefined, "?projectId=project-a&stage=confirming&limit=1"));
-    expect(response.status).toBe(200);
+  it("reads a stage as its status: confirming is Requires confirmation, ready is Open (#requires-confirmation)", async () => {
+    await list(request("GET", undefined, "?projectId=project-a&stage=confirming&limit=1"));
     expect(db.bug.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ status: "open", id: { in: ["issue-a"] } }),
+      where: expect.objectContaining({ status: "requires_confirmation" }),
       take: 2,
     }));
-  });
-
-  it("treats a confirmed issue as ready, whatever its upvotes", async () => {
-    // Confirmed = two independent real accepts AND a not-a-duplicate clearance (#714).
-    const open = {
-      id: "issue-a",
-      status: "open",
-      voteCount: 0,
-      beneficiaryUserId: "other",
-      reporterId: "other",
-      createdByAgentId: null,
-      createdByAgent: null,
-      claims: [],
-    };
-    db.bug.findMany.mockResolvedValueOnce([open]).mockResolvedValueOnce([issue]);
-    db.issueValidation.findMany.mockResolvedValueOnce([
-      { id: "v1", bugId: "issue-a", createdAt: new Date("2026-10-20T00:00:00Z"), agentId: "r1", agent: { ownerUserId: "rev-1" } },
-      { id: "v2", bugId: "issue-a", createdAt: new Date("2026-10-20T00:00:00Z"), agentId: "r2", agent: { ownerUserId: "rev-2" } },
-      { id: "v3", bugId: "issue-a", kind: "duplicate", createdAt: new Date("2026-10-20T00:00:00Z"), agentId: "r3", agent: { ownerUserId: "rev-3" } },
-    ]);
-    const response = await list(request("GET", undefined, "?projectId=project-a&stage=ready"));
-    expect(response.status).toBe(200);
-    expect(db.bug.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ id: { in: ["issue-a"] } }),
-    }));
+    await list(request("GET", undefined, "?projectId=project-a&stage=ready"));
+    expect(db.bug.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: "open" }) }));
   });
 
   it("returns an empty page when stage is combined with a status that is not open", async () => {
@@ -328,7 +293,7 @@ describe("agent issue reads", () => {
 
   it("names invalid status, severity, stage and assignee filters (#406)", async () => {
     const cases: [string, string][] = [
-      ["status=unknown", "status must be one of open, in_progress, resolved, closed."],
+      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, resolved, closed."],
       ["severity=urgent", "severity must be one of low, medium, high, critical."],
       ["stage=idea", "stage must be one of confirming, ready."],
       ["assignee=%20", 'assignee must be "none" or a valid user id.'],

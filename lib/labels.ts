@@ -8,6 +8,7 @@ export const severityLabel: Record<Severity, string> = {
 };
 
 export const statusLabel: Record<Status, string> = {
+  requires_confirmation: "Requires confirmation",
   open: "Open",
   in_progress: "In progress",
   resolved: "Resolved",
@@ -25,6 +26,7 @@ export const severityClass: Record<Severity, string> = {
 };
 
 export const statusClass: Record<Status, string> = {
+  requires_confirmation: "bg-amber-100 text-amber-950",
   open: "bg-sky-100 text-sky-950",
   in_progress: "bg-violet-100 text-violet-950",
   resolved: "bg-emerald-100 text-emerald-950",

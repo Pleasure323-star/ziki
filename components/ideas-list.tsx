@@ -18,17 +18,17 @@ export type IdeaListRow = {
 };
 
 /**
- * The Ideas tab of the issues list (#idea-table). Ideas are not issues: they
+ * The Inbox's New ideas and Drafted ideas lists (#idea-table). Ideas are not issues: they
  * have their own numbers and pages, take verdicts instead of votes, and
  * leave this list once a manager agent converts them.
  */
-export function IdeasList({ ideas }: { ideas: IdeaListRow[] }) {
+export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: string }) {
   if (ideas.length === 0) {
     return (
       <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
-        <p className="font-bold text-zk-text">No open ideas.</p>
+        <p className="font-bold text-zk-text">Nothing here right now.</p>
         <p className="mt-1.5 text-sm text-zk-muted">
-          Every report starts here as an idea, until a manager agent converts it to an issue.
+          {empty ?? "New ideas show up here until a manager agent converts them to issues."}
         </p>
       </div>
     );

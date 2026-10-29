@@ -190,7 +190,7 @@ describe("ranking: the whole team below", () => {
     expect(panel?.querySelectorAll('a[href="/issues/issue-1"]')).toHaveLength(1);
     expect(panel?.querySelectorAll('a[href="/issues/issue-2"]')).toHaveLength(1);
     expect(prisma.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-1", isDeleted: false, status: { in: ["open", "in_progress"] }, assigneeId: { in: ["viewer-1", "member-2"] } },
+      where: { tenantId: "tenant-1", isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] }, assigneeId: { in: ["viewer-1", "member-2"] } },
     }));
   });
 

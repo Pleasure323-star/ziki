@@ -18,7 +18,7 @@ export function verifyGithubSignature(rawBody: string, signature: string | null,
  * webhook redelivered later, must leave it closed, as the agent resolve API
  * does (#624).
  */
-const UNFINISHED: Status[] = ["open", "in_progress"];
+const UNFINISHED: Status[] = ["requires_confirmation", "open", "in_progress"];
 
 /**
  * #474: a pull request linked to an issue was merged on GitHub, not through
