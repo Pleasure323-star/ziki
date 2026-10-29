@@ -3,6 +3,7 @@
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type RefObject,
@@ -37,13 +38,21 @@ export function useMentionSuggestions({
 }) {
   const [mention, setMention] = useState<MentionQuery | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const mentionRef = useRef<MentionQuery | null>(null);
+
+  const effectiveMention = enabled ? mention : null;
 
   const suggestions = useMemo(
-    () => (mention ? filterUsersForMention(users, mention.query) : []),
-    [mention, users],
+    () => (effectiveMention ? filterUsersForMention(users, effectiveMention.query) : []),
+    [effectiveMention, users],
   );
 
-  const showSuggestions = enabled && mention !== null && suggestions.length > 0;
+  const clampedIndex = useMemo(() => {
+    if (suggestions.length === 0) return 0;
+    return Math.min(Math.max(0, activeIndex), suggestions.length - 1);
+  }, [activeIndex, suggestions.length]);
+
+  const showSuggestions = enabled && effectiveMention !== null && suggestions.length > 0;
 
   /**
    * Re-evaluate the mention query at a caret position.
@@ -55,17 +64,37 @@ export function useMentionSuggestions({
    *
    * Callers should pass `resetIndex` only for genuine typing (onChange, or
    * inserting "@" from the toolbar) - never from keyup/click/select.
+   *
+   * #484: moving caret between different mention spans (or when the mention
+   * query changes) resets `activeIndex` to 0 so selection from an earlier
+   * span is not preserved into an unrelated span.
    */
   const sync = useCallback(
     (nextValue: string, caret: number, resetIndex = false) => {
       if (!enabled) return;
-      setMention(getMentionQuery(nextValue, caret));
-      if (resetIndex) setActiveIndex(0);
+      const nextMention = getMentionQuery(nextValue, caret);
+      const prevMention = mentionRef.current;
+      const spanChanged =
+        Boolean(prevMention) !== Boolean(nextMention) ||
+        (prevMention !== null &&
+          nextMention !== null &&
+          (prevMention.start !== nextMention.start ||
+            prevMention.query !== nextMention.query));
+
+      mentionRef.current = nextMention;
+      setMention(nextMention);
+      if (resetIndex || spanChanged) {
+        setActiveIndex(0);
+      }
     },
     [enabled],
   );
 
-  const close = useCallback(() => setMention(null), []);
+  const close = useCallback(() => {
+    mentionRef.current = null;
+    setMention(null);
+    setActiveIndex(0);
+  }, []);
 
   const apply = useCallback(
     (user: MentionUser) => {
@@ -73,7 +102,9 @@ export function useMentionSuggestions({
       if (!mention) return;
       const caret = textarea?.selectionStart ?? value.length;
       const next = insertMention(value, mention, caret, user.name, user.id);
+      mentionRef.current = null;
       setMention(null);
+      setActiveIndex(0);
       if (textarea) {
         applyTextChange(
           textarea,
@@ -95,26 +126,31 @@ export function useMentionSuggestions({
     (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
       if (
         !showSuggestions ||
-        event.nativeEvent.isComposing ||
-        event.nativeEvent.keyCode === 229
+        event.nativeEvent?.isComposing ||
+        event.nativeEvent?.keyCode === 229
       ) return false;
 
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setActiveIndex((index) => (index + 1) % suggestions.length);
+        setActiveIndex((prev) => {
+          const current = Math.min(Math.max(0, prev), suggestions.length - 1);
+          return (current + 1) % suggestions.length;
+        });
         return true;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setActiveIndex(
-          (index) => (index - 1 + suggestions.length) % suggestions.length,
-        );
+        setActiveIndex((prev) => {
+          const current = Math.min(Math.max(0, prev), suggestions.length - 1);
+          return (current - 1 + suggestions.length) % suggestions.length;
+        });
         return true;
       }
       if (event.key === "Enter" || event.key === "Tab") {
+        const user = suggestions[clampedIndex];
+        if (!user) return false;
         event.preventDefault();
-        const user = suggestions[activeIndex];
-        if (user) apply(user);
+        apply(user);
         return true;
       }
       if (event.key === "Escape") {
@@ -124,13 +160,13 @@ export function useMentionSuggestions({
       }
       return false;
     },
-    [activeIndex, apply, close, showSuggestions, suggestions],
+    [apply, clampedIndex, close, showSuggestions, suggestions],
   );
 
   return {
     mention,
     suggestions,
-    activeIndex,
+    activeIndex: clampedIndex,
     showSuggestions,
     sync,
     close,
