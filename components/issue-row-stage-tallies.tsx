@@ -1,34 +1,24 @@
 import { DECISION_STAGES, decisionStageInfo, type DecisionStage, type StageTallies } from "@/lib/decision-stages";
 
-/** ✓ and ✕ counts for one stage; a zero side is left out (#1446). */
-export function StageTallyCounts({
-  stage,
-  positive,
-  negative,
-}: {
-  stage: DecisionStage;
-  positive: number;
-  negative: number;
-}) {
+/** The ✓ count for one stage. Rejections are not shown on the list card. */
+export function StageTallyCounts({ stage, positive }: { stage: DecisionStage; positive: number }) {
   return (
     <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] font-semibold tabular-nums">
       <span className="sr-only">
-        {decisionStageInfo[stage].label}: {positive} positive, {negative} negative
+        {decisionStageInfo[stage].label}: {positive} positive
       </span>
-      {positive ? <span aria-hidden="true" className="text-zk-ok-fg">✓{positive}</span> : null}
-      {negative ? <span aria-hidden="true" className="text-zk-bad-fg">✕{negative}</span> : null}
+      <span aria-hidden="true" className="text-zk-ok-fg">✓{positive}</span>
     </span>
   );
 }
 
 /**
- * The issues list card's stage strip (#1446): `Idea ✓8 ✕1 · Open ✓1 ✕1 · …`.
- * Stages with no decisions are left out; nothing renders when none have any.
+ * The issues list card's stage strip (#1446): `Idea ✓8 · Open ✓1 · …`.
+ * Only positive decisions are counted; stages without any are left out,
+ * and nothing renders when no stage has one.
  */
 export function IssueRowStageTallies({ tallies }: { tallies: StageTallies | undefined }) {
-  const shown = tallies
-    ? DECISION_STAGES.filter((stage) => tallies[stage].positive + tallies[stage].negative > 0)
-    : [];
+  const shown = tallies ? DECISION_STAGES.filter((stage) => tallies[stage].positive > 0) : [];
   if (!tallies || shown.length === 0) return null;
 
   // Spans, not a list: the card's title block is phrasing content inside its link.
@@ -39,7 +29,7 @@ export function IssueRowStageTallies({ tallies }: { tallies: StageTallies | unde
         <span key={stage} className="inline-flex items-center gap-1.5">
           {index > 0 ? <span aria-hidden="true">·</span> : null}
           <span aria-hidden="true">{decisionStageInfo[stage].label}</span>
-          <StageTallyCounts stage={stage} positive={tallies[stage].positive} negative={tallies[stage].negative} />
+          <StageTallyCounts stage={stage} positive={tallies[stage].positive} />
         </span>
       ))}
     </span>
