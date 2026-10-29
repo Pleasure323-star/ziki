@@ -1,5 +1,6 @@
 "use server";
 
+import { TICKET_TRIAGE_ERRORS } from "@/lib/ticket-triage";
 import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { redirect } from "next/navigation";
@@ -53,6 +54,8 @@ export async function bulkUpdateBugsAction(
   const parsed = validateBulk(rawIds, rawChange);
   if (!parsed.ok) return { error: parsed.error };
   const { ids, change } = parsed;
+  // Ziki #713: the status moves on its own as agents work; nobody sets it in bulk.
+  if ("status" in change && change.status !== undefined) return { error: TICKET_TRIAGE_ERRORS.statusUnauthorized };
 
   const tenantId = await currentTenantIdFor(user.id);
 

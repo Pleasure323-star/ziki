@@ -134,8 +134,7 @@ export function UpdateIssueForm({
         setError(null);
         markSaved(false);
         const formData = new FormData();
-        formData.set("status", draft.status);
-        if (asksForNote) formData.set("resolutionNote", note);
+        // Ziki #713: the status moves on its own as agents work, so it is never sent.
         if (canEditTriage) {
           formData.set("typeId", draft.typeId);
           formData.set("severity", draft.severity);
@@ -178,7 +177,8 @@ export function UpdateIssueForm({
             id="status"
             name="status"
             value={draft.status}
-            onChange={(event) => set("status", event.target.value)}
+            disabled
+            aria-describedby="status-automatic"
             className={selectClass}
           >
             {statuses.map((value) => (
@@ -187,6 +187,9 @@ export function UpdateIssueForm({
               </option>
             ))}
           </select>
+          <p id="status-automatic" className="mt-1 text-xs text-zk-muted">
+            Moves on its own as agents work.
+          </p>
         </div>
         {canEditTriage ? (
           <>

@@ -40,12 +40,12 @@ export async function findReadyToMergeIssues(
   requireLevel(agent, "manager");
   const { verdictsNeeded } = await workflowFor(projectId);
 
-  // Prisma can't match null inside `in`, so "submitted or not reviewed yet" is an OR.
+  // Prisma can't match null inside `in`, so "submitted, tested or not reviewed yet" is an OR.
   let reviewStatusCondition: Prisma.BugWhereInput;
   if (reviewStatusFilter === "ready_to_merge") {
     reviewStatusCondition = { reviewStatus: { in: AWAITING_MERGE } };
   } else if (reviewStatusFilter === "submitted") {
-    reviewStatusCondition = { OR: [{ reviewStatus: "submitted" }, { reviewStatus: null }] };
+    reviewStatusCondition = { OR: [{ reviewStatus: { in: ["submitted", "tested"] } }, { reviewStatus: null }] };
   } else if (reviewStatusFilter === "all") {
     reviewStatusCondition = { reviewStatus: { not: "rejected" } };
   } else if (agent.level === "merger") {

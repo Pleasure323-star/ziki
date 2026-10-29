@@ -1,10 +1,9 @@
 import type { MembershipRole } from "@prisma/client";
-import { isOrganizationAdmin } from "@/lib/organization-role";
 import type { AppRole } from "@/lib/roles";
 
 export const TICKET_TRIAGE_ERRORS = {
   statusUnauthorized:
-    "Only the assignee, or an owner or admin of this organization, can change this issue's status",
+    "An issue's status moves on its own as agents do the work (tested, ready to merge, live). Nobody can set it by hand.",
 } as const;
 
 export type CanChangeTicketStatusParams = {
@@ -15,23 +14,16 @@ export type CanChangeTicketStatusParams = {
 };
 
 /**
- * Checks whether a user may change an issue's status.
+ * Whether a person may change an issue's status by hand: never (Ziki #713).
  *
- * Allowed: the issue's assignee of record, or an owner / admin of its organization.
- * The site super admin counts. A site-wide admin who is only a member does not.
- *
- * Note that this is deliberately evaluated against `currentAssigneeId` - the
- * assignee the issue has *now* - and never against the assignee the request is
- * trying to set. Otherwise a user could self-assign an unassigned issue and, in
- * the same request, close it.
+ * The status follows the work. A claim puts an issue in progress, two
+ * independent good-to-merge verdicts make it tested, a manager's accept makes
+ * it ready to merge, and the merger's merge makes it live. Letting a person set
+ * it skipped those gates: issues showed as resolved while their pull requests
+ * were still open. Owners, admins and assignees are refused alike; the
+ * parameters stay so callers keep one place to ask.
  */
-export function canChangeTicketStatus({
-  actorId,
-  actorRole,
-  membershipRole,
-  currentAssigneeId,
-}: CanChangeTicketStatusParams): boolean {
-  if (!actorId) return false;
-  if (isOrganizationAdmin(membershipRole, actorRole)) return true;
-  return Boolean(currentAssigneeId && actorId === currentAssigneeId);
+export function canChangeTicketStatus(params: CanChangeTicketStatusParams): boolean {
+  void params;
+  return false;
 }

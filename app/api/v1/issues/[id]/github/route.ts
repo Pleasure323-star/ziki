@@ -33,7 +33,8 @@ const bodySchema = z
 
 /**
  * POST /api/v1/issues/{id}/github — link the pull request that fixes this
- * issue (#452). Only an open pull request can be linked (#255). The calling
+ * issue (#452). Only an open pull request can be linked (#255), and an empty
+ * one is refused (Ziki #713). The calling
  * agent must hold the active claim. A contributor
  * or above may attach the URL, which is audited. Submissions must include
  * screenshots of the product fix or test results as verification evidence.
@@ -139,6 +140,17 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
           {
             error: "pull_request_closed",
             message: "That pull request is closed. Only an open pull request can be linked: reopen it or open a new one.",
+          },
+          { status: 422 },
+        );
+      }
+      // Ziki #713: an empty pull request has nothing to review or merge, so it
+      // can't be linked as a fix.
+      if (pullRequest?.changedFiles === 0) {
+        return NextResponse.json(
+          {
+            error: "pull_request_empty",
+            message: "That pull request changes no files. Push the fix to it first, then link it.",
           },
           { status: 422 },
         );

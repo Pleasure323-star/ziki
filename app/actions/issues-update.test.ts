@@ -170,11 +170,13 @@ describe("updateBugAction authorization (#218)", () => {
     ["user", null, { assigneeId: ME, status: "resolved" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
     ["user", null, { assigneeId: ME, status: "open" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
     ["user", OTHER, { assigneeId: ME }, TICKET_ASSIGN_ERRORS.needsAgentClaim, null],
-    ["user", ME, { status: "resolved" }, null, { status: "resolved" }],
-    ["user", ME, { status: "in_progress", severity: "critical", typeId: "t1", categoryId: "c1" }, null, { status: "in_progress" }],
+    // Ziki #713: nobody sets a status by hand, the assignee and admins included.
+    ["user", ME, { status: "resolved" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
+    ["user", ME, { status: "in_progress", severity: "critical", typeId: "t1", categoryId: "c1" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
     ["user", ME, { assigneeId: OTHER }, TICKET_ASSIGN_ERRORS.unauthorized, null],
     ["user", ME, { assigneeId: "" }, null, { assigneeId: null }],
-    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical", status: "closed" }, null, { status: "closed", severity: "critical", assigneeId: SOMEONE }],
+    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical", status: "closed" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
+    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical" }, null, { severity: "critical", assigneeId: SOMEONE }],
     ["admin", null, { typeId: "t1", categoryId: "c1" }, null, { typeId: "t1", categoryId: "c1" }],
   ] as const)(
     "%s on an issue assigned to %s, sending %j → %s",
@@ -196,11 +198,10 @@ describe("updateBugAction authorization (#218)", () => {
     },
   );
 
-  it("lets an assignee change status without an active claim", async () => {
+  it("refuses an assignee changing the status, with or without an active claim (Ziki #713)", async () => {
     db.issueClaim.findFirst.mockResolvedValue(null);
-    const result = await run("user", ME, { status: "resolved" });
-    expect(result).toEqual({ ok: true });
-    expect(written).toEqual({ status: "resolved" });
+    expect(await run("user", ME, { status: "resolved" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(written).toBeNull();
   });
 
   it("rejects an assignee who is not a member of the issue tenant", async () => {
@@ -227,13 +228,13 @@ describe("updateBugAction authorization (#218)", () => {
     expect(db.$transaction).not.toHaveBeenCalled();
   });
 
-  it("notifies on assignment and status changes only when something changed", async () => {
-    await run("admin", null, { assigneeId: SOMEONE, status: "resolved" });
+  it("notifies on an assignment only when something changed", async () => {
+    await run("admin", null, { assigneeId: SOMEONE });
     const events = (notifyLater as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(events.map((e: { kind: string }) => e.kind)).toEqual(["assignee_changed", "status_changed"]);
+    expect(events.map((e: { kind: string }) => e.kind)).toEqual(["assignee_changed"]);
 
     vi.clearAllMocks();
-    await run("admin", null, { status: "open" });
+    await run("admin", SOMEONE, { assigneeId: SOMEONE });
     expect(notifyLater).not.toHaveBeenCalled();
   });
 
@@ -248,45 +249,13 @@ describe("updateBugAction authorization (#218)", () => {
   });
 });
 
-describe("updateBugAction unboosts finished issues (#256)", () => {
-  async function runBoosted(status: string, extra: Record<string, unknown> = {}) {
+describe("a person can't finish an issue by hand (Ziki #713)", () => {
+  it.each(["resolved", "closed", "in_progress", "open"])("refuses an admin setting it to %s, and writes nothing", async (status) => {
     mockUser.mockResolvedValue({ id: ME, name: "Me", role: "admin" });
-    db.bug.findUnique.mockResolvedValue(
-      issue(null, { isBoosted: true, boostedAt: new Date("2026-10-01T00:00:00Z"), ...extra }),
-    );
-    return updateBugAction("bug1", form({ status }));
-  }
-
-  it.each(["resolved", "closed"])("clears the boost and logs it when an issue is %s", async (status) => {
-    await expect(runBoosted(status)).resolves.toEqual({ ok: true });
-    expect(written).toEqual({ status, isBoosted: false, boostedAt: null });
-    expect(activities).toEqual(["status_changed", "unboosted"]);
-  });
-
-  it("keeps the boost when a boosted issue moves to in progress", async () => {
-    await runBoosted("in_progress");
-    expect(written).toEqual({ status: "in_progress" });
-    expect(activities).toEqual(["status_changed"]);
-  });
-
-  it("leaves a boosted issue alone when its status doesn't change", async () => {
-    await runBoosted("closed", { status: "closed" });
-    expect(written).toEqual({ status: "closed" });
+    db.bug.findUnique.mockResolvedValue(issue(null, { isBoosted: true, boostedAt: new Date("2026-10-01T00:00:00Z") }));
+    expect(await updateBugAction("bug1", form({ status }))).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(written).toBeNull();
     expect(activities).toEqual([]);
-  });
-});
-
-describe("updateBugAction releases claims on completed issues (#621)", () => {
-  it.each(["resolved", "closed"] as const)("releases active claims as %s when the issue is completed", async (status) => {
-    await run("admin", ME, { status });
-    expect(claimReleases).toEqual([{
-      where: { bugId: "bug1", status: "active", releasedAt: null },
-      data: { status: "released", releasedAt: expect.any(Date), releaseReason: status },
-    }]);
-  });
-
-  it("does not release claims when an issue remains active", async () => {
-    await run("admin", ME, { status: "in_progress" });
     expect(claimReleases).toEqual([]);
   });
 });
@@ -338,8 +307,8 @@ describe("milestones in triage (#289)", () => {
   it("ignores the field from a non-admin", async () => {
     mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
     db.bug.findUnique.mockResolvedValue(issue(ME));
-    await updateBugAction("bug1", form({ status: "in_progress", milestoneId: "m1" }));
-    expect(written).toEqual({ status: "in_progress" });
+    await updateBugAction("bug1", form({ milestoneId: "m1" }));
+    expect((written as Record<string, unknown> | null)?.milestoneId).toBeUndefined();
     expect(db.milestone.findUnique).not.toHaveBeenCalled();
   });
 
@@ -370,208 +339,53 @@ describe("organization role, not the site-wide admin role (#504)", () => {
   });
 });
 
-describe("solver points on resolve (#428)", () => {
-  it("awards the assignee solver points by severity when they resolve it", async () => {
-    expect(await run("user", ME, { status: "resolved" })).toEqual({ ok: true });
-    expect(awarded).toEqual([
-      {
-        tenantId: "tenant-zedu",
-        userId: ME,
-        bugId: "bug1",
-        role: "solver",
-        points: 750,
-        sourceKey: `solver:bug1:${ME}`,
-      },
-    ]);
-  });
-
-  it("uses the severity an admin sets in the same update", async () => {
-    await run("admin", OTHER, { status: "resolved", severity: "critical" });
-    expect(awarded).toMatchObject([{ userId: OTHER, points: 1800 }]);
-  });
-
-  it("awards the new assignee when an admin assigns and resolves at once", async () => {
-    await run("admin", null, { status: "resolved", assigneeId: SOMEONE });
-    expect(awarded).toMatchObject([{ userId: SOMEONE }]);
-  });
-
-  it("awards nothing for an unassigned issue", async () => {
-    await run("admin", null, { status: "resolved" });
+describe("no solver points from a person resolving by hand (Ziki #713)", () => {
+  it("refuses the assignee resolving it, so nothing is paid", async () => {
+    expect(await run("user", ME, { status: "resolved" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
     expect(awarded).toEqual([]);
   });
 
-  it("awards nothing for other status changes", async () => {
-    await run("user", ME, { status: "in_progress" });
-    await run("admin", OTHER, { status: "closed" });
-    expect(awarded).toEqual([]);
-  });
-
-  it("awards nothing when the issue was already resolved", async () => {
-    mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
-    db.bug.findUnique.mockResolvedValue(issue(ME, { status: "resolved" }));
-    await updateBugAction("bug1", form({ status: "resolved", severity: "high" }));
+  it("refuses an admin resolving it, so nothing is paid", async () => {
+    expect(await run("admin", OTHER, { status: "resolved", severity: "critical" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
     expect(awarded).toEqual([]);
   });
 });
 
 describe("agents hear about triage in the web app (#600, #656)", () => {
-  it("publishes issue.updated with the new status, inside the update", async () => {
-    await run("user", ME, { status: "resolved" });
-    expect(publishWebEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        bugId: "bug1",
-        type: "issue.updated",
-        actorUserId: expect.any(String),
-        payload: expect.objectContaining({ changed: expect.arrayContaining(["status"]), values: expect.objectContaining({ status: "resolved" }) }),
-      }),
-    );
+  it("publishes nothing and releases no claim when a person tries to resolve it (Ziki #713)", async () => {
+    activeClaimsMock = [{ id: "claim-1", agentId: "agent-alpha", beneficiaryUserId: "user-alpha" }];
+    expect(await run("user", ME, { status: "resolved" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(publishWebEvent).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 
-  it("publishes claim.released events when active claims are released on resolution", async () => {
-    activeClaimsMock = [
-      { id: "claim-1", agentId: "agent-alpha", beneficiaryUserId: "user-alpha" },
-      { id: "claim-2", agentId: "agent-beta", beneficiaryUserId: "user-beta" },
-    ];
-    await run("user", ME, { status: "resolved" });
-    expect(publish).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        tenantId: "tenant-zedu",
-        type: "claim.released",
-        actorAgentId: "agent-alpha",
-        bugId: "bug1",
-        payload: expect.objectContaining({
-          claimId: "claim-1",
-          issueId: "bug1",
-          beneficiaryUserId: "user-alpha",
-          reason: "resolved",
-        }),
-      }),
-    );
-    expect(publish).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        tenantId: "tenant-zedu",
-        type: "claim.released",
-        actorAgentId: "agent-beta",
-        bugId: "bug1",
-        payload: expect.objectContaining({
-          claimId: "claim-2",
-          issueId: "bug1",
-          beneficiaryUserId: "user-beta",
-          reason: "resolved",
-        }),
-      }),
-    );
-  });
-
-  it("closeBugAction closes issue, records note, and emits issue.updated", async () => {
-    mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
+  it("closeBugAction refuses: nobody closes an issue by hand (Ziki #713)", async () => {
+    mockUser.mockResolvedValue({ id: ME, name: "Me", role: "admin" });
     db.bug.findUnique.mockResolvedValue(issue(ME));
-    const result = await closeBugAction("bug1", "Completed in PR");
-    expect(result).toEqual({ ok: true });
-    expect(written).toEqual(expect.objectContaining({ status: "closed" }));
-    expect(publishWebEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        bugId: "bug1",
-        type: "issue.updated",
-        payload: expect.objectContaining({ values: expect.objectContaining({ status: "closed" }) }),
-      }),
-    );
+    expect(await closeBugAction("bug1", "Completed in PR")).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(written).toBeNull();
+    expect(publishWebEvent).not.toHaveBeenCalled();
   });
 
-  it("reopenBugAction sets status to open and emits issue.updated", async () => {
-    mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
+  it("reopenBugAction refuses: nobody reopens an issue by hand (Ziki #713)", async () => {
+    mockUser.mockResolvedValue({ id: ME, name: "Me", role: "admin" });
     db.bug.findUnique.mockResolvedValue(issue(ME, { status: "closed" }));
-    const result = await reopenBugAction("bug1");
-    expect(result).toEqual({ ok: true });
-    expect(written).toEqual(expect.objectContaining({ status: "open" }));
-    expect(publishWebEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        bugId: "bug1",
-        type: "issue.updated",
-        payload: expect.objectContaining({ values: expect.objectContaining({ status: "open" }) }),
-      }),
-    );
+    expect(await reopenBugAction("bug1")).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(written).toBeNull();
+    expect(publishWebEvent).not.toHaveBeenCalled();
   });
 
-  describe("reopenAgentResolvedAction (Ziki #515)", () => {
-    const agentResolve = {
-      metadata: { field: "status", from: "in_progress", to: "resolved", via: "agent_resolve", agentName: "X", pullRequestUrl: "https://github.com/o/r/pull/1" },
-    };
-    function reopenTx(count = 1) {
-      const tx = {
-        bug: { updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { written = data; return { count }; }) },
-        bugActivity: { create: vi.fn(async ({ data }: { data: { type: string } }) => { activities.push(data.type); }) },
-      };
-      db.$transaction.mockImplementation(async (fn: (client: unknown) => unknown) => fn(tx));
-      return tx;
-    }
-
-    it("lets the assignee undo it with no claim, back to the previous status", async () => {
-      mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
+  it("reopenAgentResolvedAction refuses the assignee and admins alike (Ziki #713)", async () => {
+    for (const role of ["user", "admin"] as const) {
+      mockUser.mockResolvedValue({ id: ME, name: "Me", role });
       db.bug.findUnique.mockResolvedValue(issue(ME, { status: "resolved" }));
-      db.bugActivity.findFirst.mockResolvedValue(agentResolve);
-      // The agent resolve released the claim, or a person-assigned issue never had one.
-      db.issueClaim.findFirst.mockResolvedValue(null);
-      const tx = reopenTx();
-      expect(await reopenAgentResolvedAction("bug1")).toEqual({ ok: true });
-      expect(tx.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug1", status: "resolved" }, data: { status: "in_progress" } });
-      expect(activities).toEqual(["status_changed"]);
-      expect(publishWebEvent).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          bugId: "bug1",
-          type: "issue.updated",
-          payload: expect.objectContaining({ values: expect.objectContaining({ status: "in_progress" }) }),
-        }),
-      );
-    });
-
-    it("refuses someone who is neither the assignee nor an admin, and writes nothing", async () => {
-      mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
-      db.bug.findUnique.mockResolvedValue(issue(OTHER, { status: "resolved" }));
-      db.bugActivity.findFirst.mockResolvedValue(agentResolve);
+      db.bugActivity.findFirst.mockResolvedValue({
+        metadata: { field: "status", from: "in_progress", to: "resolved", via: "agent_resolve" },
+      });
       expect(await reopenAgentResolvedAction("bug1")).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
-      expect(db.$transaction).not.toHaveBeenCalled();
-      expect(written).toBeNull();
-      expect(publishWebEvent).not.toHaveBeenCalled();
-    });
-
-    it("lets an admin undo it on someone else's issue", async () => {
-      mockUser.mockResolvedValue({ id: ME, name: "Me", role: "admin" });
-      db.bug.findUnique.mockResolvedValue(issue(OTHER, { status: "resolved" }));
-      db.bugActivity.findFirst.mockResolvedValue(agentResolve);
-      reopenTx();
-      expect(await reopenAgentResolvedAction("bug1")).toEqual({ ok: true });
-      expect(written).toEqual({ status: "in_progress" });
-    });
-
-    it("refuses when the latest change wasn't an agent resolve", async () => {
-      mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
-      db.bug.findUnique.mockResolvedValue(issue(ME, { status: "resolved" }));
-      db.bugActivity.findFirst.mockResolvedValue({ metadata: { field: "status", from: "open", to: "resolved" } });
-      expect((await reopenAgentResolvedAction("bug1")).error).toMatch(/wasn't resolved by an agent/);
-      db.bugActivity.findFirst.mockResolvedValue(null);
-      expect((await reopenAgentResolvedAction("bug1")).error).toMatch(/wasn't resolved by an agent/);
-      db.bug.findUnique.mockResolvedValue(issue(ME, { status: "open" }));
-      db.bugActivity.findFirst.mockResolvedValue(agentResolve);
-      expect((await reopenAgentResolvedAction("bug1")).error).toMatch(/wasn't resolved by an agent/);
-      expect(db.$transaction).not.toHaveBeenCalled();
-    });
-
-    it("records and publishes nothing when the status changed meanwhile", async () => {
-      mockUser.mockResolvedValue({ id: ME, name: "Me", role: "user" });
-      db.bug.findUnique.mockResolvedValue(issue(ME, { status: "resolved" }));
-      db.bugActivity.findFirst.mockResolvedValue(agentResolve);
-      reopenTx(0);
-      expect((await reopenAgentResolvedAction("bug1")).error).toMatch(/changed meanwhile/);
-      expect(activities).toEqual([]);
-      expect(publishWebEvent).not.toHaveBeenCalled();
-    });
+    }
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(written).toBeNull();
   });
 
   it("assignBugAction assigns issue and emits issue.updated", async () => {

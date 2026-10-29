@@ -20,8 +20,8 @@ export const MERGE_BLOCKED = "merge_blocked";
 export const MERGE_FAILED = "merge_failed";
 export type MergeOutcomeStatus = typeof MERGE_BLOCKED | typeof MERGE_FAILED;
 
-/** Every review status an issue can show, in pipeline order. */
-export const REVIEW_STATUSES = ["submitted", "ready_to_merge", "rejected", MERGE_BLOCKED, MERGE_FAILED, "merged"] as const;
+/** Every review status an issue can show, in pipeline order. `tested` is the Done step (Ziki #713). */
+export const REVIEW_STATUSES = ["submitted", "tested", "ready_to_merge", "rejected", MERGE_BLOCKED, MERGE_FAILED, "merged"] as const;
 
 /** The comment posted with a merge status, so the issue says what happened and what didn't. */
 export function mergeOutcomeComment(status: MergeOutcomeStatus, reason: string, todo?: string): string {

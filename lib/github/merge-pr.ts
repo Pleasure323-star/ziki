@@ -78,7 +78,14 @@ export function sameRepo(a: RepoRef, b: RepoRef): boolean {
 // The GitHub client (real one, and the seam tests fake)
 // ---------------------------------------------------------------------------
 
-export type PullRequest = { merged: boolean; mergeable: boolean; headSha: string; state?: string };
+export type PullRequest = {
+  merged: boolean;
+  mergeable: boolean;
+  headSha: string;
+  state?: string;
+  /** How many files the pull request changes, when GitHub says (Ziki #713). Zero means it is empty. */
+  changedFiles?: number;
+};
 
 /** What GitHub answered the merge request (#492). */
 export type MergePullResult = {
@@ -284,12 +291,14 @@ export function createInstallationClient(
         state?: string;
         merged?: boolean;
         mergeable?: boolean;
+        changed_files?: number;
         head?: { sha?: string };
       };
       return {
         state: body.state,
         merged: !!body.merged,
         mergeable: body.mergeable !== false,
+        ...(typeof body.changed_files === "number" ? { changedFiles: body.changed_files } : {}),
         headSha: body.head?.sha ?? "",
       };
     },

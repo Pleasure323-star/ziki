@@ -130,11 +130,11 @@ describe("Role-based discovery functions", () => {
       expect(issues[0].reviewStatus).toBe("ready_to_merge");
     });
 
-    it("matches submitted or not-yet-reviewed fixes without putting null inside `in`, which Prisma rejects", async () => {
+    it("matches submitted, tested or not-yet-reviewed fixes without putting null inside `in`, which Prisma rejects", async () => {
       db.bug.findMany.mockResolvedValue([]);
       await findReadyToMergeIssues(merger, "p1", 50, "submitted");
       const where = db.bug.findMany.mock.calls.at(-1)![0].where;
-      expect(where.AND).toEqual([{ OR: [{ reviewStatus: "submitted" }, { reviewStatus: null }] }]);
+      expect(where.AND).toEqual([{ OR: [{ reviewStatus: { in: ["submitted", "tested"] } }, { reviewStatus: null }] }]);
       expect(JSON.stringify(where)).not.toMatch(/"in":\[[^\]]*null/);
     });
 

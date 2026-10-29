@@ -11,8 +11,8 @@ import {
 import { useRouter } from "next/navigation";
 import { bulkUpdateBugsAction } from "@/app/actions/issues-bulk";
 import { MAX_BULK_IDS } from "@/lib/bulk-actions";
-import { severities, statuses } from "@/lib/validations/issue";
-import { severityLabel, statusLabel } from "@/lib/labels";
+import { severities } from "@/lib/validations/issue";
+import { severityLabel } from "@/lib/labels";
 
 type Selection = {
   selected: ReadonlySet<string>;
@@ -205,11 +205,6 @@ function BulkBar({
         </button>
 
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <Field label="Status" disabled={pending || overLimit} onPick={(v) => apply("status", v)}>
-            {statuses.map((s) => (
-              <option key={s} value={s}>{statusLabel[s]}</option>
-            ))}
-          </Field>
           <Field label="Severity" disabled={pending || overLimit} onPick={(v) => apply("severity", v)}>
             {severities.map((s) => (
               <option key={s} value={s}>{severityLabel[s]}</option>

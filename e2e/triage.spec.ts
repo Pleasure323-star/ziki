@@ -5,7 +5,10 @@ test.use({ as: "admin" });
 test("triage changes stick after saving and reloading", async ({ page, uniq, me }) => {
   await fileIssue(page, uniq("Triage check"));
 
-  await page.locator("#status").selectOption("in_progress");
+  // Ziki #713: the status moves on its own as agents work; nobody sets it here.
+  await expect(page.locator("#status")).toBeDisabled();
+  await expect(page.getByText("Moves on its own as agents work.")).toBeVisible();
+
   await page.locator("#severity").selectOption("high");
   const assignee = page.locator("#assigneeId");
   await assignee.click();
@@ -15,11 +18,12 @@ test("triage changes stick after saving and reloading", async ({ page, uniq, me 
   await expect(page.getByRole("status").filter({ hasText: "Saved." })).toBeVisible();
 
   // The #261 regression: the selects used to snap back to the old values.
-  await expect(page.locator("#status")).toHaveValue("in_progress");
-  await page.reload();
-  await expect(page.locator("#status")).toHaveValue("in_progress");
   await expect(page.locator("#severity")).toHaveValue("high");
-  // The status chip lives in the side rail's Status box.
-  await expect(page.getByRole("region", { name: "Status" }).getByText("In progress")).toBeVisible();
+  await page.reload();
+  await expect(page.locator("#severity")).toHaveValue("high");
+  // Saving triage leaves the status where it was.
+  await expect(page.locator("#status")).toHaveValue("open");
+  // "Open" is both the status chip and the stage there, so take the first exact match.
+  await expect(page.getByRole("region", { name: "Status" }).getByText("Open", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(me).filter({ visible: true }).first()).toBeVisible();
 });

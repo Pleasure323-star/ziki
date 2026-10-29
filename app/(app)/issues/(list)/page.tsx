@@ -136,17 +136,14 @@ const READY_TO_MERGE_STATUS = "ready_to_merge";
 /** `?status=auto_merge`: resolved issues whose fix is live — merged to dev, staging, main/production (#SDLC). */
 const AUTO_MERGE_STATUS = "auto_merge";
 /**
- * `?status=resolved`: the Done tab. Finished work, resolved or closed, that
- * isn't in Ready to Merge or Live, so the tabs split All with no overlap:
- * Open + In progress + Done + Ready to Merge + Live = All.
+ * `?status=resolved`: the Done tab (Ziki #713). A pull request is linked and
+ * the project's required independent reviewers said it is good to merge
+ * (review status `tested`). It follows the work, not a status a person set:
+ * Open and In progress leave these out, as they do for Ready to Merge.
  */
 const DONE_STATUS = "resolved";
-const MERGE_STAGES = ["ready_to_merge", "merged"];
 /** Statuses an accepted fix can have while it waits to be merged. */
 const READY_TO_MERGE_STATUSES = ["open", "in_progress", "resolved"] as const;
-const NOT_MERGE_STAGE_WHERE = {
-  OR: [{ reviewStatus: null }, { reviewStatus: { notIn: MERGE_STAGES } }],
-} satisfies Prisma.BugWhereInput;
 
 /** The filters under the All tab. Open, In progress and Done have tabs of their own. */
 const ALL_FILTERS = [ALL_STATUS, "closed", REJECTED_STATUS, DUPLICATE_STATUS].map((value) => ({
@@ -358,6 +355,13 @@ export default async function BugsPage({
     if ((statusParam === "open" || statusParam === "in_progress") && !isDeletedView) {
       where.AND = [{ OR: [{ reviewStatus: null }, { reviewStatus: { not: "ready_to_merge" } }] }];
     }
+    // A tested fix (two good-to-merge verdicts) is on the Done tab instead (Ziki #713).
+    if ((statusParam === "open" || statusParam === "in_progress") && !isDeletedView) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        { OR: [{ reviewStatus: null }, { reviewStatus: { not: "tested" } }] },
+      ];
+    }
   } else if (hidesResolved) {
     where.status = defaultStatusWhere(false);
   }
@@ -393,8 +397,8 @@ export default async function BugsPage({
     where.reviewStatus = "merged";
   }
   if (statusParam === DONE_STATUS && !isDeletedView) {
-    where.status = { in: ["resolved", "closed"] };
-    where.AND = [NOT_MERGE_STAGE_WHERE];
+    where.status = { in: [...READY_TO_MERGE_STATUSES] };
+    where.reviewStatus = "tested";
   }
   if (isSeverity(severityParam)) {
     where.severity = severityParam;
@@ -840,7 +844,7 @@ export default async function BugsPage({
   const confirmingCount = [...stages.values()].filter((stage) => stage === "confirming").length;
   const readyCount = [...stages.values()].filter((stage) => stage === "ready").length;
 
-  const [statusCounts, escalatedCount, rejectedCount, duplicateCount, readyToMergeByStatus, liveCount] = isDeletedView || !tenantId ? [[], 0, 0, 0, [], 0] : await Promise.all([
+  const [statusCounts, escalatedCount, rejectedCount, duplicateCount, readyToMergeByStatus, liveCount, testedByStatus] = isDeletedView || !tenantId ? [[], 0, 0, 0, [], 0, []] : await Promise.all([
     loadOrEmpty("status tabs", () => prisma.bug.groupBy({
       by: ["status"], where: statusTabWhere, _count: { _all: true },
     }), []),
@@ -861,6 +865,11 @@ export default async function BugsPage({
     loadOrEmpty("live tab", () => prisma.bug.count({
       where: { ...statusTabWhere, status: "resolved", reviewStatus: "merged" },
     }), 0),
+    loadOrEmpty("done tab", () => prisma.bug.groupBy({
+      by: ["status"],
+      where: { ...statusTabWhere, status: { in: [...READY_TO_MERGE_STATUSES] }, reviewStatus: "tested" },
+      _count: { _all: true },
+    }), []),
   ]);
   const readyToMergeFor = (status: string) => readyToMergeByStatus.find((row) => row.status === status)?._count._all ?? 0;
   const readyToMergeCount = READY_TO_MERGE_STATUSES.reduce((sum, status) => sum + readyToMergeFor(status), 0);
@@ -869,12 +878,16 @@ export default async function BugsPage({
     (statusCounts.find((row) => row.status === status)?._count._all ?? 0) -
     (status === "open" || status === "in_progress" ? readyToMergeFor(status) : 0);
   const allCount = statusCounts.reduce((sum, row) => sum + row._count._all, 0);
-  // Done leaves out the resolved issues on Ready to Merge and Live.
-  const doneCount = countForStatus("resolved") + countForStatus("closed") - readyToMergeFor("resolved") - liveCount;
+  // Done is the tested fixes (Ziki #713); Open and In progress leave them out too.
+  const testedFor = (status: string) => testedByStatus.find((row) => row.status === status)?._count._all ?? 0;
+  const doneCount = READY_TO_MERGE_STATUSES.reduce((sum, status) => sum + testedFor(status), 0);
+  const workTabCount = (status: string) =>
+    countForStatus(status) - (status === "open" || status === "in_progress" ? testedFor(status) : 0);
   const tabCount = (value: string) =>
     value === ALL_STATUS ? allCount
       : value === IDEAS_STATUS ? ideasCount
       : value === DONE_STATUS ? doneCount
+        : value === "open" || value === "in_progress" ? workTabCount(value)
         : value === READY_TO_MERGE_STATUS ? readyToMergeCount
           : value === AUTO_MERGE_STATUS ? liveCount
             : countForStatus(value);

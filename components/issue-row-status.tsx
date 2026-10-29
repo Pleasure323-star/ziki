@@ -93,6 +93,13 @@ export function IssueRowStatus({
       </span>
     );
   }
+  if (reviewStatus === "tested") {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-400">
+        <CheckIcon /> Tested
+      </span>
+    );
+  }
   if (reviewStatus === "ready_to_merge") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">

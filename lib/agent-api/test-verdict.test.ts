@@ -28,6 +28,9 @@ const db = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 
+const tested = vi.hoisted(() => ({ refreshTestedStatus: vi.fn() }));
+vi.mock("@/lib/agent-api/tested-status", () => ({ refreshTestedStatus: tested.refreshTestedStatus }));
+
 const gh = vi.hoisted(() => ({ client: vi.fn() }));
 vi.mock("@/lib/agent-api/pr-readiness", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agent-api/pr-readiness")>()),
@@ -403,5 +406,19 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
 
     expect(await submitTestVerdict(tester(), "bug1", { goodToMerge: false, notes: "It breaks the tab bar." })).toMatchObject({ status: 201 });
     expect(db.comment.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("submitTestVerdict: moves the fix to Done once enough reviewers agree (Ziki #713)", () => {
+  it("re-counts the verdicts after every recorded verdict", async () => {
+    expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", good)).toMatchObject({ status: 201 });
+    expect(tested.refreshTestedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
+  });
+
+  it("re-counts when a reviewer takes a verdict back", async () => {
+    await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
+    tested.refreshTestedStatus.mockClear();
+    await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: false, notes: "Breaks the tab bar." });
+    expect(tested.refreshTestedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
   });
 });

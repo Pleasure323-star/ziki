@@ -36,6 +36,7 @@ export const issueStageChipClass: Record<IssueStage, string> = {
 
 export const reviewStatusLabels: Record<string, string> = {
   submitted: "In Review",
+  tested: "Tested",
   ready_to_merge: "Ready to Merge",
   rejected: "Needs Revision",
   merge_blocked: "Merge Blocked",
@@ -52,6 +53,7 @@ export const reviewStatusLabels: Record<string, string> = {
  */
 export const reviewStatusChipClass: Record<string, string> = {
   submitted: "border border-indigo-200 bg-indigo-50 text-indigo-700",
+  tested: "border border-sky-200 bg-sky-50 text-sky-700",
   ready_to_merge: "border border-emerald-200 bg-emerald-50 text-emerald-700",
   rejected: "border border-amber-200 bg-amber-50 text-amber-700",
   merge_blocked: "border border-rose-200 bg-rose-50 text-rose-700",

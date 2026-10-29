@@ -1,3 +1,4 @@
+import { TICKET_TRIAGE_ERRORS } from "@/lib/ticket-triage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NotificationEvent } from "@/lib/notifications";
 
@@ -97,21 +98,17 @@ describe("bulk notification and watch parity (#717)", () => {
     expect(order).toEqual(["commit", "notify"]);
   });
 
-  it("queues reporter/watcher status events only for rows whose status changed", async () => {
+  it("refuses a bulk status change: nobody sets a status by hand (Ziki #713)", async () => {
     rows = [bug("b1"), bug("b2", { status: "in_progress" })];
-    expect(await bulkUpdateBugsAction(["b1", "b2"], { status: "in_progress" })).toMatchObject({ ok: true, updated: 1 });
-    expect(events()).toEqual([
-      { ...actor, bugId: "b1", bugTitle: "Issue b1", kind: "status_changed", reporterId: "reporter-b1", from: "open", to: "in_progress" },
-    ]);
-    expect(mocks.tx.issueWatch.createMany).not.toHaveBeenCalled();
-  });
-
-  it("keeps both distinct events when assignment and status change together", async () => {
-    expect(await bulkUpdateBugsAction(["b1"], { assigneeId: "new-assignee", status: "resolved" })).toMatchObject({ ok: true, updated: 1 });
-    expect(events().map((event) => event.kind)).toEqual(["assignee_changed", "status_changed"]);
-    expect(mocks.tx.issueClaim.updateMany).toHaveBeenCalled();
-    expect(mocks.awardSolver).toHaveBeenCalledWith(mocks.tx, expect.objectContaining({ id: "b1", assigneeId: "new-assignee" }));
-    expect(order).toEqual(["commit", "notify"]);
+    expect(await bulkUpdateBugsAction(["b1", "b2"], { status: "in_progress" })).toEqual({
+      error: TICKET_TRIAGE_ERRORS.statusUnauthorized,
+    });
+    expect(await bulkUpdateBugsAction(["b1"], { assigneeId: "new-assignee", status: "resolved" })).toEqual({
+      error: TICKET_TRIAGE_ERRORS.statusUnauthorized,
+    });
+    expect(events()).toEqual([]);
+    expect(mocks.tx.issueClaim.updateMany).not.toHaveBeenCalled();
+    expect(mocks.awardSolver).not.toHaveBeenCalled();
   });
 
   it("keeps the assignee's durable watch after a later unassignment", async () => {
@@ -140,7 +137,7 @@ describe("bulk notification and watch parity (#717)", () => {
 
   it("does not write watches or queue events for an unchanged batch", async () => {
     rows = [bug("b1", { assigneeId: "new-assignee", status: "in_progress" })];
-    expect(await bulkUpdateBugsAction(["b1"], { assigneeId: "new-assignee", status: "in_progress" })).toEqual({ ok: true, updated: 0, skipped: [] });
+    expect(await bulkUpdateBugsAction(["b1"], { assigneeId: "new-assignee" })).toEqual({ ok: true, updated: 0, skipped: [] });
     expect(mocks.db.$transaction).not.toHaveBeenCalled();
     expect(mocks.notifyLater).not.toHaveBeenCalled();
   });

@@ -107,7 +107,7 @@ export function parseBugListFilters({
   }
 
   const reviewStatus = toSingleQueryParam(params.reviewStatus);
-  if (reviewStatus && ["submitted", "ready_to_merge", "rejected", "merged"].includes(reviewStatus)) {
+  if (reviewStatus && ["submitted", "tested", "ready_to_merge", "rejected", "merged"].includes(reviewStatus)) {
     where.reviewStatus = reviewStatus;
   }
 

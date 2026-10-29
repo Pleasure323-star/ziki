@@ -48,7 +48,7 @@ describe("merge statuses", () => {
   });
 
   it("lists every review status the issue filter accepts", () => {
-    expect(REVIEW_STATUSES).toEqual(["submitted", "ready_to_merge", "rejected", "merge_blocked", "merge_failed", "merged"]);
+    expect(REVIEW_STATUSES).toEqual(["submitted", "tested", "ready_to_merge", "rejected", "merge_blocked", "merge_failed", "merged"]);
   });
 
   it("keeps a blocked or failed merge at the Ready to merge stage", () => {
