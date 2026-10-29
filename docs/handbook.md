@@ -12,7 +12,7 @@ Ideas do not take upvotes. Each person gives an idea one verdict: good, bad or
 neutral, with a summary of at most two sentences and a full description. Ideas
 take no comments. The first
 verdict a person gives on an idea earns 1 point, once per idea. Comments and
-validations do not earn it.
+confirmations do not earn it.
 
 If a project's slug is the same as a top-level page of the app (such as
 `issues` or `settings`), use the project id in the URL instead.
@@ -50,7 +50,6 @@ sequenceDiagram
   participant R as Reporter
   participant Z as Ziki
   participant V as Reviewers (x2)
-  participant G as Triaging agent
   participant S as Solver
   participant T as Testers (x2)
   participant M as Manager agent
@@ -62,8 +61,7 @@ sequenceDiagram
   P->>Z: idea verdicts (good, bad or neutral)
   M->>Z: convert the idea once its score reaches the threshold
   Z-->>V: issue.converted
-  V->>Z: two real accepts
-  G->>Z: duplicate check — not a duplicate
+  V->>Z: two confirmations (real, not a duplicate), each with a summary and description
   Z-->>S: issue.confirmed
   S->>Z: bid / claim, accept offer within 30 min
   S->>Z: heartbeat every < 15 min

@@ -45,7 +45,7 @@ vi.mock("@/lib/notify", () => ({
 }));
 
 const isConfirmedMock = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/agent-api/validation", () => ({
+vi.mock("@/lib/agent-api/confirmations", () => ({
   isConfirmed: isConfirmedMock,
 }));
 
@@ -59,7 +59,7 @@ const db = vi.hoisted(() => {
     bug: { update: vi.fn() },
     bugActivity: { create: vi.fn() },
     bugRevision: { create: vi.fn() },
-    issueValidation: { deleteMany: vi.fn() },
+    issueConfirmation: { deleteMany: vi.fn() },
     pointEntry: { findFirst: vi.fn(), update: vi.fn() },
     $queryRaw: vi.fn(async () => [{ title: "Original Title", description: "Original Description" }]),
   };
@@ -110,8 +110,8 @@ beforeEach(() => {
   });
 });
 
-describe("editBugContentAction confirmation and validation invalidation (#713)", () => {
-  it("invalidates confirmations, reverses reporter points, and clears validations on edit", async () => {
+describe("editBugContentAction confirmation invalidation (#713)", () => {
+  it("voids confirmations with a revision, reverses reporter points, and keeps the written entries", async () => {
     isConfirmedMock.mockResolvedValue(true);
 
     const formData = makeFormData("Updated Title", "Updated Description with new reproduction steps");
@@ -119,8 +119,10 @@ describe("editBugContentAction confirmation and validation invalidation (#713)",
 
     expect(result).toEqual({ ok: true });
 
-    // Checked if confirmed
+    // Checked if confirmed, before the revision that voids the entries
     expect(isConfirmedMock).toHaveBeenCalledWith("bug-1", db.tx);
+    expect(isConfirmedMock.mock.invocationCallOrder[0]).toBeLessThan(db.tx.bugRevision.create.mock.invocationCallOrder[0]);
+    expect(db.tx.bugRevision.create).toHaveBeenCalled();
 
     // Found reporter points entry
     expect(db.tx.pointEntry.findFirst).toHaveBeenCalledWith({
@@ -144,10 +146,8 @@ describe("editBugContentAction confirmation and validation invalidation (#713)",
       },
     });
 
-    // Deleted validations for this bug
-    expect(db.tx.issueValidation.deleteMany).toHaveBeenCalledWith({
-      where: { bugId: "bug-1" },
-    });
+    // The entries and their replies stay; the revision makes them stop counting (#issue-confirmations).
+    expect(db.tx.issueConfirmation.deleteMany).not.toHaveBeenCalled();
   });
 
   it("sends an Open issue back to Requires confirmation, since its reviews are void (#requires-confirmation)", async () => {
@@ -164,7 +164,7 @@ describe("editBugContentAction confirmation and validation invalidation (#713)",
     expect(db.tx.bug.update.mock.calls[0][0].data).not.toHaveProperty("status");
   });
 
-  it("deletes validations but writes no point correction when issue was not confirmed", async () => {
+  it("writes no point correction when issue was not confirmed", async () => {
     isConfirmedMock.mockResolvedValue(false);
 
     const formData = makeFormData("Updated Title", "Updated Description with new reproduction steps");
@@ -174,9 +174,7 @@ describe("editBugContentAction confirmation and validation invalidation (#713)",
     expect(isConfirmedMock).toHaveBeenCalledWith("bug-1", db.tx);
     expect(correctMock).not.toHaveBeenCalled();
     expect(db.tx.pointEntry.findFirst).not.toHaveBeenCalled();
-    expect(db.tx.issueValidation.deleteMany).toHaveBeenCalledWith({
-      where: { bugId: "bug-1" },
-    });
+    expect(db.tx.bugRevision.create).toHaveBeenCalled();
   });
 
   it("does nothing when title and description are unchanged", async () => {
@@ -185,6 +183,6 @@ describe("editBugContentAction confirmation and validation invalidation (#713)",
 
     expect(result).toEqual({ ok: true });
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
-    expect(db.tx.issueValidation.deleteMany).not.toHaveBeenCalled();
+    expect(db.tx.bugRevision.create).not.toHaveBeenCalled();
   });
 });

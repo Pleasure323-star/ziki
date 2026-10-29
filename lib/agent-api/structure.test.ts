@@ -11,7 +11,7 @@ const txMock = {
   bug: {
     update: vi.fn().mockResolvedValue({ id: "bug-1" }),
   },
-  issueValidation: {
+  issueConfirmation: {
     upsert: vi.fn().mockResolvedValue({ id: "val-1" }),
   },
   bugActivity: {
@@ -40,7 +40,7 @@ vi.mock("@/lib/prisma", () => ({
     issueType: {
       findMany: vi.fn(),
     },
-    issueValidation: {
+    issueConfirmation: {
       upsert: vi.fn(),
     },
     bugActivity: {
@@ -174,14 +174,14 @@ describe("structureIssue execution", () => {
     db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Report", description: "Original description", categoryId: null, typeId: null, duplicateOfId: null, reporterId: "user-1", beneficiaryUserId: "user-1", createdByAgent: { ownerUserId: "user-1" }, claims: [] });
     const result = await structureIssue({ ...mockAgent, level }, "proj-1", "bug-1", { description: "Clarified reproduction details", checkDuplicates: false });
     expect(result.ok).toBe(true);
-    expect(txMock.issueValidation.upsert).not.toHaveBeenCalled();
+    expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
   it.each(["manager", "merger"] as const)("blocks an owner's %s from marking their report as a duplicate", async (level) => {
     db.bug.findFirst.mockResolvedValueOnce({ id: "bug-1", title: "Report", description: "Original description", reporterId: "user-1", beneficiaryUserId: "another-person", createdByAgent: { ownerUserId: "user-1" }, claims: [] }).mockResolvedValueOnce({ id: "canonical" });
     await expect(structureIssue({ ...mockAgent, level }, "proj-1", "bug-1", { duplicateOfId: "canonical" })).rejects.toMatchObject({ status: 403 });
     expect(txMock.bug.update).not.toHaveBeenCalled();
-    expect(txMock.issueValidation.upsert).not.toHaveBeenCalled();
+    expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
   it("lets an independent working agent mark a report as a duplicate through the structuring endpoint", async () => {
@@ -189,13 +189,14 @@ describe("structureIssue execution", () => {
     const result = await structureIssue(mockAgent, "proj-1", "bug-1", { duplicateOfId: "canonical", checkDuplicates: false });
     expect(result.ok).toBe(true);
     expect(txMock.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ duplicateOfId: "canonical" }) }));
-    expect(txMock.issueValidation.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ kind: "duplicate", verdict: "accept" }) }));
+    // The issue's duplicateOfId marks it; structuring writes no confirmation entry (#issue-confirmations).
+    expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
-  it("records format validation for an independent reviewer", async () => {
+  it("writes no confirmation entry when an independent agent structures a report", async () => {
     db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Report", description: "Original description", categoryId: null, typeId: null, duplicateOfId: null, reporterId: "another-person", beneficiaryUserId: "another-person", createdByAgent: null, claims: [] });
     await structureIssue({ ...mockAgent, level: "working" }, "proj-1", "bug-1", { description: "Structured description", checkDuplicates: false });
-    expect(txMock.issueValidation.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ kind: "format", verdict: "accept" }) }));
+    expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
   it("structures an incoming human report with duplicate check and inferred metadata", async () => {
@@ -237,9 +238,8 @@ describe("structureIssue execution", () => {
         }),
       }),
     );
-    // Any working agent independent of the reporter records the format validation.
-    expect(txMock.issueValidation.upsert).toHaveBeenCalledTimes(1);
-    expect(txMock.issueValidation.upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ kind: "format", verdict: "accept" }) }));
+    // Structuring is not a confirmation: format validations were retired (#issue-confirmations).
+    expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
     expect(txMock.bugActivity.create).toHaveBeenCalledTimes(1);
     expect(publish).toHaveBeenCalledWith(
       txMock,

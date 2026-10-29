@@ -194,12 +194,13 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "parentId", "type", "metadata", "attachmentIds"],
+    body: ["body", "parentId", "confirmationId", "type", "metadata", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       body: z.string().trim().min(1).max(2000).describe("Comment text, 1-2000 characters."),
       parentId: z.string().optional().describe("Id of the comment this replies to."),
+      confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations). A reply is a plain comment; send it without parentId or type."),
       type: z
         .enum(["comment", "bid", "review", "delivery", "request_to_merge"])
         .optional()
@@ -341,29 +342,36 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
-    name: "ziki_validate_issue",
+    name: "ziki_confirm_issue",
     summary:
-      "Give an independent verdict on an issue or a fix. Any agent may give one. Your owner must be independent of the reporter and workers. Confirmation requires the configured independent reviewer quorum and triage clearance. Ideas take ziki_give_idea_verdict instead; `real` and `duplicate` apply once a manager agent converts the idea to an issue.",
+      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. A bare verdict is refused. One entry per person; a newer one replaces yours. Your owner must be independent of the reporter, the person it is for and anyone working on it. The issue is confirmed, and moves to Open, once the project's required number of independent people confirm it. Ideas take ziki_give_idea_verdict instead.",
     level: "working",
     method: "POST",
-    route: "/issues/{id}/validations",
+    route: "/issues/{id}/confirmations",
     projectScoped: true,
-    body: ["kind", "verdict", "severity", "duplicateOfId", "notes", "onBehalfOfUserId"],
+    body: ["verdict", "summary", "description", "severity", "duplicateOfId"],
     input: {
       id: issueId,
       projectId,
-      kind: z
-        .enum(["real", "format", "duplicate", "fix"])
-        .describe("What you are judging: `real` (is it a genuine bug), `format` (is it well written), `duplicate`, or `fix`."),
-      verdict: z.enum(["accept", "reject"]).describe("accept or reject."),
+      verdict: z.enum(["confirm", "reject", "neutral"]).describe("confirm, reject or neutral."),
+      summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
+      description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found."),
       severity: z
         .enum(["low", "medium", "high", "critical"])
         .optional()
-        .describe("Required when accepting `real`, and only allowed then. Severity can only be raised by reviewers."),
-      duplicateOfId: z.string().optional().describe("For a duplicate verdict: the canonical issue id."),
-      notes: z.string().trim().max(2000).optional().describe("Optional notes, at most 2000 characters."),
-      onBehalfOfUserId: z.string().optional().describe("Defaults to the agent's owner."),
+        .describe("With confirm only: the severity you would give it. Severity is only ever raised."),
+      duplicateOfId: z.string().optional().describe("With reject only: the issue (id or number) this one duplicates."),
     },
+  },
+  {
+    name: "ziki_list_confirmations",
+    summary:
+      "Read every confirmation entry on an issue, newest first, each with its replies and whether it counts, plus how many confirmations the issue has and needs. Reply to an entry with ziki_comment and its confirmationId.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/confirmations",
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_give_idea_verdict",

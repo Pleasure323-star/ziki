@@ -1,4 +1,6 @@
+import { e2eDb } from "./db";
 import { test, expect, fileIssue, reportIssue } from "./fixtures";
+import { emailFor } from "./users";
 
 test("a report is an idea, on its own page, that takes verdicts, not comments", async ({ page, uniq }) => {
   await reportIssue(page, uniq("Idea verdict check"));
@@ -7,30 +9,43 @@ test("a report is an idea, on its own page, that takes verdicts, not comments", 
   await expect(page.getByRole("button", { name: "Add comment" })).toHaveCount(0);
 });
 
-test("comments on an issue and replies to the comment", async ({ page, uniq }) => {
-  await fileIssue(page, uniq("Comment thread check"));
+test("an issue at Requires confirmation takes confirmations, and replies under them, not comments", async ({ page, uniq, width }) => {
+  const url = await fileIssue(page, uniq("Confirmation entry check"));
 
-  // The comments themselves, not the activity log that quotes them.
-  const thread = page.locator("[id^='comment-']");
-  const comment = `Same here on Firefox ${Date.now()}`;
-  // The comment form opens in a dialog from "Add comment".
-  await page.getByRole("button", { name: "Add comment" }).click();
-  const dialog = page.getByRole("dialog", { name: "Add comment" });
-  await dialog.locator("textarea#body").fill(comment);
-  await dialog.getByRole("button", { name: /Post to conversation|Post comment/ }).click();
+  // Someone else reported it, so this person is independent and may confirm it.
+  const prisma = e2eDb();
+  try {
+    const other = await prisma.user.findUniqueOrThrow({ where: { email: emailFor("admin", width) }, select: { id: true } });
+    const number = Number(new URL(url).pathname.split("/").pop());
+    await prisma.bug.updateMany({ where: { number, title: { contains: "Confirmation entry check" } }, data: { reporterId: other.id, beneficiaryUserId: other.id } });
+  } finally {
+    await prisma.$disconnect();
+  }
+  await page.reload();
+
+  await expect(page.getByRole("button", { name: "Add comment" })).toHaveCount(0);
+  const panel = page.locator("#confirmations");
+  await expect(panel.getByRole("heading", { name: /Confirmations/i })).toBeVisible();
+
+  const summary = `Reproduced on Firefox ${Date.now()}.`;
+  await page.getByRole("button", { name: "Add confirmation" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add confirmation" });
+  await dialog.getByText("Confirm", { exact: true }).click();
+  await dialog.getByLabel("Summary").fill(summary);
+  await dialog.getByLabel("Description").fill("Opened the page, clicked Save, and got a blank page every time.");
+  await dialog.getByRole("button", { name: "Give confirmation" }).click();
   await expect(dialog).toBeHidden();
-  await expect(thread.getByText(comment).first()).toBeVisible();
+  await expect(panel.getByText(summary)).toBeVisible();
 
-  const reply = `Fixed by clearing the cache ${Date.now()}`;
-  await page.getByRole("button", { name: "Reply" }).first().click();
-  const replyBox = page.locator("textarea[id^='body-']").first();
-  await replyBox.fill(reply);
-  await page.getByRole("button", { name: /Post reply|Reply/ }).last().click();
-  await expect(thread.getByText(reply).first()).toBeVisible();
-  await expect(page.getByText(/Replying to/).first()).toBeVisible();
+  const reply = `Same on Chrome ${Date.now()}`;
+  await panel.getByRole("button", { name: "Reply" }).first().click();
+  const replyForm = panel.getByRole("form", { name: "Reply to this confirmation" });
+  await replyForm.getByRole("textbox").fill(reply);
+  await replyForm.getByRole("button", { name: "Reply" }).click();
+  await expect(panel.getByText(reply)).toBeVisible();
 
   // Both survive a reload: they were saved, not just drawn.
   await page.reload();
-  await expect(thread.getByText(comment).first()).toBeVisible();
-  await expect(thread.getByText(reply).first()).toBeVisible();
+  await expect(panel.getByText(summary)).toBeVisible();
+  await expect(panel.getByText(reply)).toBeVisible();
 });

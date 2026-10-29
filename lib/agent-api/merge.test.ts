@@ -15,15 +15,15 @@ type VerdictRow = {
 
 const state = vi.hoisted(() => ({
   verdicts: [] as VerdictRow[],
-  confirmations: [] as { agentId: string; onBehalfOfUserId: string; agent: { id: string; ownerUserId: string; level?: string } }[],
+  confirmations: [] as { id: string; bugId: string; verdict: "confirm"; duplicateOfId: null; updatedAt: Date; agentId: string; onBehalfOfUserId: string; agent: { ownerUserId: string } }[],
 }));
 
 const db = vi.hoisted(() => ({
-  bug: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+  bug: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   bugActivity: { create: vi.fn() },
   comment: { create: vi.fn() },
   testVerdict: { findMany: vi.fn() },
-  issueValidation: { findMany: vi.fn() },
+  issueConfirmation: { findMany: vi.fn() },
   pointEntry: { createMany: vi.fn() },
   agentAuditEvent: { create: vi.fn(), findMany: vi.fn() },
   agentEvent: { create: vi.fn() },
@@ -88,13 +88,13 @@ function merger(id: string, ownerId: string, level: AgentLevel = "manager") {
   return { agentId: id, name: id, ownerId, tenantId: "tenant_zedu", level, burst: false, keyId: `key-${id}` };
 }
 
-/** The two independent accepts plus a triage clear that confirm an issue. */
+/** The two independent confirmation entries that confirm an issue (#issue-confirmations). */
 function confirmWith(ownerA: string, ownerB: string) {
-  state.confirmations = [
-    { agentId: `a-${ownerA}`, onBehalfOfUserId: ownerA, agent: { id: `a-${ownerA}`, ownerUserId: ownerA } },
-    { agentId: `a-${ownerB}`, onBehalfOfUserId: ownerB, agent: { id: `a-${ownerB}`, ownerUserId: ownerB } },
-    { agentId: "a-tia", onBehalfOfUserId: "tia", agent: { id: "a-tia", ownerUserId: "tia", level: "working" } },
-  ];
+  const entry = (owner: string) => ({
+    id: `c-${owner}`, bugId: "bug1", verdict: "confirm" as const, duplicateOfId: null, updatedAt: new Date("2026-10-20T10:00:00Z"),
+    agentId: `a-${owner}`, onBehalfOfUserId: owner, agent: { ownerUserId: owner },
+  });
+  state.confirmations = [entry(ownerA), entry(ownerB)];
 }
 
 function verdict(
@@ -137,7 +137,8 @@ beforeEach(() => {
       (v) => v.bugId === "bug1" && v.goodToMerge && (where.pullRequestUrl === undefined || v.pullRequestUrl === where.pullRequestUrl),
     ),
   );
-  db.issueValidation.findMany.mockImplementation(async () => state.confirmations);
+  db.bug.findMany.mockImplementation(async () => [{ ...bugRow(), projectId: "p1", reporterId: "ada" }]);
+  db.issueConfirmation.findMany.mockImplementation(async () => state.confirmations);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
 });
 

@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { offerNext } from "@/lib/agent-api/offer";
 
 /**

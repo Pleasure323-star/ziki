@@ -90,8 +90,10 @@ export async function loadCommentWindow(
   bugId: string,
   options: { threads: number; target?: string | null },
 ): Promise<CommentWindow> {
+  // Replies to a confirmation entry (#issue-confirmations) show under their
+  // entry, not in the conversation's threads.
   const [totalThreads, visibleCount] = await Promise.all([
-    db.comment.count({ where: { bugId, parentId: null } }),
+    db.comment.count({ where: { bugId, parentId: null, confirmationId: null } }),
     db.comment.count({ where: { bugId, deletedAt: null } }),
   ]);
 
@@ -105,6 +107,7 @@ export async function loadCommentWindow(
         where: {
           bugId,
           parentId: null,
+          confirmationId: null,
           OR: [
             { createdAt: { gt: root.createdAt } },
             { createdAt: root.createdAt, id: { gte: root.id } },
@@ -116,7 +119,7 @@ export async function loadCommentWindow(
   }
 
   const roots = await db.comment.findMany({
-    where: { bugId, parentId: null },
+    where: { bugId, parentId: null, confirmationId: null },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
     select: { id: true },

@@ -38,7 +38,7 @@ describe("working on issues together", () => {
   });
 
   it("registers, lists and withdraws interest once confirmed", async () => {
-    await confirm(id, ["ada", "bob"], "dana");
+    await confirm(id, ["ada", "bob"]);
     await ok("bob", "register-interest", { id, note: "Happy to take this." });
     expect(JSON.stringify(await ok("ada", "list-interest", { id }))).toContain("Happy to take this.");
     await ok("bob", "withdraw-interest", { id });
@@ -106,7 +106,7 @@ describe("working on issues together", () => {
     // Ideas take verdicts; the feed lists the issue to confirm once converting creates it.
     const fresh = await fileIssue("ada", "CLI collaboration: needs confirming", ["bob", "cara", "eli"]);
     const item = await feedItem("bob", "confirm_issue", fresh);
-    expect(item?.actions?.map((action) => action.name)).toEqual(["validate_issue", "check_duplicate"]);
+    expect(item?.actions?.map((action) => action.name)).toEqual(["confirm_issue"]);
   });
 
   it("structures an agent's report, and marks a duplicate through structuring", async () => {

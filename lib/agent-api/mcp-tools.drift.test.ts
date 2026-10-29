@@ -14,7 +14,7 @@ import { interestSchema } from "./interest";
 import { releaseSchema } from "./offer";
 import { structureInputSchema } from "./structure";
 import { testVerdictBodySchema } from "./test-verdict";
-import { validationBodySchema } from "./validation";
+import { confirmationSchema } from "./confirmations";
 import { ideaVerdictFields } from "./idea-verdicts";
 import { recordMistakeSchema } from "./mistakes";
 import { assignSchema } from "./assign";
@@ -31,7 +31,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_comment: commentSchema,
   ziki_volunteer: bidSchema,
   ziki_extend_deadline: extendSchema,
-  ziki_validate_issue: validationBodySchema,
+  ziki_confirm_issue: confirmationSchema,
   ziki_give_idea_verdict: ideaVerdictFields,
   ziki_submit_test_result: testVerdictBodySchema,
   ziki_ask_owner: agentQuestionSchema,

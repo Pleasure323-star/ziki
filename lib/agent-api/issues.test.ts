@@ -15,7 +15,7 @@ const db = vi.hoisted(() => ({
   issueType: { findUnique: vi.fn() }, user: { findMany: vi.fn() }, $queryRaw: vi.fn(), $transaction: vi.fn(),
   attachment: { updateMany: vi.fn() },
   bugRevision: { findMany: vi.fn(), findFirst: vi.fn() },
-  issueValidation: { findMany: vi.fn() },
+  issueConfirmation: { findMany: vi.fn() },
 }));
 const budget = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
@@ -77,7 +77,7 @@ beforeEach(() => {
   db.projectArea.findFirst.mockResolvedValue({ id: "area-ui" });
   db.bug.findMany.mockResolvedValue([issue]);
   db.bugRevision.findMany.mockResolvedValue([]);
-  db.issueValidation.findMany.mockResolvedValue([]);
+  db.issueConfirmation.findMany.mockResolvedValue([]);
   db.agentAuditEvent.findMany.mockResolvedValue([]);
   db.bug.findFirst.mockResolvedValue(issue);
   db.bug.findUnique.mockResolvedValue(null);
@@ -730,19 +730,25 @@ describe("issue read confirmation", () => {
   }
 
   function accept(id: string, agentId: string, ownerUserId: string) {
-    return { id, agentId, onBehalfOfUserId: ownerUserId, agent: { id: agentId, ownerUserId } };
+    return {
+      id, bugId: issue.id, verdict: "confirm", duplicateOfId: null, updatedAt: new Date("2026-10-20T10:00:00Z"),
+      agentId, onBehalfOfUserId: ownerUserId, agent: { ownerUserId },
+    };
   }
 
-  function validation(id: string, createdAt: string, extra: Record<string, unknown> = {}) {
+  function confirmation(id: string, createdAt: string, extra: Record<string, unknown> = {}) {
     return {
       id,
-      kind: "real",
-      verdict: "accept",
+      verdict: "confirm",
+      summary: "Reproduced it.",
+      description: "Steps and result.",
       severity: "high",
       duplicateOfId: null,
       agentId: "r1",
       onBehalfOfUserId: "rob",
+      undoneAt: null,
       createdAt: new Date(createdAt),
+      updatedAt: new Date(createdAt),
       ...extra,
     };
   }
@@ -755,51 +761,50 @@ describe("issue read confirmation", () => {
   async function readIssue() {
     const response = await read(request(), context);
     expect(response.status).toBe(200);
-    return (await response.json()).issue as { confirmed: boolean; stage: string | null; validations: Array<{ id: string; createdAt: string }> };
+    return (await response.json()).issue as { confirmed: boolean; stage: string | null; confirmations: Array<{ id: string; createdAt: string }> };
   }
 
-  it("returns validations newest-first and confirmed false with no accepts", async () => {
-    const older = validation("v-old", "2026-10-19T10:00:00Z", { kind: "format", severity: null });
-    const newer = validation("v-new", "2026-10-19T12:00:00Z");
-    db.bug.findFirst.mockResolvedValue({ ...issue, validations: [newer, older] });
-    db.issueValidation.findMany.mockResolvedValue([]);
+  it("returns confirmation entries newest-first and confirmed false with no confirms", async () => {
+    const older = confirmation("v-old", "2026-10-19T10:00:00Z", { verdict: "neutral", severity: null });
+    const newer = confirmation("v-new", "2026-10-19T12:00:00Z");
+    db.bug.findFirst.mockResolvedValue({ ...issue, confirmations: [newer, older] });
+    db.issueConfirmation.findMany.mockResolvedValue([]);
 
     const body = await readIssue();
     expect(body.confirmed).toBe(false);
-    expect(body.validations.map((row) => row.id)).toEqual(["v-new", "v-old"]);
-    expect(body.validations[0]?.createdAt).toBe(newer.createdAt.toISOString());
+    expect(body.confirmations.map((row) => row.id)).toEqual(["v-new", "v-old"]);
+    expect(body.confirmations[0]?.createdAt).toBe(newer.createdAt.toISOString());
 
     const select = db.bug.findFirst.mock.calls.at(-1)?.[0]?.select;
-    expect(select.validations).toEqual({
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    expect(select.confirmations).toEqual({
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select: {
         id: true,
-        kind: true,
         verdict: true,
+        summary: true,
+        description: true,
         severity: true,
         duplicateOfId: true,
         agentId: true,
         onBehalfOfUserId: true,
+        undoneAt: true,
         createdAt: true,
+        updatedAt: true,
       },
     });
+    expect(select).not.toHaveProperty("validations");
   });
 
   it("stays unconfirmed with a single accept", async () => {
-    db.issueValidation.findMany.mockResolvedValue([accept("v1", "r1", "rob")]);
+    db.issueConfirmation.findMany.mockResolvedValue([accept("v1", "r1", "rob")]);
     expect((await readIssue()).confirmed).toBe(false);
   });
 
-  function triageClear(id: string, agentId: string, ownerUserId: string) {
-    return { id, agentId, onBehalfOfUserId: ownerUserId, agent: { id: agentId, ownerUserId, level: "working" } };
-  }
-
   it("is confirmed once two distinct owners have accepted", async () => {
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 1 });
-    db.issueValidation.findMany.mockResolvedValue([
+    db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
-      triageClear("vt", "t1", "tia"),
     ]);
     const body = await readIssue();
     expect(body.confirmed).toBe(true);
@@ -807,10 +812,9 @@ describe("issue read confirmation", () => {
 
   it("is ready once confirmed, and names the idea it was converted from (#idea-table)", async () => {
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 0, idea: { id: "idea-a", number: 1, score: 3, convertedAt: new Date("2026-10-20T00:00:00Z") } });
-    db.issueValidation.findMany.mockResolvedValue([
+    db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
-      triageClear("vt", "t1", "tia"),
     ]);
     const body = (await readIssue()) as unknown as { confirmed: boolean; stage: string; idea: { number: number } };
     expect(body.confirmed).toBe(true);
@@ -825,7 +829,7 @@ describe("issue read confirmation", () => {
     const pullRequestUrl = "https://github.com/Zedu-Endor/issue-tracker/pull/1235";
     const pullRequestHeadSha = "77e781e7c6d32b1fb25493e4250092d0bf76cb3c";
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", pullRequestUrl, pullRequestHeadSha });
-    db.issueValidation.findMany.mockResolvedValue([]);
+    db.issueConfirmation.findMany.mockResolvedValue([]);
     const body = (await readIssue()) as unknown as { pullRequestUrl: string | null; pullRequestHeadSha: string | null };
     expect(body.pullRequestUrl).toBe(pullRequestUrl);
     expect(body.pullRequestHeadSha).toBe(pullRequestHeadSha);
@@ -835,14 +839,14 @@ describe("issue read confirmation", () => {
 
   it("reports an unlinked fix as null rather than omitting it (#544)", async () => {
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", pullRequestUrl: null, pullRequestHeadSha: null });
-    db.issueValidation.findMany.mockResolvedValue([]);
+    db.issueConfirmation.findMany.mockResolvedValue([]);
     const body = (await readIssue()) as unknown as Record<string, unknown>;
     expect(body).toHaveProperty("pullRequestUrl", null);
     expect(body).toHaveProperty("pullRequestHeadSha", null);
   });
 
   it("does not confirm when both accepts belong to the same owner", async () => {
-    db.issueValidation.findMany.mockResolvedValue([
+    db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "rob"),
     ]);
@@ -851,7 +855,7 @@ describe("issue read confirmation", () => {
 
   it("reads an issue by its readable number as well as its id (#457)", async () => {
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 0 });
-    db.issueValidation.findMany.mockResolvedValue([]);
+    db.issueConfirmation.findMany.mockResolvedValue([]);
     for (const ref of ["12", "ZE-12"]) {
       await read(request(), { params: Promise.resolve({ id: ref }) });
       expect(db.bug.findFirst.mock.calls.at(-1)?.[0]?.where).toMatchObject({ number: 12, isDeleted: false });
@@ -861,15 +865,15 @@ describe("issue read confirmation", () => {
     expect(db.bug.findFirst.mock.calls.at(-1)?.[0]?.where).toMatchObject({ id: issue.id });
   });
 
-  it("leaves the list response without validations or confirmed", async () => {
+  it("leaves the list response without confirmation entries or confirmed", async () => {
     const response = await list(request());
     expect(response.status).toBe(200);
     const select = db.bug.findMany.mock.calls.at(-1)?.[0]?.select;
-    expect(select.validations).toBeUndefined();
+    expect(select.confirmations).toBeUndefined();
     expect(select).not.toHaveProperty("confirmed");
     const body = await response.json();
     expect(body.items[0]).not.toHaveProperty("confirmed");
-    expect(body.items[0]).not.toHaveProperty("validations");
+    expect(body.items[0]).not.toHaveProperty("confirmations");
   });
 
   it("selects the upvote count for each listed issue (#463)", async () => {

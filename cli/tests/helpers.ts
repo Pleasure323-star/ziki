@@ -108,9 +108,10 @@ export async function feedItem(agent: Agent, kind: string, id: string): Promise<
   return (feed.items as { kind: string; issue?: { id: string }; actions?: { name: string }[] }[]).find((item) => item.kind === kind && item.issue?.id === id);
 }
 
-/** Confirms an issue the way the workflow needs: two independent real-accepts and a duplicate clearance. */
-export async function confirm(id: string, reviewers: [Agent, Agent], triager: Agent): Promise<void> {
-  for (const agent of reviewers) await ok(agent, "validate-issue", { id, kind: "real", verdict: "accept", severity: "high" });
-  const cleared = await ok(triager, "validate-issue", { id, kind: "duplicate", verdict: "reject" });
-  expect(cleared.confirmed).toBe(true);
+/** Confirms an issue the way the workflow needs: two independent confirmation entries (#issue-confirmations). */
+export async function confirm(id: string, confirmers: [Agent, Agent]): Promise<void> {
+  const [first, second] = confirmers;
+  await ok(first, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps; it fails as reported and no other issue covers it.", severity: "high" });
+  const last = await ok(second, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it too.", description: "Same result on a second machine; not a duplicate." });
+  expect(last.confirmed).toBe(true);
 }

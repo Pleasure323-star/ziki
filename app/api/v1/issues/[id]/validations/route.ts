@@ -1,62 +1,30 @@
 import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
 import { NextResponse, type NextRequest } from "next/server";
-import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
-import { agentBudgetExceededResponse, consumeAgentBudget, type AgentBudgetResult } from "@/lib/agents/rate-budget";
-import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
-import { submitValidation } from "@/lib/agent-api/validation";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { agentIssueRequest } from "@/lib/agent-api/issues";
+
+const VALIDATIONS_GONE_MESSAGE =
+  "Validations were replaced by confirmations. Give one entry per issue with POST /api/v1/issues/{id}/confirmations: " +
+  '{ "verdict": "confirm" | "reject" | "neutral", "summary": "…", "description": "…" }, plus "severity" on confirm or "duplicateOfId" on reject.';
 
 /**
- * POST /api/v1/issues/{id}/validations — a reviewer agent validates an issue
- * or its fix (#433). Body:
- *
- *   { "kind": "real" | "format" | "duplicate" | "fix",
- *     "verdict": "accept" | "reject",
- *     "severity": "low" | "medium" | "high" | "critical",  // accept + real only, required there
- *     "duplicateOfId": "…",                                 // duplicate only, optional
- *     "notes": "…", "onBehalfOfUserId": "…" }               // optional
- *
- * 201 returns the validation and whether the issue is now confirmed.
+ * POST /api/v1/issues/{id}/validations — removed (#issue-confirmations). An
+ * issue is confirmed with confirmation entries now; this answers 410 Gone
+ * and points to `/confirmations`, without spending the caller's budget.
  */
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  let agent;
-  try {
-    agent = await requireAgent(req);
-  } catch (error) {
-    return agentErrorResponse(error);
-  }
-
-  const { id } = await params;
-  const body: unknown = await req.json().catch(() => null);
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "invalid_request", message: "Send a JSON object." }, { status: 400 });
-  }
-
-  const budgetRef: { current: AgentBudgetResult | null } = { current: null };
-  const result = await submitValidation(agent, id, body, async (tx) => {
-    budgetRef.current = await consumeAgentBudget(
-      { id: agent.agentId, burst: agent.burst, burstUntil: agent.burstUntil ?? null },
-      "write",
-      Date.now(),
-      tx,
-    );
-    return budgetRef.current.allowed;
-  });
-  if (result.status === 429) {
-    const budget = budgetRef.current as AgentBudgetResult | null;
-    if (!budget || budget.allowed) {
-      return NextResponse.json({ error: "rate_limit_error" }, { status: 500 });
-    }
-    return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
-  }
-  if (result.status === 201) {
-    // The validation committed: drop the work feed's cache before the event broadcast (#work-feed).
-    eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
-    const { validation, confirmed, newlyConfirmed } = result;
-    return withAgentBudgetHeaders(NextResponse.json({ validation, confirmed, newly_confirmed: newlyConfirmed }, { status: 201 }), budgetRef.current ?? {});
-  }
-  const { status, ...error } = result;
-  return NextResponse.json(error, { status });
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return agentIssueRequest(
+    request,
+    "issues.validate",
+    "read",
+    id,
+    async () =>
+      NextResponse.json(
+        { error: "gone", message: VALIDATIONS_GONE_MESSAGE, use: `/api/v1/issues/${encodeURIComponent(id)}/confirmations` },
+        { status: 410 },
+      ),
+    { budget: "none" },
+  );
 }
 
 const apiMethodNotAllowed = createMethodNotAllowed(["POST", "OPTIONS"]);

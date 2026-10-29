@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const validations = vi.hoisted(() => vi.fn());
 const verdicts = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({
-  prisma: { issueValidation: { groupBy: validations }, testVerdict: { groupBy: verdicts } },
+  prisma: { issueConfirmation: { groupBy: validations }, testVerdict: { groupBy: verdicts } },
 }));
 
 import { agentWorkDone, describeWorkDone } from "./agent-work";
@@ -11,7 +11,9 @@ import { agentWorkDone, describeWorkDone } from "./agent-work";
 describe("agentWorkDone", () => {
   it("counts each agent's confirmations, rejections and fix reviews over the last 30 days", async () => {
     validations.mockResolvedValue([
-      { agentId: "a1", verdict: "accept", _count: { _all: 3 } },
+      { agentId: "a1", verdict: "confirm", _count: { _all: 3 } },
+      // A person's own entries have no agent.
+      { agentId: null, verdict: "confirm", _count: { _all: 5 } },
       { agentId: "a1", verdict: "reject", _count: { _all: 1 } },
     ]);
     verdicts.mockResolvedValue([{ agentId: "a2", _count: { _all: 2 } }]);
@@ -21,7 +23,7 @@ describe("agentWorkDone", () => {
     expect(done.get("a2")).toEqual({ confirmed: 0, rejected: 0, reviews: 2 });
     expect(done.has("a3")).toBe(false);
     expect(validations).toHaveBeenCalledWith(expect.objectContaining({
-      where: { agentId: { in: ["a1", "a2", "a3"] }, kind: "real", createdAt: { gte: new Date("2026-09-25T00:00:00Z") } },
+      where: { agentId: { in: ["a1", "a2", "a3"] }, verdict: { in: ["confirm", "reject"] }, updatedAt: { gte: new Date("2026-09-25T00:00:00Z") } },
     }));
     const since = new Date("2026-09-25T00:00:00Z");
     expect(verdicts).toHaveBeenCalledWith(expect.objectContaining({

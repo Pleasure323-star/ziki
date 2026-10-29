@@ -14,12 +14,12 @@ const text = (ui: React.ReactElement) => render(ui).container.textContent?.repla
 
 describe("IssueRowStatus", () => {
 
-  it("shows Confirming with the bots in the label, and no upvote count", () => {
+  it("shows Confirming with the confirmers in the label, and no upvote count", () => {
     const { container } = render(<IssueRowStatus {...base} stage="confirming" botConfirmations={2} />);
     expect(container.textContent).toContain("Requires confirmation…");
-    expect(container.textContent).toContain("Confirmed by 2 bots");
+    expect(container.textContent).toContain("Confirmed by 2 people");
     expect(container.textContent).not.toMatch(/upvote|\(\d\/\d\)/);
-    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Confirmed by 2 bots so far");
+    expect(container.querySelector("[title]")?.getAttribute("title")).toBe("Confirmed by 2 people so far");
   });
 
   it("says Ready for bids once confirmed", () => {

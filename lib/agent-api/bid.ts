@@ -5,7 +5,7 @@ import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent"
 import { requireLevel } from "@/lib/agents/levels";
 import { isTenantAdmin } from "@/lib/agents/membership";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
 import { isOfferExpired } from "@/lib/agent-api/offer";

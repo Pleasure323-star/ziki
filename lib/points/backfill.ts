@@ -7,7 +7,7 @@ import {
   type ProjectRewardConfig,
 } from "./project-rewards";
 import { pointSourceKey } from "./rules";
-import { isConfirmed, standingValidationAwards } from "@/lib/agent-api/validation";
+import { isConfirmed, standingConfirmationAwards } from "@/lib/agent-api/confirmations";
 
 /**
  * Points for tickets that existed before the ledger (#435), by the same
@@ -110,8 +110,8 @@ export type BackfillOptions = {
 
 async function checkConfirmed(db: Db, bug: HistoricalBug): Promise<boolean> {
   if (bug.isConfirmed !== undefined) return bug.isConfirmed;
-  const anyDb = db as unknown as { issueValidation?: unknown; bug?: { findUnique?: unknown } };
-  if (!anyDb.issueValidation || !anyDb.bug?.findUnique) return false;
+  const anyDb = db as unknown as { issueConfirmation?: unknown; bug?: { findUnique?: unknown } };
+  if (!anyDb.issueConfirmation || !anyDb.bug?.findUnique) return false;
   return isConfirmed(bug.id, db);
 }
 
@@ -155,7 +155,7 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
     }
 
     const rewardByProject = new Map<string | null, ProjectRewardConfig>();
-    // #539: validations pay at submit time only, so any that landed before
+    // #539: confirmations pay when given, so any that landed before
     // the award code are missed unless the backfill recomputes them. The
     // sourceKey makes re-running safe.
     const entries = (
@@ -169,7 +169,7 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
           }
           return [
             ...backfillEntries(b, { cutoffDate, rewardConfig }),
-            ...(b.isDeleted ? [] : await standingValidationAwards(db, b.id)),
+            ...(b.isDeleted ? [] : await standingConfirmationAwards(db, b.id)),
           ];
         }),
       )

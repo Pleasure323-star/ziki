@@ -219,7 +219,7 @@ describe("IssueStageSummary (#186)", () => {
   it("summarises Requires confirmation with counts, severity and the latest decision (#714)", () => {
     renderPage(decisions, "confirm");
     const idea = summary("Requires confirmation");
-    expect(idea.getByText("Confirmed as a real issue by 1 agent, severity Medium. 1 agent rejected it.")).toBeInTheDocument();
+    expect(idea.getByText("Confirmed as real and not a duplicate by 1 reviewer, severity Medium. 1 reviewer rejected it.")).toBeInTheDocument();
     expect(idea.getByText("1 Confirmed")).toBeInTheDocument();
     expect(idea.getByText("1 Rejected")).toBeInTheDocument();
     // Latest is the newest by time, not by list order.

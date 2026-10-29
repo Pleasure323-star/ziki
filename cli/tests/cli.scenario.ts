@@ -31,9 +31,9 @@ describe("the CLI itself", () => {
   });
 
   it("shows a command's flags with types and which are required", async () => {
-    const result = await ziki("help", "validate-issue");
+    const result = await ziki("help", "confirm-issue");
     expect(result.code).toBe(0);
-    expect(result.out).toMatch(/--kind <real\|format\|duplicate\|fix>\s+\(required\)/);
+    expect(result.out).toMatch(/--verdict <confirm\|reject\|neutral>\s+\(required\)/);
     expect(result.out).toMatch(/--severity <low\|medium\|high\|critical>\n/);
   });
 

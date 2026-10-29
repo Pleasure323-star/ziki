@@ -93,8 +93,8 @@ const ENFORCED_ELSEWHERE: Record<string, { file: string; check: string }> = {
   "POST /api/v1/issues/{id}/merge": { file: "lib/agent-api/merge.ts", check: 'hasLevel(agent.level, "manager")' },
   "POST /api/v1/issues/{id}/admin-merge": { file: "lib/agent-api/merge.ts", check: 'hasLevel(agent.level, "merger")' },
   "POST /api/v1/issues/{id}/test-results": { file: "lib/agent-api/test-verdict.ts", check: 'hasLevel(agent.level, "working")' },
-  // Any valid agent key: every class may validate and triage.
-  "POST /api/v1/issues/{id}/validations": { file: "app/api/v1/issues/[id]/validations/route.ts", check: "agent = await requireAgent(req);" },
+  // Any valid agent key: every class may confirm, reject or stay neutral.
+  "POST /api/v1/issues/{id}/confirmations": { file: "app/api/v1/issues/[id]/confirmations/route.ts", check: '"issues.confirm", "working"' },
 };
 
 describe("llms.txt Agent Levels table matches the per-route Level lines (#464)", () => {

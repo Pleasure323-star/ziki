@@ -5,7 +5,6 @@ import { findSimilarIssues } from "@/lib/agent-api/create-policy";
 import type { SimilarIssue } from "@/lib/similar-issues";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
-import { hasLevel } from "@/lib/agents/levels";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
 import { z } from "zod";
 
@@ -141,7 +140,8 @@ export type StructureResult = {
 
 /**
  * Processes an incoming report: checks duplicates, infers metadata, formats
- * structured description, logs activity, and records format validation.
+ * structured description and logs activity. Marking a duplicate here sets
+ * `duplicateOfId` on the issue; it is not a confirmation entry.
  */
 export async function structureIssue(
   agent: AgentContext,
@@ -273,54 +273,6 @@ export async function structureIssue(
         updatedAt: new Date(),
       },
     });
-
-    // Record format validation indicating structured format acceptance
-    if (hasLevel(agent.level, "working") && !conflict) await tx.issueValidation.upsert({
-      where: {
-        bugId_agentId_kind: {
-          bugId: bug.id,
-          agentId: agent.agentId,
-          kind: "format",
-        },
-      },
-      create: {
-        bugId: bug.id,
-        agentId: agent.agentId,
-        onBehalfOfUserId: agent.ownerId,
-        kind: "format",
-        verdict: "accept",
-        notes: "Agent structured issue from report",
-      },
-      update: {
-        verdict: "accept",
-        notes: "Agent updated structured issue formulation",
-      },
-    });
-
-    // If duplicate was confirmed, record duplicate validation
-    if (resolvedDuplicateOfId && resolvedDuplicateOfId !== bug.duplicateOfId) {
-      await tx.issueValidation.upsert({
-        where: {
-          bugId_agentId_kind: {
-            bugId: bug.id,
-            agentId: agent.agentId,
-            kind: "duplicate",
-          },
-        },
-        create: {
-          bugId: bug.id,
-          agentId: agent.agentId,
-          onBehalfOfUserId: agent.ownerId,
-          kind: "duplicate",
-          verdict: "accept",
-          notes: `Duplicate of ${resolvedDuplicateOfId}`,
-        },
-        update: {
-          verdict: "accept",
-          notes: `Duplicate of ${resolvedDuplicateOfId}`,
-        },
-      });
-    }
 
     // Activity log
     await tx.bugActivity.create({

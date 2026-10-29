@@ -15,7 +15,7 @@ const publish = vi.hoisted(() => vi.fn());
 const notifyClaimOffered = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
-vi.mock("@/lib/agent-api/validation", () => ({ isConfirmed }));
+vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
 vi.mock("@/lib/agent-api/offer", () => ({ offerNext, scheduleOfferExpiry, sweepExpiredOffers }));
 vi.mock("@/lib/agent-api/bid", () => ({ awardBid }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));

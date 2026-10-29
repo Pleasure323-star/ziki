@@ -91,13 +91,15 @@ enum ClaimStatus {
   released
 }
 
-enum ValidationKind {
-  real
-  format
-  duplicate
-  fix
+/// A confirmation entry's verdict (#issue-confirmations): the issue is real
+/// and not a duplicate, it is not (or is a duplicate), or no opinion.
+enum ConfirmationVerdict {
+  confirm
+  reject
+  neutral
 }
 
+/// A job review's verdict.
 enum ValidationVerdict {
   accept
   reject
@@ -240,7 +242,7 @@ model User {
   dispatchedClaims      IssueClaim[]         @relation("ClaimDispatcher")
   issueBids             IssueBid[]           @relation("IssueBidBeneficiary")
   interests             IssueInterest[]      @relation("IssueInterestBeneficiary")
-  validations           IssueValidation[]
+  confirmations         IssueConfirmation[]
   testVerdicts          TestVerdict[]
   reviewOffers          ReviewOffer[]
   redesignsOnBehalf     RedesignProposal[]   @relation("RedesignOnBehalfOf")
@@ -369,7 +371,7 @@ model Bug {
   approvals         IssueApproval[]
   bids              IssueBid[]
   interests         IssueInterest[]
-  validations       IssueValidation[]
+  confirmations     IssueConfirmation[]
   /// The idea this issue was converted from (#idea-table). Every issue starts as one.
   idea              Idea?
   testVerdicts      TestVerdict[]
@@ -497,10 +499,14 @@ model Comment {
   attachments Attachment[]
 
   ideaVerdict IdeaVerdict?
+  /// Set on a reply to a confirmation entry (#issue-confirmations).
+  confirmationId String?
+  confirmation   IssueConfirmation? @relation(fields: [confirmationId], references: [id], onDelete: Cascade)
   @@index([bugId])
   @@index([bugId, type])
   @@index([bugId, createdAt])
   @@index([parentId])
+  @@index([confirmationId])
 }
 
 /// Files attached to an issue or a comment (#215): screenshots, logs, PDFs,
@@ -914,7 +920,7 @@ model Agent {
   claims               IssueClaim[]
   bids                 IssueBid[]
   interests            IssueInterest[]
-  validations          IssueValidation[]
+  confirmations        IssueConfirmation[]
   testVerdicts         TestVerdict[]
   reviewOffers         ReviewOffer[]
   redesigns            RedesignProposal[]
@@ -1211,27 +1217,42 @@ model IdeaVerdict {
   @@index([ideaId])
 }
 
-model IssueValidation {
-  id               String            @id @default(cuid())
+/// One person's confirmation entry on an issue at Requires confirmation
+/// (#issue-confirmations): confirm (real and not a duplicate), reject (not
+/// real, or a duplicate of `duplicateOfId`) or neutral, always with a summary
+/// and a description. One per person per issue; giving it again replaces it.
+/// Replies are comments with `confirmationId` set.
+model IssueConfirmation {
+  id               String              @id @default(cuid())
   bugId            String
-  agentId          String
+  /// The person it counts for: an agent's owner, or a person in the web app.
   onBehalfOfUserId String
-  kind             ValidationKind
-  verdict          ValidationVerdict
-  notes            String?
-  /// For a duplicate verdict, the canonical issue.
-  duplicateOfId    String?
-  /// The severity this reviewer set when accepting kind `real` (#433).
+  /// The agent that gave it; null when a person gave it in the web app.
+  agentId          String?
+  verdict          ConfirmationVerdict
+  /// At most two sentences.
+  summary          String
+  /// The full reasoning behind the verdict.
+  description      String
+  /// The severity a confirm set (it only ever raises the issue's severity).
   severity         Severity?
-  /// What it was before, so an undo can restore it (#450).
+  /// The issue's severity before, so an undo can restore it.
   previousSeverity Severity?
-  createdAt        DateTime          @default(now())
-  bug              Bug               @relation(fields: [bugId], references: [id], onDelete: Cascade)
-  agent            Agent             @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  onBehalfOf       User              @relation(fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  /// With reject only: the issue this one duplicates.
+  duplicateOfId    String?
+  /// Set when a workspace admin undid it; giving it again clears it.
+  undoneAt         DateTime?
+  createdAt        DateTime            @default(now())
+  /// When it was last given. Only entries given after the latest edit count.
+  updatedAt        DateTime            @updatedAt
+  bug              Bug                 @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User                @relation(fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?              @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  replies          Comment[]
 
-  @@unique([bugId, agentId, kind])
-  @@index([bugId, kind])
+  @@unique([bugId, onBehalfOfUserId])
+  @@index([bugId, verdict])
+  @@index([agentId, createdAt])
 }
 
 /// Whether a fix is good to merge (#434).

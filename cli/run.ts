@@ -34,7 +34,7 @@ Calling the API:
 
 Examples:
   pnpm ziki create-idea --title "Save fails" --description "Steps: ..." --as ada
-  pnpm ziki validate-issue --id <issueId> --kind real --verdict accept --as bob
+  pnpm ziki confirm-issue --id <issueId> --verdict confirm --summary "Reproduced it." --description "Steps ..." --as bob
   pnpm ziki work --as dana
 
 Global flags: --as <agent>, --server <local server> (default http://localhost:3001, or ZIKI_CLI_URL).

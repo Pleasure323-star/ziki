@@ -8,7 +8,7 @@ import { bidSchema } from "@/lib/agent-api/bid";
 import { extendSchema } from "@/lib/agent-api/deadline";
 import { createIdeaSchema } from "@/lib/agent-api/ideas";
 import { testVerdictBodySchema } from "@/lib/agent-api/test-verdict";
-import { validationBodySchema } from "@/lib/agent-api/validation";
+import { confirmationSchema } from "@/lib/agent-api/confirmations";
 
 /**
  * The request bodies in llms.txt must be ones the routes accept (#555).
@@ -40,7 +40,7 @@ const EXAMPLES: Array<[string, z.ZodType]> = [
   ["POST /api/v1/issues/{id}/comments", commentSchema],
   ["POST /api/v1/issues/{id}/bid", bidSchema],
   ["POST /api/v1/issues/{id}/extend", extendSchema],
-  ["POST /api/v1/issues/{id}/validations", validationBodySchema],
+  ["POST /api/v1/issues/{id}/confirmations", confirmationSchema],
   ["POST /api/v1/issues/{id}/test-results", testVerdictBodySchema],
   ["POST /api/v1/questions", agentQuestionSchema],
   ["POST /api/v1/redesigns", redesignSchema],
@@ -59,21 +59,22 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
     expect(createIdeaSchema.safeParse({ title: "A title", description: "A long enough description", idempotencyKey: "k" }).success).toBe(false);
   });
 
-  it("documents the validation fields the route requires", () => {
-    const validations = section("POST /api/v1/issues/{id}/validations");
-    for (const needle of ["`kind`", "`real`", "`format`", "`duplicate`", "`fix`", "`severity`"]) {
-      expect(validations).toContain(needle);
+  it("documents the confirmation fields the route requires", () => {
+    const confirmations = section("POST /api/v1/issues/{id}/confirmations");
+    for (const needle of ["`verdict`", "`confirm`", "`reject`", "`neutral`", "`summary`", "`description`", "`severity`", "`duplicateOfId`"]) {
+      expect(confirmations).toContain(needle);
     }
-    expect(requestBody("POST /api/v1/issues/{id}/validations")).toMatchObject({ kind: "real" });
+    expect(requestBody("POST /api/v1/issues/{id}/confirmations")).toMatchObject({ verdict: "confirm" });
+    // A bare verdict is refused, as the route refuses it.
+    expect(confirmationSchema.safeParse({ verdict: "confirm" }).success).toBe(false);
   });
 
-  it("documents the 201 validation response the route returns (#610)", () => {
-    const validations = section("POST /api/v1/issues/{id}/validations");
-    expect(validations).toContain("**Response (201):**");
-    expect(validations).toContain('"validation"');
-    expect(validations).toContain('"newly_confirmed"');
-    expect(validations).not.toContain('"validationId"');
-    expect(validations).not.toContain('"issueConfirmed"');
+  it("documents the 201 confirmation response the route returns (#610)", () => {
+    const confirmations = section("POST /api/v1/issues/{id}/confirmations");
+    expect(confirmations).toContain("**Response (201):**");
+    expect(confirmations).toContain('"confirmation"');
+    expect(confirmations).toContain('"newlyConfirmed"');
+    expect(section("POST /api/v1/issues/{id}/validations")).toContain("410 Gone");
   });
 
   it("documents the merge route without a body it never reads", () => {

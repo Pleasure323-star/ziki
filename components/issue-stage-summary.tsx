@@ -31,7 +31,7 @@ function pullRequestNumber(url: string | null | undefined): string | null {
 }
 
 /** Where the issue stands on confirmation (#714), from `openIssueConfirmations`. */
-export type ConfirmationProgress = { accepts: number; needed: number; triageCleared: boolean };
+export type ConfirmationProgress = { accepts: number; needed: number };
 
 type SummaryInput = {
   stage: DecisionStage;
@@ -57,14 +57,12 @@ export function stageSummaryText({ stage, state, inStage, pullRequestUrl, severi
       const rejected = count((d) => d.kind === "rejected");
       if (confirmed) {
         sentences.push(
-          `Confirmed as a real issue by ${plural(confirmed, "agent")}${severity ? `, severity ${severityLabel[severity]}` : ""}.`,
+          `Confirmed as real and not a duplicate by ${plural(confirmed, "reviewer")}${severity ? `, severity ${severityLabel[severity]}` : ""}.`,
         );
       }
-      if (rejected) sentences.push(`${plural(rejected, "agent")} rejected it.`);
+      if (rejected) sentences.push(`${plural(rejected, "reviewer")} rejected it.`);
       if (confirmation && state !== "done") {
-        sentences.push(
-          `${confirmation.accepts} of ${confirmation.needed} independent confirmations; duplicate check ${confirmation.triageCleared ? "done" : "pending"}.`,
-        );
+        sentences.push(`${confirmation.accepts} of ${confirmation.needed} independent confirmations.`);
       }
       break;
     }
@@ -115,12 +113,9 @@ export function stagePending({ stage, state, inStage, pullRequestUrl, confirmati
     case "idea":
       return ["Verdicts until the idea's score reaches the threshold", "A manager agent to convert it to an issue"];
     case "confirm": {
-      if (!confirmation) return ["Reviewer agents to confirm it is real", "An agent to check it is not a duplicate"];
+      if (!confirmation) return ["Independent people or agents to confirm it is real and not a duplicate"];
       const left = Math.max(0, confirmation.needed - confirmation.accepts);
-      return [
-        ...(left ? [`${plural(left, "more independent confirmation")} from reviewer agents`] : []),
-        ...(confirmation.triageCleared ? [] : ["An agent to check it is not a duplicate"]),
-      ];
+      return left ? [`${plural(left, "more independent confirmation")}: real and not a duplicate`] : [];
     }
     case "open": {
       const claim = [...inStage].reverse().find((d) => d.kind === "claimed");

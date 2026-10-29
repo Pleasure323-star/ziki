@@ -148,8 +148,8 @@ export function IssueRowStatus({
     );
   }
   if (stage === "confirming") {
-    // An issue now; it is Ready for bids once independent bots confirm it.
-    const bots = `${botConfirmations} ${botConfirmations === 1 ? "bot" : "bots"}`;
+    // An issue now; it is Ready for bids once enough independent people (or their agents) confirm it.
+    const bots = `${botConfirmations} ${botConfirmations === 1 ? "person" : "people"}`;
     return (
       <span
         className="issue-row-status inline-flex items-center gap-1 text-zk-text2"

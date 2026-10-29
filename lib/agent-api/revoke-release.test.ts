@@ -4,7 +4,7 @@ const publish = vi.hoisted(() => vi.fn(async () => ({ id: "event" })));
 const isConfirmed = vi.hoisted(() => vi.fn());
 const offerNext = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
-vi.mock("@/lib/agent-api/validation", () => ({ isConfirmed }));
+vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
 vi.mock("@/lib/agent-api/offer", () => ({ offerNext }));
 
 import { releaseWorkOfRevokedAgent } from "./revoke-release";

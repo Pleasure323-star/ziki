@@ -28,7 +28,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 vi.mock("@/lib/agent-api/bid", () => ({ awardBid: mockAwardBid }));
-vi.mock("@/lib/agent-api/validation", () => ({ isConfirmed: mockIsConfirmed }));
+vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed: mockIsConfirmed }));
 // Readiness comes from one bulk read (#714); these issues are all confirmed.
 const mockConfirmedIssueIds = vi.hoisted(() => vi.fn(async () => new Set(["bug-1", "bug-2", "bug-3"])));
 vi.mock("@/lib/issue-stage", () => ({ confirmedIssueIds: mockConfirmedIssueIds }));

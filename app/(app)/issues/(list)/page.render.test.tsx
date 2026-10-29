@@ -41,7 +41,7 @@ vi.mock("@/lib/tenant-context", async (importOriginal) => ({
 }));
 vi.mock("@/lib/issue-stage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/issue-stage")>()),
-  openIssueStages: vi.fn(async () => new Map([["bug-1", "confirming"]])),
+  openIssueConfirmations: vi.fn(async () => new Map([["bug-1", { stage: "confirming", accepts: 1, rejects: 0, needed: 2 }]])),
 }));
 vi.mock("@/lib/voter-summaries", () => ({
   fetchVoterSummaries: vi.fn(async () =>
@@ -489,9 +489,9 @@ describe("issue list layout", () => {
     expect(filters).toContain('href="/issues?status=duplicate"');
   });
 
-  it("keeps All selected on its filters and narrows the list: Rejected by a reviewer's verdict, Duplicates by duplicateOf", async () => {
+  it("keeps All selected on its filters and narrows the list: Rejected by a confirmation entry, Duplicates by duplicateOf", async () => {
     let html = await renderList({ status: "rejected" });
-    expect(findMany.mock.calls.at(-1)![0].where.validations).toEqual({ some: { kind: "real", verdict: "reject" } });
+    expect(findMany.mock.calls.at(-1)![0].where.confirmations).toEqual({ some: { verdict: "reject", undoneAt: null } });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
     const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(status).toMatch(/aria-current="page" href="\/issues\?status=all"/);

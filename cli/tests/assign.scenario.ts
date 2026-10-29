@@ -14,7 +14,7 @@ describe("a manager assigns ready issues", () => {
     bobAgentId = (await ok("bob", "whoami")).id;
     forBob = await fileIssue("ada", "CLI assign: for bob", ["bob", "cara", "eli"]);
     forDana = await fileIssue("ada", "CLI assign: for dana", ["bob", "cara", "eli"]);
-    for (const id of [forBob, forDana]) await confirm(id, ["bob", "cara"], "eli");
+    for (const id of [forBob, forDana]) await confirm(id, ["bob", "cara"]);
   });
 
   it("is for manager and merger agents only", async () => {

@@ -26,11 +26,11 @@ const db = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 
-vi.mock("@/lib/agent-api/validation", () => ({
+vi.mock("@/lib/agent-api/confirmations", () => ({
   isConfirmed: vi.fn(),
 }));
 
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 
 describe("issue interest registration and withdrawal (#589)", () => {
   const agentCtx = {

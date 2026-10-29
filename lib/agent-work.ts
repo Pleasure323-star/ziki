@@ -10,10 +10,11 @@ export async function agentWorkDone(agentIds: string[], now = new Date()): Promi
   const done = new Map<string, AgentWorkDone>();
   if (agentIds.length === 0) return done;
   const since = new Date(now.getTime() - AGENT_WORK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-  const [validations, verdicts] = await Promise.all([
-    prisma.issueValidation.groupBy({
+  const [confirmations, verdicts] = await Promise.all([
+    // Confirmation entries given (or given again) recently; neutral ones are neither.
+    prisma.issueConfirmation.groupBy({
       by: ["agentId", "verdict"],
-      where: { agentId: { in: agentIds }, kind: "real", createdAt: { gte: since } },
+      where: { agentId: { in: agentIds }, verdict: { in: ["confirm", "reject"] }, updatedAt: { gte: since } },
       _count: { _all: true },
     }),
     prisma.testVerdict.groupBy({
@@ -31,8 +32,9 @@ export async function agentWorkDone(agentIds: string[], now = new Date()): Promi
     }
     return work;
   };
-  for (const row of validations) {
-    if (row.verdict === "accept") entry(row.agentId).confirmed += row._count._all;
+  for (const row of confirmations) {
+    if (!row.agentId) continue;
+    if (row.verdict === "confirm") entry(row.agentId).confirmed += row._count._all;
     else entry(row.agentId).rejected += row._count._all;
   }
   for (const row of verdicts) entry(row.agentId).reviews += row._count._all;

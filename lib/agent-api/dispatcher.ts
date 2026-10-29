@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
 import { offerNext, scheduleOfferExpiry, sweepExpiredOffers } from "@/lib/agent-api/offer";
 import { awardBid } from "@/lib/agent-api/bid";

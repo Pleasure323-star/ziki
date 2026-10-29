@@ -15,7 +15,7 @@ import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicat
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { openIssueConfirmations, type IssueConfirmation, type IssueStage } from "@/lib/issue-stage";
+import { openIssueConfirmations, type ConfirmationState, type IssueStage } from "@/lib/issue-stage";
 import { buildCommentTree } from "@/lib/comments";
 import {
   COMMENT_PARAM,
@@ -60,6 +60,8 @@ import { type IdeaVerdictsData } from "@/components/idea-verdicts";
 import { listIdeaVerdicts } from "@/lib/agent-api/idea-verdicts";
 import { UpdateIssueForm } from "@/components/update-issue-form";
 import { AddCommentDialog } from "@/components/add-comment-dialog";
+import { IssueConfirmationsPanel, type ConfirmationBlock, type ConfirmationsData } from "@/components/issue-confirmations";
+import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-api/confirmations";
 import type { DisputeRole } from "@/components/comment-form";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
@@ -495,16 +497,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         "agent decisions",
         [],
         async () => {
-          const [validations, claims, verdicts, accepted] = await Promise.all([
-            prisma.issueValidation.findMany({
-              where: { bugId: id, kind: "real" },
-              orderBy: { createdAt: "asc" },
+          const [confirmations, claims, verdicts, accepted] = await Promise.all([
+            // #issue-confirmations: confirm and reject entries; neutral decides nothing.
+            prisma.issueConfirmation.findMany({
+              where: { bugId: id, verdict: { in: ["confirm", "reject"] }, undoneAt: null },
+              orderBy: { updatedAt: "asc" },
               select: {
                 id: true,
-                createdAt: true,
+                updatedAt: true,
                 verdict: true,
                 severity: true,
-                notes: true,
+                summary: true,
                 agent: { select: { name: true } },
                 onBehalfOf: { select: { name: true } },
               },
@@ -583,22 +586,23 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             );
 
           const otherDecisions: AgentDecision[] = [
-            ...validations.map<AgentDecision>((v) =>
+            // A person's own entry names them; an agent's names the agent, for its owner.
+            ...confirmations.map<AgentDecision>((v) =>
               v.verdict === "reject"
                 ? {
-                    id: `validation-${v.id}`,
-                    at: v.createdAt,
+                    id: `confirmation-${v.id}`,
+                    at: v.updatedAt,
                     kind: "rejected",
-                    agentName: v.agent.name,
-                    personName: v.onBehalfOf.name,
-                    notes: v.notes,
+                    agentName: v.agent?.name ?? v.onBehalfOf.name,
+                    personName: v.agent ? v.onBehalfOf.name : "",
+                    notes: v.summary,
                   }
                 : {
-                    id: `validation-${v.id}`,
-                    at: v.createdAt,
+                    id: `confirmation-${v.id}`,
+                    at: v.updatedAt,
                     kind: "confirmed",
-                    agentName: v.agent.name,
-                    personName: v.onBehalfOf.name,
+                    agentName: v.agent?.name ?? v.onBehalfOf.name,
+                    personName: v.agent ? v.onBehalfOf.name : "",
                     severity: v.severity,
                   },
             ),
@@ -704,8 +708,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
   const milestoneOptions = await milestoneOptionsPromise;
   let intakeStage: IssueStage | null = null;
-  let confirmation: IssueConfirmation | null = null;
-  if (!bug.isDeleted && bug.status === "open") {
+  let confirmation: ConfirmationState | null = null;
+  if (!bug.isDeleted && (bug.status === "open" || bug.status === "requires_confirmation")) {
     try {
       confirmation = (await openIssueConfirmations(prisma, { id: bug.id })).get(bug.id) ?? null;
       intakeStage = confirmation?.stage ?? null;
@@ -720,6 +724,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         listIdeaVerdicts({ tenantId: bug.tenantId, projectId: bug.projectId }, sourceIdea.id),
       )
     : null;
+  // #issue-confirmations: at Requires confirmation the issue takes confirmation entries, not comments.
+  const confirming = !bug.isDeleted && bug.status === "requires_confirmation";
+  const confirmationsData: ConfirmationsData | null = confirming
+    ? await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
+        listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
+      )
+    : null;
+  const confirmationBlock: ConfirmationBlock =
+    bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
   const isAssignee = !!userId && bug.assigneeId === userId;
   const canUpdateStatus = canTriage || isAssignee;
   const canEdit =
@@ -1085,7 +1098,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       <StageConversationCount counts={stageCommentCounts} fallback={comments.visibleCount} />
                     </span>
                   </h2>
-                  {bug.isDeleted ? null : (
+                  {bug.isDeleted || confirming ? null : (
                     <AddCommentDialog
                       bugId={bug.id}
                       users={commentMentionUsers}
@@ -1109,6 +1122,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   }
                   confirmation={confirmation}
                 />
+                {confirmationsData ? (
+                  <IssueConfirmationsPanel
+                    bugId={bug.id}
+                    data={confirmationsData}
+                    viewerId={user.id}
+                    block={confirmationBlock}
+                    summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
+                  />
+                ) : null}
                 {comments.hiddenThreads > 0 ? (
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
                     <span>

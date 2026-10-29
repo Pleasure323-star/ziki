@@ -78,13 +78,13 @@ describe("the work feed", () => {
     expect((await work("dana")).ask.join(" ")).toMatch(/convert/);
     const { issueId } = await ok("dana", "convert-idea", { id: idea });
     const confirmItem = itemFor((await work("cara")).items, "confirm_issue", issueId);
-    expect(confirmItem?.actions.map((action) => action.name)).toEqual(["validate_issue", "check_duplicate"]);
+    expect(confirmItem?.actions.map((action) => action.name)).toEqual(["confirm_issue"]);
     expect(itemFor((await work("cara")).items, "idea", idea)).toBeUndefined();
   });
 
   it("lists offers to the agent and then its claim, with what to do next", async () => {
     const issue = await fileIssue("ada", "Work feed: an issue to offer", ["bob", "cara", "eli"]);
-    await confirm(issue, ["bob", "cara"], "dana");
+    await confirm(issue, ["bob", "cara"]);
 
     // A confirmed issue is listed to take; it is offered once an agent asks.
     expect(await offeredTo(issue)).toBeNull();

@@ -15,7 +15,7 @@ const acceptOffer = vi.hoisted(() => vi.fn());
 const scheduleOfferExpiry = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
-vi.mock("@/lib/agent-api/validation", () => ({ isConfirmed }));
+vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/redesigns", () => ({ assertRedesignOpen: vi.fn() }));

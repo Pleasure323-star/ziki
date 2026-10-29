@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   bug: { findMany: vi.fn() },
-  issueValidation: { findMany: vi.fn() },
+  issueConfirmation: { findMany: vi.fn() },
   workflow: { findFirst: vi.fn() },
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@/lib/workflow", () => ({
     offerWindowSeconds: 1800,
   })),
 }));
-vi.mock("@/lib/agent-api/validation", () => ({
+vi.mock("@/lib/agent-api/confirmations", () => ({
   isConfirmed: vi.fn(async () => true),
 }));
 // The merge queue reads confirmation in one bulk call (#714); these are confirmed.
@@ -212,8 +212,8 @@ describe("Role-based discovery functions", () => {
 
       // Readiness comes from one confirmation read; only ready ids reach the query (#714).
       const confirmations = new Map([
-        ["bug-4", { stage: "ready" as const, accepts: 2, needed: 2, triageCleared: true }],
-        ["bug-5", { stage: "confirming" as const, accepts: 1, needed: 2, triageCleared: false }],
+        ["bug-4", { stage: "ready" as const, accepts: 2, rejects: 0, needed: 2 }],
+        ["bug-5", { stage: "confirming" as const, accepts: 1, rejects: 0, needed: 2 }],
       ]);
       const issues = await findClaimableIssues(contributor, "p1", 25, confirmations);
       expect(issues).toHaveLength(1);
@@ -225,7 +225,7 @@ describe("Role-based discovery functions", () => {
     });
 
     it("returns nothing without querying issues when none is ready", async () => {
-      const confirmations = new Map([["bug-5", { stage: "confirming" as const, accepts: 0, needed: 2, triageCleared: false }]]);
+      const confirmations = new Map([["bug-5", { stage: "confirming" as const, accepts: 0, rejects: 0, needed: 2 }]]);
       await expect(findClaimableIssues(contributor, "p1", 25, confirmations)).resolves.toEqual([]);
       expect(db.bug.findMany).not.toHaveBeenCalled();
     });

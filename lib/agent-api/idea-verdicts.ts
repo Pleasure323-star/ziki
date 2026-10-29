@@ -11,6 +11,7 @@ import { IDEA_CONTRIBUTION_POINTS, ideaContributionSourceKey } from "@/lib/point
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
+import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary, sentenceCount } from "@/lib/agent-api/entry-fields";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -26,14 +27,9 @@ import { createdSummary } from "@/lib/activity-log";
  * the issue is then confirmed on its own.
  */
 
-export const IDEA_SUMMARY_MAX_CHARS = 300;
+export const IDEA_SUMMARY_MAX_CHARS = ENTRY_SUMMARY_MAX_CHARS;
 export const MAX_IDEA_VOTES = 5;
-const DESCRIPTION_MAX_CHARS = 10_000;
-
-/** Sentences end in `.`, `!` or `?` followed by a space or the end. */
-export function sentenceCount(text: string): number {
-  return text.trim().split(/(?<=[.!?])\s+/).filter((part) => part.trim()).length;
-}
+export { sentenceCount };
 
 const id = z.string().trim().min(1).max(191);
 
@@ -49,13 +45,8 @@ export const ideaVerdictFields = z
     projectId: id.optional(),
     opinion: z.enum(["good", "bad", "neutral"]),
     votes: z.number().int().min(1).max(MAX_IDEA_VOTES).optional(),
-    summary: z
-      .string()
-      .trim()
-      .min(1, "Add a summary.")
-      .max(IDEA_SUMMARY_MAX_CHARS, `Keep the summary under ${IDEA_SUMMARY_MAX_CHARS} characters.`)
-      .refine((text) => sentenceCount(text) <= 2, "Keep the summary to two sentences."),
-    description: z.string().trim().min(1, "Add a description explaining your verdict.").max(DESCRIPTION_MAX_CHARS),
+    summary: entrySummary,
+    description: entryDescription,
   })
   .strict();
 

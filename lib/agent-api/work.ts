@@ -112,7 +112,8 @@ type IssueRef = { id: string; number: number; title: string };
 type IssueFacts = ReviewedBug & {
   createdByAgentId: string | null;
   pullRequestUrl: string | null;
-  validatorOwners: { kind: string; ownerUserId: string; onBehalfOfUserId: string }[];
+  /** Who already gave a confirmation entry that still stands (after the latest edit, not undone). */
+  confirmerOwners: string[];
   testerOwners: { ownerUserId: string; pullRequestUrl: string | null }[];
 };
 
@@ -122,9 +123,6 @@ type IdeaFacts = ReviewedBug & {
   verdictOwners: string[];
 };
 
-/** What a converted issue still needs before it is ready (#idea-verdicts). */
-type ConfirmNeed = "validation" | "duplicate_check";
-
 export type ProjectWork = {
   tenantId: string;
   project: { id: string; slug: string; name: string };
@@ -133,7 +131,7 @@ export type ProjectWork = {
   /** Open ideas at or past the project's threshold, waiting for a manager agent to convert them. */
   toConvert: (IssueRef & { score: number })[];
   /** Converted issues still being confirmed. */
-  toConfirm: (IssueRef & { needs: ConfirmNeed[] })[];
+  toConfirm: (IssueRef & { confirmations: number; needed: number })[];
   ideaThreshold: number;
   tests: (IssueRef & { pullRequestUrl: string | null })[];
   ready: (IssueRef & { voteCount: number; severity: string })[];
@@ -208,12 +206,9 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
       select: { id: true, number: true, title: true },
     })
     : [];
-  const toConfirm = confirmingRows.map((bug): IssueRef & { needs: ConfirmNeed[] } => {
+  const toConfirm = confirmingRows.map((bug) => {
     const confirmation = confirmations.get(bug.id)!;
-    const needs: ConfirmNeed[] = [];
-    if (confirmation.accepts < confirmation.needed) needs.push("validation");
-    if (!confirmation.triageCleared) needs.push("duplicate_check");
-    return { ...bug, needs };
+    return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
   });
 
   const toConvert = await convertibleIdeas(tenantId, project.id, workflow.ideaThreshold);
@@ -307,7 +302,8 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
       pullRequestUrl: true,
       createdByAgent: { select: { ownerUserId: true } },
       claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
-      validations: { select: { kind: true, onBehalfOfUserId: true, agent: { select: { ownerUserId: true } } } },
+      confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, agent: { select: { ownerUserId: true } } } },
+      revisions: { orderBy: { editedAt: "desc" }, take: 1, select: { editedAt: true } },
       testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true } } } },
     },
   });
@@ -322,7 +318,10 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
         createdByAgent: bug.createdByAgent,
         pullRequestUrl: bug.pullRequestUrl,
         claims: bug.claims,
-        validatorOwners: bug.validations.map((v) => ({ kind: v.kind, ownerUserId: v.agent.ownerUserId, onBehalfOfUserId: v.onBehalfOfUserId })),
+        // An entry given before the latest edit no longer counts, so its giver is asked again.
+        confirmerOwners: bug.confirmations
+          .filter((c) => !bug.revisions[0] || c.updatedAt > bug.revisions[0].editedAt)
+          .flatMap((c) => [c.onBehalfOfUserId, ...(c.agent ? [c.agent.ownerUserId] : [])]),
         testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, pullRequestUrl: v.pullRequestUrl })),
       },
     ]),
@@ -469,20 +468,21 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   for (const issue of work.toConfirm) {
     if (!independent(issue.id)) continue;
     const facts = work.facts.get(issue.id);
-    const validated = (kind: string) => facts?.validatorOwners.some((v) => v.kind === kind && (v.ownerUserId === owner || v.onBehalfOfUserId === owner)) ?? false;
-    const actions: WorkAction[] = [];
-    if (issue.needs.includes("validation") && !validated("real")) {
-      actions.push({ name: "validate_issue", minimumRole: "working", method: "POST", path: apiPath(issue.id, "validations", pid), cli: `validate-issue --id ${issue.id} --kind real --verdict accept|reject --severity low|medium|high|critical` });
-    }
-    if (issue.needs.includes("duplicate_check") && !validated("duplicate")) {
-      actions.push({ name: "check_duplicate", minimumRole: "working", method: "POST", path: apiPath(issue.id, "validations", pid), cli: `validate-issue --id ${issue.id} --kind duplicate --verdict reject` });
-    }
-    if (!actions.length) continue;
+    if (facts?.confirmerOwners.includes(owner)) continue;
+    const actions: WorkAction[] = [
+      {
+        name: "confirm_issue",
+        minimumRole: "working",
+        method: "POST",
+        path: apiPath(issue.id, "confirmations", pid),
+        cli: `confirm-issue --id ${issue.id} --verdict confirm|reject|neutral --summary <two sentences at most> --description <why, in full> [--severity low|medium|high|critical] [--duplicate-of-id <issue>]`,
+      },
+    ];
     items.push({
       kind: "confirm_issue",
       key: `confirm_issue:${issue.id}`,
       title: `Confirm issue #${issue.number}`,
-      detail: "Converted from an idea. Check it is real and not a duplicate; once confirmed it can be offered.",
+      detail: `Converted from an idea. Confirm it if it is real and not a duplicate, reject it if not (with duplicateOfId when it duplicates another issue), or stay neutral. Give a summary of at most two sentences and a full description. ${issue.confirmations} of ${issue.needed} confirmations so far; once confirmed it can be offered.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),

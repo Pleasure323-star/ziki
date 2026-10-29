@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { confirm, feedItem, fileIdea, offeredTo, ok, refused, type Agent } from "./helpers";
+import { confirm, feedItem, fileIdea, offeredTo, ok, refused, ziki, type Agent } from "./helpers";
 
 /**
  * One report from idea to merge, through the CLI, with each agent class doing
@@ -32,7 +32,7 @@ describe("a report from idea to merge", () => {
 
   it("takes verdicts, not upvotes or confirmations, while it is an idea", async () => {
     await refused("bob", "vote", { id }, 404);
-    await refused("bob", "validate-issue", { id, kind: "real", verdict: "accept", severity: "high" }, 404);
+    await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it." }, 404);
     expect((await refused("ada", "give-idea-verdict", { id, opinion: "good", summary: "Mine.", description: "My own idea." }, 403)).error).toBe("own_idea");
     expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
   });
@@ -70,13 +70,42 @@ describe("a report from idea to merge", () => {
   });
 
   it("can't be confirmed by the agent that filed it", async () => {
-    const body = await refused("ada", "validate-issue", { id, kind: "real", verdict: "accept", severity: "high" }, 403);
-    expect(body.error).toBe("creator_cannot_validate");
+    const body = await refused("ada", "confirm-issue", { id, verdict: "confirm", summary: "Mine.", description: "My own issue." }, 403);
+    expect(body.error).toBe("creator_cannot_confirm");
   });
 
-  it("is confirmed by two independent owners plus a duplicate clearance, then ready without upvotes", async () => {
-    await confirm(id, ["bob", "cara"], "eli");
+  it("refuses a bare verdict, and the retired validations route points to confirmations", async () => {
+    const { projectId } = (await ok("bob", "get-issue", { id })).issue;
+    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/confirmations?projectId=${projectId}`, "--body", JSON.stringify({ verdict: "confirm" }), "--as", "bob");
+    expect(bare.code).toBe(1);
+    expect(bare.out + bare.err).toMatch(/invalid_request/);
+    const gone = await ziki("request", "POST", `/api/v1/issues/${id}/validations`, "--body", JSON.stringify({ kind: "real", verdict: "accept" }), "--as", "bob");
+    expect(gone.code).toBe(1);
+    expect(gone.out + gone.err).toMatch(/confirmations/);
+  });
+
+  it("takes one entry per person, replaced when given again; neutral counts for nothing", async () => {
+    const neutral = await ok("eli", "confirm-issue", { id, verdict: "neutral", summary: "Can't tell.", description: "I could not reproduce it, but I only tried once." });
+    expect(neutral).toMatchObject({ replaced: false, confirmed: false, confirmations: 0, confirmationsNeeded: 2 });
+    const reject = await ok("bob", "confirm-issue", { id, verdict: "reject", summary: "Not real.", description: "Works for me on Chrome." });
+    expect(reject).toMatchObject({ replaced: false, confirmed: false, confirmations: 0 });
+    const listed = await ok("cara", "list-confirmations", { id });
+    expect(listed).toMatchObject({ confirmations: 0, rejections: 1, confirmationsNeeded: 2, confirmed: false });
+    expect(listed.entries).toHaveLength(2);
+    const entryId = listed.entries.find((entry: { verdict: string }) => entry.verdict === "reject").id;
+    const reply = await ok("cara", "comment", { id, body: "Try Firefox: it fails there.", confirmationId: entryId });
+    expect(reply.comment).toMatchObject({ confirmationId: entryId, parentId: null });
+    const relisted = await ok("ada", "list-confirmations", { id });
+    expect(relisted.entries.find((entry: { id: string }) => entry.id === entryId).replies).toHaveLength(1);
+  });
+
+  it("is confirmed by two independent owners, then ready without upvotes", async () => {
+    // bob turns his reject into a confirm: one entry per person, replaced.
+    await confirm(id, ["bob", "cara"]);
     expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, stage: "ready" });
+    expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(3);
+    // Entries belong to Requires confirmation: an Open issue takes none.
+    expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
   });
 
   it("waits for bids or dispatch once ready: nobody is offered it automatically", async () => {

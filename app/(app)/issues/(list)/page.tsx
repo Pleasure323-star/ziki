@@ -89,7 +89,7 @@ import { IssuesToolsToggle } from "@/components/issues-tools-toggle";
 import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
 import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
-import { openIssueStages, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
+import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
 import { voteDirection } from "@/lib/voting";
 import { issuePath } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
@@ -123,9 +123,9 @@ const IDEAS_LIMIT = 100;
 const DESIGN_WHERE = { some: { status: "proposed" } } satisfies Prisma.RedesignProposalListRelationFilter;
 const AGENT_ORDER = { waiting: 0, working: 1, idle: 2, offline: 3 } as const;
 
-/** `?status=rejected`: a reviewer agent found the issue isn't real (#1122). */
+/** `?status=rejected`: someone's confirmation entry rejected the issue (#1122, #issue-confirmations). */
 const REJECTED_STATUS = "rejected";
-const REJECTED_WHERE = { some: { kind: "real", verdict: "reject" } } satisfies Prisma.IssueValidationListRelationFilter;
+const REJECTED_WHERE = { some: { verdict: "reject", undoneAt: null } } satisfies Prisma.IssueConfirmationListRelationFilter;
 /** `?status=duplicate`: marked as a duplicate of another issue. */
 const DUPLICATE_STATUS = "duplicate";
 /**
@@ -386,7 +386,7 @@ export default async function BugsPage({
   const isIdeasView = inboxView !== null && IDEA_VIEWS.includes(inboxView);
   if (isIdeasView) where.id = { in: [] };
   if (statusParam === REJECTED_STATUS && !isDeletedView) {
-    where.validations = REJECTED_WHERE;
+    where.confirmations = REJECTED_WHERE;
   }
   if (statusParam === DUPLICATE_STATUS && !isDeletedView) {
     where.duplicateOfId = { not: null };
@@ -455,9 +455,13 @@ export default async function BugsPage({
     ? null
     : parseIssueStageView(toSingleQueryParam(params.stage));
   let stages = new Map<string, IssueStage>();
+  // How many independent people confirmed each open issue, under the one rule (#issue-confirmations).
+  let confirmationCounts = new Map<string, number>();
   if (!isDeletedView) {
     try {
-      stages = await openIssueStages(prisma, where);
+      const confirmations = await openIssueConfirmations(prisma, where);
+      stages = new Map([...confirmations].map(([id, c]) => [id, c.stage]));
+      confirmationCounts = new Map([...confirmations].map(([id, c]) => [id, c.accepts]));
     } catch (error) {
       console.error("[bugs] issue stage lookup failed", error);
     }
@@ -485,7 +489,7 @@ export default async function BugsPage({
     status: _selectedStatus,
     id: _stageIds,
     agentQuestions: _escalated,
-    validations: _rejected,
+    confirmations: _rejected,
     duplicateOfId: _duplicate,
     redesigns: _design,
     reviewStatus: _review,
@@ -734,15 +738,6 @@ export default async function BugsPage({
 
   const bugIds = bugs.map((bug) => bug.id);
 
-  // "Confirmed (3)": how many bots (reviewer agents) accepted each issue as real.
-  const botConfirmations = new Map(
-    (bugIds.length === 0 ? [] : await loadOrEmpty("bot confirmations", () => prisma.issueValidation.groupBy({
-      by: ["bugId"],
-      where: { bugId: { in: bugIds }, kind: "real", verdict: "accept" },
-      _count: { _all: true },
-    }), [])).map((row) => [row.bugId, row._count._all] as const),
-  );
-
   // #289: filtering on one milestone shows its progress above the list.
   let milestoneSummary: Awaited<ReturnType<typeof loadMilestoneSummaries>>[number] | null = null;
   if (selectedMilestone && selectedMilestone !== "none") {
@@ -826,7 +821,7 @@ export default async function BugsPage({
       where: { ...statusTabWhere, status: defaultStatusWhere(false), agentQuestions: ESCALATED_WHERE },
     }), 0),
     loadOrEmpty("rejected filter", () => prisma.bug.count({
-      where: { ...statusTabWhere, validations: REJECTED_WHERE },
+      where: { ...statusTabWhere, confirmations: REJECTED_WHERE },
     }), 0),
     loadOrEmpty("duplicate filter", () => prisma.bug.count({
       where: { ...statusTabWhere, duplicateOfId: { not: null } },
@@ -1203,7 +1198,7 @@ export default async function BugsPage({
                       ? { person: claim?.beneficiary?.name ?? bug.assignee?.name ?? null, since: claim ? (claim.claimedAt ?? claim.createdAt) : null }
                       : null;
                     const rowStatus = (
-                      <IssueRowStatus status={bug.status} stage={stage} botConfirmations={botConfirmations.get(bug.id) ?? 0} work={work}
+                      <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
                         mergePath={bug.reviewStatus === "merged" ? mergePathOf(bug) : null} />
                     );
 

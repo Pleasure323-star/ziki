@@ -24,7 +24,7 @@ const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer
   createdByAgent: { ownerUserId: "owner-ada" },
   pullRequestUrl: null,
   claims: [],
-  validatorOwners: [],
+  confirmerOwners: [],
   testerOwners: [],
   ...overrides,
 });
@@ -89,18 +89,16 @@ describe("itemsFor", () => {
     expect(items).toEqual([]);
   });
 
-  it("asks to confirm a converted issue, and drops it once the owner did both checks", () => {
-    const issue = { id: "b1", number: 7, title: "x", needs: ["validation", "duplicate_check"] as ("validation" | "duplicate_check")[] };
+  it("asks to confirm a converted issue at the confirmations route, and drops it once the owner gave an entry", () => {
+    const issue = { id: "b1", number: 7, title: "x", confirmations: 1, needed: 2 };
     const items = itemsFor(agent("working"), work({ toConfirm: [issue], facts: new Map([["b1", facts()]]) }), nothingMine);
     expect(items[0]).toMatchObject({ kind: "confirm_issue", canAct: true });
-    expect(items[0].actions.map((a) => a.name)).toEqual(["validate_issue", "check_duplicate"]);
+    expect(items[0].detail).toContain("1 of 2 confirmations");
+    expect(items[0].actions.map((a) => a.name)).toEqual(["confirm_issue"]);
+    expect(items[0].actions[0].path).toContain("/api/v1/issues/b1/confirmations");
+    expect(items[0].actions[0].cli).toContain("confirm-issue --id b1 --verdict confirm|reject|neutral --summary");
 
-    const done = facts({
-      validatorOwners: [
-        { kind: "real", ownerUserId: "owner-bob", onBehalfOfUserId: "owner-bob" },
-        { kind: "duplicate", ownerUserId: "owner-bob", onBehalfOfUserId: "owner-bob" },
-      ],
-    });
+    const done = facts({ confirmerOwners: ["owner-bob"] });
     expect(itemsFor(agent("working"), work({ toConfirm: [issue], facts: new Map([["b1", done]]) }), nothingMine)).toEqual([]);
   });
 

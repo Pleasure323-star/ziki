@@ -85,7 +85,7 @@ import {
 } from "@/lib/tenant-context";
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { awardSolver } from "@/lib/points/award";
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { correct } from "@/lib/points/correct";
 import { pointSourceKey } from "@/lib/points/rules";
 import {
@@ -1044,6 +1044,8 @@ export async function editBugContentAction(
     // none goes missing from the history.
     const [previous] = await tx.$queryRaw<{ title: string; description: string }[]>`
       SELECT "title", "description" FROM "Bug" WHERE "id" = ${bugId} FOR UPDATE`;
+    // Read before the revision below voids the confirmations.
+    const wasConfirmed = await isConfirmed(bugId, tx);
     await tx.bugRevision.create({
       data: {
         bugId,
@@ -1053,20 +1055,19 @@ export async function editBugContentAction(
       },
     });
 
-    // #713: Editing an issue invalidates confirmations and previous validations,
-    // and reverses any reporter points awarded for the replaced report.
+    // #713: Editing an issue voids its confirmations and reverses any
+    // reporter points awarded for the replaced report. The entries and their
+    // replies stay (a person wrote them), but only entries given after the
+    // latest edit count (lib/issue-stage.ts), so this revision clears them:
+    // each person gives theirs again to count.
     type OptionalTxExtensions = {
       pointEntry?: {
         findFirst?: (args: unknown) => Promise<{ id: string; tenantId: string; userId: string; bugId: string | null; role: "solver" | "reporter" | "reviewer"; points: number } | null>;
         update?: (args: unknown) => Promise<unknown>;
       };
-      issueValidation?: {
-        deleteMany?: (args: unknown) => Promise<unknown>;
-      };
     };
     const txExtensions = tx as unknown as OptionalTxExtensions;
 
-    const wasConfirmed = await isConfirmed(bugId, tx);
     if (wasConfirmed) {
       const recipientId = existing.beneficiaryUserId ?? existing.reporterId;
       const tenantId = existing.tenantId ?? (await currentTenantIdFor(userId));
@@ -1090,12 +1091,6 @@ export async function editBugContentAction(
           }
         }
       }
-    }
-
-    if (typeof txExtensions.issueValidation?.deleteMany === "function") {
-      await txExtensions.issueValidation.deleteMany({
-        where: { bugId },
-      });
     }
 
     await tx.bug.update({
@@ -1316,6 +1311,7 @@ export async function addCommentAction(
   const parsed = commentSchema.safeParse({
     body: formData.get("body"),
     parentId: formData.get("parentId") || undefined,
+    confirmationId: formData.get("confirmationId") || undefined,
     type: formData.get("type") || undefined,
     metadata,
   });
@@ -1343,6 +1339,19 @@ export async function addCommentAction(
 
   const parentId = parsed.data.parentId;
   let parentAuthorId: string | null = null;
+
+  // #issue-confirmations: a reply to a confirmation entry is a plain comment under it.
+  const confirmationId = parsed.data.confirmationId ?? null;
+  if (confirmationId) {
+    const entry = await prisma.issueConfirmation.findFirst({
+      where: { id: confirmationId, bugId },
+      select: { onBehalfOfUserId: true },
+    });
+    if (!entry) return { error: "That confirmation is not on this issue" };
+    if (parentId) return { error: "Reply to the confirmation itself" };
+    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a confirmation is a plain comment" };
+    parentAuthorId = entry.onBehalfOfUserId;
+  }
 
   if (parentId) {
     const parent = await prisma.comment.findUnique({
@@ -1385,6 +1394,7 @@ export async function addCommentAction(
         authorId: userId,
         body: normalizedBody,
         parentId: parentId ?? null,
+        confirmationId,
         type: parsed.data.type ?? "comment",
         metadata: parsed.data.metadata ? (parsed.data.metadata as Prisma.InputJsonValue) : undefined,
       },

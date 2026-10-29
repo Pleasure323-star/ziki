@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmationCount, isConfirmedCount, issueStage, parseIssueStageView } from "./issue-stage";
+import { confirmersOf, countedConfirmationEntries, isConfirmedCount, issueStage, markedDuplicate, parseIssueStageView, type ConfirmationEntry } from "./issue-stage";
 
 const bug = { beneficiaryUserId: "beneficiary", reporterId: "reporter", createdByAgent: null, claims: [] };
 
@@ -15,44 +15,58 @@ describe("issueStage", () => {
   });
 });
 
-describe("confirmationCount", () => {
-  it("excludes legacy reviews credited to the reporter from displayed confirmation counts", () => {
-    expect(confirmationCount({
-      createdByAgentId: "filer", undoneIds: new Set(), bug,
-      accepts: [
-        { id: "v1", agentId: "a", ownerUserId: "one", onBehalfOfUserId: "reporter" },
-        { id: "v2", agentId: "b", ownerUserId: "two", onBehalfOfUserId: "two" },
-      ],
-    })).toBe(1);
-  });
-  it("confirms on two independent owners", () => {
-    const count = confirmationCount({
-      createdByAgentId: "filer",
-      undoneIds: new Set(),
-      bug,
-      accepts: [
-        { id: "v1", agentId: "a", ownerUserId: "one" },
-        { id: "v2", agentId: "b", ownerUserId: "two" },
-      ],
-    });
-    expect(count).toBe(2);
-    expect(isConfirmedCount(count)).toBe(true);
+const at = (minute: number) => new Date(Date.UTC(2026, 11, 4, 10, minute));
+const entry = (id: string, overrides: Partial<ConfirmationEntry> = {}): ConfirmationEntry => ({
+  id,
+  verdict: "confirm",
+  duplicateOfId: null,
+  updatedAt: at(1),
+  undoneAt: null,
+  agentId: `agent-${id}`,
+  agentOwnerUserId: `owner-${id}`,
+  onBehalfOfUserId: `owner-${id}`,
+  ...overrides,
+});
+const reviewed = { ...bug, createdByAgentId: "filer" };
+
+describe("countedConfirmationEntries (#issue-confirmations)", () => {
+  it("excludes legacy entries credited to the reporter", () => {
+    const counted = countedConfirmationEntries([entry("v1", { onBehalfOfUserId: "reporter" }), entry("v2")], reviewed, null);
+    expect(confirmersOf(counted)).toEqual(["owner-v2"]);
   });
 
-  it("does not confirm two accepts from the same owner, the filer, or an undone review", () => {
-    const count = confirmationCount({
-      createdByAgentId: "filer",
-      undoneIds: new Set(["gone"]),
-      bug,
-      accepts: [
-        { id: "v1", agentId: "a", ownerUserId: "one" },
-        { id: "v2", agentId: "b", ownerUserId: "one" },
-        { id: "own", agentId: "filer", ownerUserId: "three" },
-        { id: "gone", agentId: "c", ownerUserId: "four" },
-        { id: "self", agentId: "d", ownerUserId: "reporter" },
+  it("confirms on two independent owners, people and agents alike", () => {
+    const counted = countedConfirmationEntries(
+      [entry("v1"), entry("person", { agentId: null, agentOwnerUserId: null, onBehalfOfUserId: "pat", updatedAt: at(2) })],
+      reviewed,
+      null,
+    );
+    expect(confirmersOf(counted)).toEqual(["owner-v1", "pat"]);
+    expect(isConfirmedCount(confirmersOf(counted).length)).toBe(true);
+  });
+
+  it("does not count a second agent of one owner, the filer, an undone entry, the reporter as a person, or one before the edit", () => {
+    const counted = countedConfirmationEntries(
+      [
+        entry("v1", { agentOwnerUserId: "one", onBehalfOfUserId: "one" }),
+        entry("v2", { agentOwnerUserId: "one", onBehalfOfUserId: "one-too" }),
+        entry("own", { agentId: "filer" }),
+        entry("gone", { undoneAt: at(2) }),
+        entry("self", { agentId: null, agentOwnerUserId: null, onBehalfOfUserId: "reporter" }),
+        entry("stale", { updatedAt: at(0) }),
       ],
-    });
-    expect(isConfirmedCount(count)).toBe(false);
+      reviewed,
+      at(0),
+    );
+    expect(counted.map((e) => e.id)).toEqual(["v1"]);
+    expect(isConfirmedCount(confirmersOf(counted).length)).toBe(false);
+  });
+
+  it("counts rejects apart from confirms; neutral is passed over by the caller's query, and a duplicate reject marks it", () => {
+    const counted = countedConfirmationEntries([entry("c1"), entry("r1", { verdict: "reject", duplicateOfId: "other" })], reviewed, null);
+    expect(confirmersOf(counted)).toEqual(["owner-c1"]);
+    expect(markedDuplicate(counted)).toBe(true);
+    expect(markedDuplicate(countedConfirmationEntries([entry("r2", { verdict: "reject" })], reviewed, null))).toBe(false);
   });
 });
 

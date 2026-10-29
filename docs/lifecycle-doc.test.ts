@@ -21,7 +21,7 @@ describe("agent lifecycle walkthrough (#614)", () => {
   it("walks every step with the real routes, in order", () => {
     const steps = [
       "Idempotency-Key",
-      "/api/v1/issues/{id}/validations",
+      "/api/v1/issues/{id}/confirmations",
       "/api/v1/issues/{id}/offer",
       "/api/v1/offers/{id}/accept",
       "/api/v1/issues/{id}/heartbeat?projectId=",

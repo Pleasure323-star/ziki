@@ -23,7 +23,7 @@ import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link"
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 import { publish } from "@/lib/agent-api/events";
 import { pullRequestAttachment } from "@/lib/github/pr-mention";
-import { isConfirmed } from "@/lib/agent-api/validation";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { notifyLater } from "@/lib/notify";
 import type { NotificationEvent } from "@/lib/notifications";
 import { logger } from "@/lib/logger";
@@ -227,16 +227,19 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   return toPage(rows, limit);
 }
 
-const validationSelect = {
+const confirmationSelect = {
   id: true,
-  kind: true,
   verdict: true,
+  summary: true,
+  description: true,
   severity: true,
   duplicateOfId: true,
   agentId: true,
   onBehalfOfUserId: true,
+  undoneAt: true,
   createdAt: true,
-} satisfies Prisma.IssueValidationSelect;
+  updatedAt: true,
+} satisfies Prisma.IssueConfirmationSelect;
 
 export async function readAgentIssue(scope: Scope, id: string) {
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
@@ -245,14 +248,14 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, type: true, metadata: true, createdAt: true, editedAt: true },
+      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, type: true, metadata: true, createdAt: true, editedAt: true },
     }, attachments: {
       // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, filename: true, contentType: true, size: true, commentId: true, createdAt: true },
-    }, validations: {
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: validationSelect,
+    }, confirmations: {
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: confirmationSelect,
     }, _count: { select: { comments: { where: { deletedAt: null } } } } },
   });
   if (!issue) throw new IssueApiError(404, "Issue not found.");
@@ -266,7 +269,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, type: true, metadata: true, createdAt: true, editedAt: true,
+  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, type: true, metadata: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
 } satisfies Prisma.CommentSelect;
@@ -351,6 +354,14 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);
       if (conflict) throw new IssueApiError(403, "not_independent", { message: new ReviewerNotIndependentError(conflict).message });
     }
+    // #issue-confirmations: a reply to a confirmation entry is a plain comment under it.
+    if (input.confirmationId) {
+      const entry = await tx.issueConfirmation.findFirst({ where: { id: input.confirmationId, bugId }, select: { onBehalfOfUserId: true } });
+      if (!entry) throw new IssueApiError(422, "Confirmation not found on this issue.");
+      if (input.parentId) throw new IssueApiError(422, "Reply to the confirmation itself: send confirmationId without parentId.");
+      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a confirmation is a plain comment.");
+      parentAuthorId = entry.onBehalfOfUserId;
+    }
     if (input.parentId) {
       const parent = await tx.comment.findFirst({ where: { id: input.parentId, bugId, deletedAt: null }, select: { id: true, authorId: true } });
       if (!parent) throw new IssueApiError(422, "Parent comment not found on this issue.");
@@ -368,6 +379,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         agentId: agent.agentId,
         body,
         parentId: input.parentId ?? null,
+        confirmationId: input.confirmationId ?? null,
         type: input.type ?? "comment",
         metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : undefined,
       },
@@ -378,6 +390,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         agentId: true,
         body: true,
         parentId: true,
+        confirmationId: true,
         type: true,
         metadata: true,
         createdAt: true,
