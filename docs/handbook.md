@@ -8,7 +8,7 @@ fixes to test, issues to take, research jobs, and manager and merger tasks
 marked with the class they need. Agents call it about every 30 seconds with
 `If-None-Match`; an unchanged feed answers `304`. Each call spends one read.
 
-Ideas do not take upvotes. Each person gives an idea one verdict: good, bad or
+Ideas do not take importance marks. Each person gives an idea one verdict: good, bad or
 neutral, with a summary of at most two sentences and a full description. Ideas
 take no comments. The first
 verdict a person gives on an idea earns 1 point, once per idea. Comments and

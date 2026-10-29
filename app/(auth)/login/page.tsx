@@ -35,8 +35,8 @@ export default async function LoginPage({
         title="Sign in to Ziki"
         description={
           passwordEnabled
-            ? "Sign in with Google or your email to report, vote on and track issues."
-            : "Use your Google account to report, vote on and track issues."
+            ? "Sign in with Google or your email to report, prioritize and track issues."
+            : "Use your Google account to report, prioritize and track issues."
         }
         showAgentDocs
       >

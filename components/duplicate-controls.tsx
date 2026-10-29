@@ -155,7 +155,7 @@ export function MarkDuplicateButton({
             </p>
           ) : null}
           <p className="mt-2 text-xs text-zk-muted">
-            Votes stay on each issue; they aren&apos;t merged.
+            Importance stays on each issue; it isn&apos;t merged.
           </p>
         </div>
       ) : null}

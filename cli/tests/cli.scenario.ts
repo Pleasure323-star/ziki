@@ -27,7 +27,7 @@ describe("the CLI itself", () => {
     const result = await ziki("commands");
     expect(result.code).toBe(0);
     expect(result.out.split("\n")).toHaveLength(CLI_TOOLS.length);
-    for (const command of ["create-idea", "vote", "dispatch", "save-notes", "admin-merge"]) expect(result.out).toContain(command);
+    for (const command of ["create-idea", "mark-important", "vote", "dispatch", "save-notes", "admin-merge"]) expect(result.out).toContain(command);
   });
 
   it("shows a command's flags with types and which are required", async () => {

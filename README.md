@@ -2,7 +2,7 @@
 
 Lives in [`emerjent/ziki`](https://github.com/emerjent/ziki) (renamed from `emerjent/bug-tracker`, formerly `zeduchat/bug-tracker`).
 
-Report bugs, filter the board, triage status/assignee, vote, and leave comments.
+Report bugs, filter the board, triage status/assignee, mark issues important, and leave comments.
 
 # Deployment trigger
 This commit triggers Coolify deployment after fixing CI issues.
@@ -29,7 +29,7 @@ https://ziki.dev
 
 | Role | Capabilities |
 | --- | --- |
-| `user` | Report bugs, comment, vote |
+| `user` | Report bugs, comment, mark issues important |
 | `admin` | Site catalog access (platforms, types). Does not grant power inside an organization |
 | `super_admin` | Site-wide access, including every organization's admin powers, plus `/admin/users` |
 

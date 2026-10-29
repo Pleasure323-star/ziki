@@ -66,7 +66,7 @@ describe("where it's used", () => {
       }),
     );
     expect(out).toContain('alt=""');
-    expect(out).toContain('aria-label="1 reaction"');
+    expect(out).toContain('aria-label="1 person marked this important"');
     expect(out).not.toContain('alt="Ada Lovelace"');
   });
 });

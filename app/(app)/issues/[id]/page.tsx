@@ -57,6 +57,8 @@ import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVe
 import { GoalBudgetSection } from "@/components/goal-budgets";
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
+import { ImportanceReasons } from "@/components/importance-reasons";
+import { fetchImportanceReasons, type ImportanceReason } from "@/lib/importance-marks";
 import { type IdeaVerdictsData } from "@/components/idea-verdicts";
 import { listIdeaVerdicts } from "@/lib/agent-api/idea-verdicts";
 import { UpdateIssueForm } from "@/components/update-issue-form";
@@ -403,6 +405,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     : [];
   const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
 
+  // #importance: started now, read after the batch below, so it runs alongside it.
+  const importanceReasonsLoad = loadOptional<ImportanceReason[]>("importance reasons", [], () => fetchImportanceReasons(bug.id));
   const [users, categories, areas, types, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
     await Promise.all([
       canTriage
@@ -642,6 +646,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           : Promise.resolve(null)),
       ),
     ]);
+  const importanceReasons = await importanceReasonsLoad;
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
@@ -862,7 +867,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               </Link>
             )}{" "}
             <span>({statusLabels[bug.duplicateOf.status]})</span>.{" "}
-            Follow and vote there instead. It&apos;s hidden from the issues list.
+            Follow it and mark it important there instead. It&apos;s hidden from the issues list.
           </p>
           {canTriage ? (
             <div className="flex shrink-0 items-center gap-1 print:hidden">
@@ -946,7 +951,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         </section>
       ) : null}
 
-      {/* Header: number + title, status language, vote */}
+      {/* Header: number + title, status language, importance */}
       <div className="flex flex-col gap-3.5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-[1_1_600px] space-y-3">
@@ -1008,6 +1013,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             />
           </div>
         </div>
+        <ImportanceReasons reasons={importanceReasons} />
       </div>
 
       <div className="flex flex-wrap items-start gap-5">

@@ -85,5 +85,5 @@ export function tallyVoteGroups(
 
 /** #1059: what a downvote attempt is told. */
 export const DOWNVOTES_REMOVED_MESSAGE =
-  "Downvotes were removed. Upvote issues that matter, or say what's wrong in the conversation.";
+  "Downvotes were removed. Mark issues that matter as important, or say what's wrong in a reply.";
 

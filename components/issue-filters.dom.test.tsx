@@ -43,7 +43,7 @@ describe("Issues compact toolbar", () => {
   it("sorts through the existing URL navigation and retains active filters", () => {
     render(<IssueFilters compact />);
     fireEvent.click(screen.getByRole("button", { name: "Sort issues" }));
-    expect(screen.getByRole("radio", { name: "Top Votes" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Most important" })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: "Newest" }));
     expect(nav.push).toHaveBeenCalledWith("/issues?q=login&platform=web&sort=newest");
     expect(screen.queryByRole("dialog", { name: "Sort options" })).not.toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("Issues compact toolbar", () => {
   it("closes sort options with Escape and restores focus to the trigger", async () => {
     render(<IssueFilters compact />);
     fireEvent.click(screen.getByRole("button", { name: "Sort issues" }));
-    const selected = screen.getByRole("radio", { name: "Top Votes" });
+    const selected = screen.getByRole("radio", { name: "Most important" });
     await waitFor(() => expect(selected).toHaveFocus());
     fireEvent.keyDown(selected, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Sort options" })).not.toBeInTheDocument();

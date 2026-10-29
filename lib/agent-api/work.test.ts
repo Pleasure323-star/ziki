@@ -126,7 +126,7 @@ describe("itemsFor", () => {
 
   it("lists manager and merger work for a working agent without letting it act", () => {
     const project = work({
-      ready: [{ id: "b1", number: 1, title: "x", voteCount: 3, severity: "high" }],
+      ready: [{ id: "b1", number: 1, title: "x", importance: 3, voteCount: 3, severity: "high" }],
       toAccept: [{ id: "b2", number: 2, title: "y" }],
       toMerge: [{ id: "b3", number: 3, title: "z", reviewStatus: "ready_to_merge" }],
       facts: new Map([["b2", facts()], ["b3", facts()]]),
@@ -157,7 +157,7 @@ describe("itemsFor", () => {
       ...nothingMine,
       offers: [{ id: "o1", offeredAt, bug: { id: "b9", number: 9, title: "Offered" } }],
     };
-    const items = itemsFor(agent("working"), work({ ready: [{ id: "b1", number: 1, title: "x", voteCount: 3, severity: "high" }] }), mine);
+    const items = itemsFor(agent("working"), work({ ready: [{ id: "b1", number: 1, title: "x", importance: 3, voteCount: 3, severity: "high" }] }), mine);
     expect(items[0]).toMatchObject({ kind: "offer", key: "offer:o1", dueAt: "2026-10-29T10:30:00.000Z" });
     expect(items[0].actions[0]).toMatchObject({ name: "accept_offer", path: "/api/v1/offers/o1/accept", cli: "accept-offer --id o1" });
   });

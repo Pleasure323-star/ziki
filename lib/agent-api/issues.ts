@@ -222,7 +222,15 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   }
   const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
   const rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
-  return toPage(rows, limit);
+  return toPage(rows.map(withImportance), limit);
+}
+
+/**
+ * #importance: upvotes are now Importance. `importance` is the issue's total;
+ * `voteCount` stays as a deprecated copy so older clients keep working.
+ */
+export function withImportance<T extends { voteCount: number }>(row: T): T & { importance: number } {
+  return { ...row, importance: row.voteCount };
 }
 
 const confirmationSelect = {
@@ -259,12 +267,19 @@ export async function readAgentIssue(scope: Scope, id: string) {
       where: { withdrawnAt: null, awardedAt: null, agent: { revokedAt: null } },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, agentId: true, beneficiaryUserId: true, summary: true, description: true, createdAt: true, updatedAt: true },
+    }, votes: {
+      // #importance: the agents' marks, each with the reason it was given.
+      where: { agentId: { not: null }, value: { gt: 0 } },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      select: { userId: true, agentId: true, value: true, summary: true, description: true, createdAt: true, updatedAt: true },
     }, _count: { select: { comments: { where: { deletedAt: null } } } } },
   });
   if (!issue) throw new IssueApiError(404, "Issue not found.");
   const confirmed = await isConfirmed(issue.id);
+  const { votes, ...rest } = issue;
   return {
-    ...issue,
+    ...withImportance(rest),
+    importanceMarks: (votes ?? []).map(({ value, ...mark }) => ({ ...mark, weight: value })),
     confirmed,
     stage: issueStage({ status: issue.status }),
   };

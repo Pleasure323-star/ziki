@@ -15,17 +15,17 @@ describe("delete and restore copy (#692)", () => {
 
   it("says what is kept, with counts when known", () => {
     expect(retainedSummary(counts)).toBe(
-      "Its 3 comments, 5 votes and history are kept.",
+      "Its 3 comments, 5 importance marks and history are kept.",
     );
-    expect(retainedSummary()).toBe("Its comments, votes and history are kept.");
+    expect(retainedSummary()).toBe("Its comments, importance marks and history are kept.");
   });
 
   it("uses singular nouns for a count of one", () => {
     expect(retainedSummary({ comments: 1, votes: 1 })).toContain(
-      "1 comment, 1 vote and",
+      "1 comment, 1 importance mark and",
     );
     expect(retainedSummary({ comments: 0, votes: 0 })).toContain(
-      "0 comments, 0 votes",
+      "0 comments, 0 importance marks",
     );
   });
 
@@ -42,8 +42,8 @@ describe("delete and restore copy (#692)", () => {
   });
 
   it("mirrors the delete message when restoring", () => {
-    expect(restoreSummary(counts)).toContain("3 comments, 5 votes and history");
-    expect(restoreSummary()).toContain("comments, votes and history");
+    expect(restoreSummary(counts)).toContain("3 comments, 5 importance marks and history");
+    expect(restoreSummary()).toContain("comments, importance marks and history");
   });
 
   it("never claims a permanent delete", () => {
@@ -64,7 +64,7 @@ describe("deletionCounts (#1059)", () => {
     // 3 upvotes and 2 dislikes left over from before downvotes were removed.
     const counts = deletionCounts(4, { likes: bucket(3), dislikes: bucket(2) });
     expect(counts).toEqual({ comments: 4, votes: 3 });
-    expect(deletedSummary(counts)).toContain("4 comments, 3 votes and history are kept.");
+    expect(deletedSummary(counts)).toContain("4 comments, 3 importance marks and history are kept.");
   });
 
   it("matches an issue that never had a downvote", () => {

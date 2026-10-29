@@ -111,14 +111,14 @@ describe("the Show filter", () => {
 describe("order (most recent activity)", () => {
   it("defaults the watching view to recently updated, and leaves others alone", () => {
     expect(defaultSortFor("watching")).toBe("recently_updated");
-    expect(defaultSortFor("assigned")).toBe("top_votes");
-    expect(defaultSortFor(null)).toBe("top_votes");
+    expect(defaultSortFor("assigned")).toBe("importance");
+    expect(defaultSortFor(null)).toBe("importance");
   });
   it("still honours an explicit sort", () => {
     expect(parseBugSort("newest", defaultSortFor("watching"))).toBe("newest");
     expect(parseBugSort(undefined, defaultSortFor("watching"))).toBe("recently_updated");
     expect(parseBugSort("nonsense", defaultSortFor("watching"))).toBe("recently_updated");
-    expect(parseBugSort(undefined)).toBe("top_votes");
+    expect(parseBugSort(undefined)).toBe("importance");
   });
   it("can leave boosted issues out of the order", () => {
     const withBoost = getBugOrderBy("recently_updated");

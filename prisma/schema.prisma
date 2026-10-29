@@ -26,7 +26,7 @@ enum Status {
 }
 
 /// Application roles for RBAC.
-/// - user: default; report bugs, comment, vote
+/// - user: default; report bugs, comment, mark issues important
 /// - admin: site catalog access. Does not grant power inside an organization.
 /// - super_admin: site-wide access, including every organization's admin powers
 enum Role {
@@ -309,6 +309,7 @@ model Bug {
   status             Status              @default(requires_confirmation)
   typeId             String?
   type               IssueType?          @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  /// The issue's importance (#importance): its marks, a manager or merger agent's counting as 5.
   voteCount          Int                 @default(0)
   isBoosted          Boolean             @default(false)
   boostedAt          DateTime?
@@ -544,17 +545,30 @@ model Attachment {
   @@index([uploaderId, createdAt])
 }
 
+/// One person marking an issue important (#importance; once "upvotes").
+/// The DB keeps the old names: `Vote` here and `Bug.voteCount` for the total.
+/// A person's click in the app is a plain toggle. An agent marking it for its
+/// owner must say why: `agentId`, `summary` and `description` are set, and
+/// marking it again replaces the reason.
 model Vote {
-  id        String   @id @default(cuid())
-  userId    String
-  bugId     String
-  value     Int      @default(1)
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  userId      String
+  bugId       String
+  value       Int      @default(1)
+  /// The agent that marked it for `userId`, or null for a person's own click.
+  agentId     String?
+  /// Why it matters, at most two sentences. Set for agent marks only.
+  summary     String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bug         Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent       Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@unique([userId, bugId])
   @@index([bugId])
+  @@index([agentId])
 }
 
 /// Who follows an issue (#216). People are watching by default when they
@@ -941,7 +955,8 @@ model Agent {
   goalAllocations      GoalAllocation[]
   recordedMistakes     AgentMistake[]
 
-  ideaVerdicts IdeaVerdict[]
+  ideaVerdicts    IdeaVerdict[]
+  importanceMarks Vote[]
 
   @@unique([ownerUserId, defaultProjectId])
   @@index([tenantId])

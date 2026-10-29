@@ -37,8 +37,8 @@ const plural = (count: number, word: string) =>
  * counts it still says what is kept, just not how much.
  */
 export function retainedSummary(counts?: TicketDeletionCounts): string {
-  if (!counts) return "Its comments, votes and history are kept.";
-  return `Its ${plural(counts.comments, "comment")}, ${plural(counts.votes, "vote")} and history are kept.`;
+  if (!counts) return "Its comments, importance marks and history are kept.";
+  return `Its ${plural(counts.comments, "comment")}, ${plural(counts.votes, "importance mark")} and history are kept.`;
 }
 
 /**
@@ -57,8 +57,8 @@ export function deletedSummary(counts?: TicketDeletionCounts): string {
 /** What restoring does. Mirrors {@link deleteSummary}: what was hidden comes back as it was. */
 export function restoreSummary(counts?: TicketDeletionCounts): string {
   const kept = counts
-    ? `its ${plural(counts.comments, "comment")}, ${plural(counts.votes, "vote")} and history`
-    : "its comments, votes and history";
+    ? `its ${plural(counts.comments, "comment")}, ${plural(counts.votes, "importance mark")} and history`
+    : "its comments, importance marks and history";
   return `It will be visible to everyone who can see this organization's issues again, with ${kept} as they were.`;
 }
 

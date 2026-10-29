@@ -30,8 +30,8 @@ describe("a report from idea to merge", () => {
     await refused("bob", "get-issue", { id }, 404);
   });
 
-  it("takes verdicts, not upvotes or confirmations, while it is an idea", async () => {
-    await refused("bob", "vote", { id }, 404);
+  it("takes verdicts, not importance marks or confirmations, while it is an idea", async () => {
+    await refused("bob", "mark-important", { id, summary: "Matters.", description: "It matters." }, 404);
     await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it." }, 404);
     expect((await refused("ada", "give-idea-verdict", { id, opinion: "good", summary: "Mine.", description: "My own idea." }, 403)).error).toBe("own_idea");
     expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
@@ -106,6 +106,25 @@ describe("a report from idea to merge", () => {
     expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(3);
     // Entries belong to Requires confirmation: an Open issue takes none.
     expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
+  });
+
+  it("is marked important only with a reason, and /vote is the same (#importance)", async () => {
+    const projectId = (await ok("bob", "get-issue", { id })).issue.projectId;
+    for (const route of ["importance", "vote"]) {
+      const bare = await ziki("request", "POST", `/issues/${id}/${route}?projectId=${projectId}`, "--as", "bob");
+      expect(bare.code, `bare ${route}: ${bare.out}`).toBe(1);
+      expect(bare.json).toMatchObject({ status: 400, body: { error: "reason_required" } });
+    }
+    const marked = await ok("bob", "mark-important", { id, summary: "Blocks saving.", description: "Nobody can save a draft, so every edit is lost." });
+    expect(marked).toMatchObject({ important: true, importance: 1, voteCount: 1, changed: true, summary: "Blocks saving." });
+    // The old command is an alias, and marking again replaces the reason.
+    const remarked = await ok("bob", "vote", { id, summary: "Still blocks saving.", description: "Checked again: drafts are still lost." });
+    expect(remarked).toMatchObject({ important: true, importance: 1, changed: true });
+    const issue = (await ok("ada", "get-issue", { id })).issue;
+    expect(issue).toMatchObject({ importance: 1, voteCount: 1 });
+    expect(issue.importanceMarks).toEqual([expect.objectContaining({ summary: "Still blocks saving.", description: "Checked again: drafts are still lost." })]);
+    expect(await ok("bob", "unmark-important", { id })).toMatchObject({ important: false, importance: 0, changed: true });
+    expect(await ok("bob", "unvote", { id })).toMatchObject({ important: false, importance: 0, changed: false });
   });
 
   it("waits for bids or dispatch once ready: nobody is offered it automatically", async () => {

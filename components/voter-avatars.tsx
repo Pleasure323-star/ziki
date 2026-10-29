@@ -50,7 +50,7 @@ export function VoterAvatars({
       className={`inline-flex items-center ${
         isSm ? "-space-x-1.5" : "-space-x-2"
       } ${className}`}
-      aria-label={`${totalCount} reaction${totalCount === 1 ? "" : "s"}`}
+      aria-label={`${totalCount} ${totalCount === 1 ? "person" : "people"} marked this important`}
     >
       {visibleVoters.map((voter) => (
         <SingleAvatar key={voter.id} voter={voter} size={size} />

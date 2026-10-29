@@ -3,27 +3,28 @@ import type { Prisma } from "@prisma/client";
 export const BUG_SORT_OPTIONS = [
   "newest",
   "recently_updated",
-  "top_votes",
-  "lowest_votes",
+  "importance",
+  "least_important",
   "severity",
 ] as const;
 export type BugSortOption = (typeof BUG_SORT_OPTIONS)[number];
 
-export const DEFAULT_BUG_SORT: BugSortOption = "top_votes";
+/** #importance: upvotes are now Importance; the most important issues come first. */
+export const DEFAULT_BUG_SORT: BugSortOption = "importance";
 
 export const bugSortLabels: Record<BugSortOption, string> = {
   newest: "Newest",
   recently_updated: "Recently Updated",
-  top_votes: "Top Votes",
-  lowest_votes: "Lowest Votes",
+  importance: "Most important",
+  least_important: "Least important",
   severity: "Most Severe",
 };
 
 export const bugSortDescriptions: Record<BugSortOption, string> = {
   newest: "newest",
   recently_updated: "recently updated",
-  top_votes: "top votes",
-  lowest_votes: "lowest votes",
+  importance: "most important",
+  least_important: "least important",
   severity: "most severe",
 };
 
@@ -39,7 +40,7 @@ export const SEVERITY_RANK: Record<string, number> = {
   low: 0,
 };
 
-/** Sort key for bug lists: highest votes first, then most recently updated. */
+/** Sort key for bug lists: most important first, then most recently updated. */
 export type BugPopularitySortKey = {
   voteCount: number;
   updatedAt: Date | string;
@@ -77,21 +78,29 @@ export function parseBugSort(
   ) {
     return "severity";
   }
+  // #importance: `top_votes` and `lowest_votes` were the names before
+  // upvotes became Importance; old links keep working.
   if (
+    normalized === "importance" ||
+    normalized === "most_important" ||
+    normalized === "important" ||
     normalized === "top_votes" ||
     normalized === "top" ||
     normalized === "topvotes" ||
     normalized === "votes_desc"
   ) {
-    return "top_votes";
+    return "importance";
   }
   if (
+    normalized === "least_important" ||
+    normalized === "least_importance" ||
+    normalized === "importance_asc" ||
     normalized === "lowest_votes" ||
     normalized === "lowest" ||
     normalized === "lowestvotes" ||
     normalized === "votes_asc"
   ) {
-    return "lowest_votes";
+    return "least_important";
   }
   return fallback;
 }
@@ -114,13 +123,13 @@ export function getBugOrderBy(
           { voteCount: "desc" },
           { createdAt: "desc" },
         ];
-      case "top_votes":
+      case "importance":
         return [
           { voteCount: "desc" },
           { updatedAt: "desc" },
           { createdAt: "desc" },
         ];
-      case "lowest_votes":
+      case "least_important":
         return [
           { voteCount: "asc" },
           { updatedAt: "desc" },
@@ -235,12 +244,12 @@ export function sortBugs<T extends BugSortableItem>(
         return compareBugsByRecentlyUpdated(a, b);
       case "severity":
         return compareBugsBySeverity(a, b);
-      case "top_votes":
+      case "importance":
         return compareBugsByPopularity(
           { voteCount: a.voteCount, updatedAt: a.updatedAt ?? a.createdAt },
           { voteCount: b.voteCount, updatedAt: b.updatedAt ?? b.createdAt },
         );
-      case "lowest_votes":
+      case "least_important":
         return compareBugsByLowestVotes(
           { voteCount: a.voteCount, updatedAt: a.updatedAt ?? a.createdAt },
           { voteCount: b.voteCount, updatedAt: b.updatedAt ?? b.createdAt },

@@ -134,7 +134,8 @@ export type ProjectWork = {
   toConfirm: (IssueRef & { confirmations: number; needed: number })[];
   ideaThreshold: number;
   tests: (IssueRef & { pullRequestUrl: string | null })[];
-  ready: (IssueRef & { voteCount: number; severity: string })[];
+  /** `importance` is the issue's importance; `voteCount` is its deprecated copy (#importance). */
+  ready: (IssueRef & { importance: number; voteCount: number; severity: string })[];
   toAccept: IssueRef[];
   toMerge: (IssueRef & { reviewStatus: string | null })[];
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
@@ -221,7 +222,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
-    ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, voteCount: r.voteCount, severity: r.severity })),
+    ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, importance: r.voteCount, voteCount: r.voteCount, severity: r.severity })),
     toAccept: toAccept.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title, reviewStatus: t.reviewStatus })),
     jobs,

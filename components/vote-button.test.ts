@@ -34,8 +34,8 @@ describe("VoteButton read-only mode (#122)", () => {
       expect(html).toContain("3");
       expect(html).toContain(
         size === "sm"
-          ? 'aria-label="3 votes, voting unavailable"'
-          : 'aria-label="Upvote 3 votes, voting unavailable"',
+          ? 'aria-label="Importance 3, marking unavailable"'
+          : 'aria-label="Mark important 3, marking unavailable"',
       );
       expect(html).not.toContain("click to");
     });
@@ -52,8 +52,8 @@ describe("VoteButton read-only mode (#122)", () => {
       );
       expect(html).toContain(
         size === "sm"
-          ? 'aria-label="3 votes, upvoted, voting unavailable"'
-          : 'aria-label="Upvoted 3 votes, voting unavailable"',
+          ? 'aria-label="Importance 3, marked important, marking unavailable"'
+          : 'aria-label="Important 3, marking unavailable"',
       );
       expect(html).not.toContain("click to");
     });

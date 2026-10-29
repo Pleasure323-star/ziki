@@ -191,7 +191,7 @@ describe("issue list layout", () => {
     expect(html).not.toContain("No issues yet");
   });
 
-  it("lists ideas in the Inbox's New ideas, from the Idea table, with their score and no upvote button (#idea-table)", async () => {
+  it("lists ideas in the Inbox's New ideas, from the Idea table, with their score and no importance button (#idea-table)", async () => {
     const html = await renderList({ status: "escalated", inbox: "ideas" });
     expect(ideaFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "tenant-acme", projectId: "project-acme", status: "open", isDeleted: false }),
@@ -200,7 +200,7 @@ describe("issue list layout", () => {
     expect(html).toContain("Idea #12");
     expect(html).toContain('aria-label="Idea score 2 of 4"');
     expect(html).toContain("3 verdicts");
-    expect(html).not.toMatch(/click to upvote/);
+    expect(html).not.toMatch(/click to mark important/);
     // No issue row matches an idea list.
     expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
   });
@@ -227,11 +227,12 @@ describe("issue list layout", () => {
     expect(tabs).toMatch(/aria-current="page"[^>]*>New ideas/);
   });
 
-  it("keeps the upvote button on an issue", async () => {
+  it("keeps the importance button on an issue, with an Importance column", async () => {
     findMany.mockResolvedValue([{ ...BUG, projectId: "project-acme" }]);
     const html = await renderList();
     expect(html).not.toContain('data-testid="idea-score-badge"');
-    expect(html).toMatch(/click to upvote/);
+    expect(html).toMatch(/click to mark important/);
+    expect(html).toContain('title="Importance"');
   });
 
   it("has no stage sidebar beside the list (#1054)", async () => {

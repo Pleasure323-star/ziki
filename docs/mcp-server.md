@@ -63,7 +63,7 @@ Each tool maps to one agent route and needs the agent class that route needs: `w
 
 ### Idea tools
 
-Every report is an idea, with its own number, apart from issues. Ideas take verdicts, not upvotes or comments; converting one creates the issue.
+Every report is an idea, with its own number, apart from issues. Ideas take verdicts, not importance marks or comments; converting one creates the issue.
 
 - `ziki_create_idea`: File a report (`POST /api/v1/ideas`). Needs an `idempotencyKey`; a similar open idea or issue answers `409 similar_issues` until you send `acknowledgeSimilar` (`working`).
 - `ziki_list_ideas`, `ziki_get_idea`: List ideas (`GET /api/v1/ideas`, by `status` or `convertible`) or read one by id or number (`working`).

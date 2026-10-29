@@ -31,7 +31,7 @@ function renderVoteButton(
 
 function likeButton() {
   return screen.getByRole("button", {
-    name: /^(?:\d+ votes?|Upvote|Upvoted)/,
+    name: /^(?:Importance \d+|Mark important|Important)/,
   }) as HTMLButtonElement;
 }
 
@@ -155,20 +155,20 @@ describe("VoteButton optimistic update and rollback", () => {
 describe("VoteButton large size accessible name", () => {
   it("starts with the text it shows, so speech users can say what they see", () => {
     const { unmount } = render(<VoteButton bugId="b1" voteCount={2} size="md" />);
-    const button = screen.getByRole("button", { name: /^Upvote 2 votes$/ });
-    expect(button.textContent?.replace(/\s+/g, " ").trim()).toBe("Upvote 2");
+    const button = screen.getByRole("button", { name: /^Mark important 2$/ });
+    expect(button.textContent?.replace(/\s+/g, " ").trim()).toBe("Mark important 2");
     unmount();
     render(<VoteButton bugId="b1" voteCount={3} userVote={1} size="md" />);
-    expect(screen.getByRole("button", { name: /^Upvoted 3 votes, click to remove your vote$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Important 3, click to remove your mark$/ })).toBeTruthy();
   });
 });
 
 describe("VoteButton compact accessible name", () => {
   it.each([
-    { voteCount: 0, name: "0 votes, click to upvote" },
-    { voteCount: 1, name: "1 vote, click to upvote" },
-    { voteCount: 2, name: "2 votes, click to upvote" },
-    { voteCount: 3, userVote: 1, name: "3 votes, upvoted, click to remove" },
+    { voteCount: 0, name: "Importance 0, click to mark important" },
+    { voteCount: 1, name: "Importance 1, click to mark important" },
+    { voteCount: 2, name: "Importance 2, click to mark important" },
+    { voteCount: 3, userVote: 1, name: "Importance 3, marked important, click to remove" },
   ])("includes its visible count in '$name'", ({ voteCount, userVote, name }) => {
     render(<VoteButton bugId="b1" voteCount={voteCount} userVote={userVote} size="sm" />);
 

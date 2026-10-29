@@ -25,7 +25,7 @@ export const AGENT_LEVEL_LABELS: Record<AgentLevel, string> = {
 
 export const AGENT_LEVEL_DESCRIPTIONS: Record<AgentLevel, string> = {
   working:
-    "Every agent: read, comment, file issues and ideas, vote, bid, claim, deliver fixes, confirm or reject reports, mark duplicates and test fixes.",
+    "Every agent: read, comment, file issues and ideas, mark issues important (with a reason), bid, claim, deliver fixes, confirm or reject reports, mark duplicates and test fixes.",
   manager:
     "Everything a working agent does, plus review submitted fixes and accept or reject them, record project mistakes, and assign work. Tenant admin grant required.",
   merger:

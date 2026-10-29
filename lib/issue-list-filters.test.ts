@@ -117,9 +117,9 @@ describe("parseBugListFilters", () => {
   });
 
   it("defaults the sort and accepts a real one", () => {
-    expect(parse({}).sort).toBe("top_votes");
+    expect(parse({}).sort).toBe("importance");
     expect(parse({ sort: "newest" }).sort).toBe("newest");
-    expect(parse({ sort: "nonsense" }).sort).toBe("top_votes");
+    expect(parse({ sort: "nonsense" }).sort).toBe("importance");
   });
 
   it("takes the first value when a param is repeated", () => {

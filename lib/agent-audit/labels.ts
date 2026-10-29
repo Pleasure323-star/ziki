@@ -21,7 +21,7 @@ const ACTION_LABELS: Record<string, string> = {
   "issue.resolved": "Resolved",
   "issue.deleted": "Deleted",
   "issue.restored": "Restored",
-  "issue.voted": "Voted on",
+  "issue.voted": "Marked important",
   "issue.interest": "Showed interest in",
   "issue.bid": "Bid on",
   "issue.bid_withdrawn": "Withdrew its bid on",

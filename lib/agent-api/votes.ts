@@ -6,16 +6,40 @@ import { hasLevel } from "@/lib/agents/levels";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { MANAGER_VOTE_WEIGHT, reconcileVoteCount, tallyVoteGroups } from "@/lib/voting";
+import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
 
 const id = z.string().trim().min(1).max(191);
 
-/** Optional body. `projectId` may also arrive as a query parameter. */
-export const voteSchema = z.object({ projectId: id.optional() }).strict();
+/**
+ * #importance: an agent marking an issue important must say why, like every
+ * stage entry: a summary of at most two sentences and a full description.
+ * `projectId` may also arrive as a query parameter.
+ */
+export const importanceSchema = z.object({
+  projectId: id.optional(),
+  summary: entrySummary,
+  description: entryDescription,
+}).strict();
+
+/** Removing a mark takes no reason; the body is optional. */
+export const removeImportanceSchema = z.object({ projectId: id.optional() }).strict();
+
+/** @deprecated The old name, kept for the `/vote` alias. */
+export const voteSchema = importanceSchema;
+
+export type ImportanceReason = { summary: string; description: string };
+
+/** What a bare mark, or one with a bad reason, is told. */
+export const IMPORTANCE_REASON_REQUIRED =
+  "Say why this issue is important: send a summary (at most two sentences) and a description.";
 
 type Tx = Prisma.TransactionClient;
 
 export type AgentVoteResult = {
   voted: boolean;
+  /** The issue's importance after the call (same number as `voteCount`). */
+  importance: number;
+  /** @deprecated Use `importance`. */
   voteCount: number;
   /** True when this call changed the owner's vote. A repeat is false. */
   changed: boolean;
@@ -39,7 +63,7 @@ async function lockedIssue(tx: Tx, caller: AgentContext, projectId: string, bugI
 }
 
 /**
- * A manager or merger agent's upvote counts as MANAGER_VOTE_WEIGHT, except on
+ * A manager or merger agent's importance mark counts as MANAGER_VOTE_WEIGHT, except on
  * its owner's own report: independence is by owner, so nobody can push their
  * own idea past the upvote gate.
  */
@@ -62,44 +86,58 @@ async function recount(tx: Tx, bugId: string): Promise<number> {
 }
 
 /**
- * Records the agent's owner as an upvote. One person, one vote: another agent
- * of the same owner does not add a second upvote. A manager agent's upvote
- * counts as MANAGER_VOTE_WEIGHT (see `upvoteWeight`). Repeating the call
- * leaves the count unchanged.
+ * Marks the issue important for the agent's owner, with the agent's reason.
+ * One person, one mark: another agent of the same owner does not add a second
+ * one, it replaces the reason. A manager agent's mark counts as
+ * MANAGER_VOTE_WEIGHT (see `upvoteWeight`). Repeating the call with the same
+ * reason changes nothing; a new reason replaces the old one and leaves the
+ * count as it is.
  */
 export async function upvoteIssue(
   caller: AgentContext,
   projectId: string,
   bugId: string,
+  reason: ImportanceReason,
 ): Promise<AgentVoteResult> {
+  const summary = reason.summary.trim();
+  const description = reason.description.trim();
   return prisma.$transaction(async (tx) => {
     const issue = await lockedIssue(tx, caller, projectId, bugId);
     const weight = upvoteWeight(caller, issue);
     const existing = await tx.vote.findUnique({
       where: { userId_bugId: { userId: caller.ownerId, bugId } },
     });
-    if (existing?.value === weight) {
+    if (
+      existing?.value === weight &&
+      existing.agentId === caller.agentId &&
+      existing.summary === summary &&
+      existing.description === description
+    ) {
       const current = await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } });
-      return { voted: true, voteCount: current?.voteCount ?? 0, changed: false, weight };
+      const count = current?.voteCount ?? 0;
+      return { voted: true, importance: count, voteCount: count, changed: false, weight };
     }
+    const data = { value: weight, agentId: caller.agentId, summary, description };
     if (existing) {
-      await tx.vote.update({ where: { id: existing.id }, data: { value: weight } });
+      await tx.vote.update({ where: { id: existing.id }, data });
     } else {
-      await tx.vote.create({ data: { userId: caller.ownerId, bugId, value: weight } });
+      await tx.vote.create({ data: { userId: caller.ownerId, bugId, ...data } });
     }
-    const voteCount = await recount(tx, bugId);
+    const voteCount = existing?.value === weight
+      ? (await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } }))?.voteCount ?? 0
+      : await recount(tx, bugId);
     await publish(tx, {
       tenantId: caller.tenantId,
       type: "issue.voted",
       actorAgentId: caller.agentId,
       bugId,
-      payload: { issueId: bugId, projectId, userId: caller.ownerId, voteCount, voted: true, weight },
+      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance: voteCount, voteCount, voted: true, weight, summary },
     });
-    return { voted: true, voteCount, changed: true, weight };
+    return { voted: true, importance: voteCount, voteCount, changed: true, weight };
   });
 }
 
-/** Removes the owner's upvote. Repeating the call when there is none is a no-op. */
+/** Removes the owner's importance mark. Repeating the call when there is none is a no-op. */
 export async function removeUpvote(
   caller: AgentContext,
   projectId: string,
@@ -112,7 +150,8 @@ export async function removeUpvote(
     });
     if (!existing) {
       const issue = await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } });
-      return { voted: false, voteCount: issue?.voteCount ?? 0, changed: false, weight: 0 };
+      const count = issue?.voteCount ?? 0;
+      return { voted: false, importance: count, voteCount: count, changed: false, weight: 0 };
     }
     await tx.vote.delete({ where: { id: existing.id } });
     const voteCount = await recount(tx, bugId);
@@ -121,8 +160,8 @@ export async function removeUpvote(
       type: "issue.voted",
       actorAgentId: caller.agentId,
       bugId,
-      payload: { issueId: bugId, projectId, userId: caller.ownerId, voteCount, voted: false },
+      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance: voteCount, voteCount, voted: false },
     });
-    return { voted: false, voteCount, changed: true, weight: 0 };
+    return { voted: false, importance: voteCount, voteCount, changed: true, weight: 0 };
   });
 }

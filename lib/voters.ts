@@ -59,16 +59,16 @@ export function getOverflowVoters(
 
 /**
  * One line for assistive tech and the badge's label:
- * "Also voted: Ada, Bea and 2 others".
+ * "Also marked important: Ada, Bea and 2 others".
  */
 export function describeOverflowVoters({ names, others }: OverflowVoters): string {
   const othersText = `${others} ${others === 1 ? "other" : "others"}`;
-  if (names.length === 0) return `${othersText} voted`;
+  if (names.length === 0) return `${othersText} marked it important`;
   if (others === 0) {
-    if (names.length === 1) return `Also voted: ${names[0]}`;
-    return `Also voted: ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    if (names.length === 1) return `Also marked important: ${names[0]}`;
+    return `Also marked important: ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   }
-  return `Also voted: ${names.join(", ")} and ${othersText}`;
+  return `Also marked important: ${names.join(", ")} and ${othersText}`;
 }
 
 export function createEmptyVoterSummary(): BugVoterSummary {

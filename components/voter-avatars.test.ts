@@ -81,7 +81,7 @@ describe("VoterAvatars overflow badge (#408)", () => {
   it("has no badge when every voter has a face", () => {
     const out = render(people(3), 3);
     expect(out).not.toContain('role="button"');
-    expect(out).not.toContain("Also voted");
+    expect(out).not.toContain("Also marked important");
   });
 
   it("names the hidden voters, not just the count", () => {
@@ -90,7 +90,7 @@ describe("VoterAvatars overflow badge (#408)", () => {
     expect(out).toContain(">+8<");
     expect(out).not.toContain("8 more");
     expect(out).toContain(
-      'aria-label="Also voted: User 4, User 5, User 6, User 7, User 8, User 9, User 10 and User 11"',
+      'aria-label="Also marked important: User 4, User 5, User 6, User 7, User 8, User 9, User 10 and User 11"',
     );
     for (let i = 4; i <= 11; i++) expect(out).toContain(`<li class="break-words">User ${i}</li>`);
   });
@@ -113,7 +113,7 @@ describe("VoterAvatars overflow badge (#408)", () => {
     expect(out).toContain(">+37<");
     expect(out.match(/<li /g)).toHaveLength(10);
     expect(out).toContain(">and 27 others</p>");
-    expect(out).toContain('aria-label="Also voted: User 4,');
+    expect(out).toContain('aria-label="Also marked important: User 4,');
     expect(out).toContain('and 27 others"');
   });
 
@@ -133,7 +133,7 @@ describe("VoterAvatars overflow badge (#408)", () => {
   it("still makes sense when the hidden voters weren't loaded", () => {
     const out = render(people(3), 8);
     expect(out).toContain(">+5<");
-    expect(out).toContain('aria-label="5 others voted"');
+    expect(out).toContain('aria-label="5 others marked it important"');
     expect(out).not.toContain("<li ");
   });
 

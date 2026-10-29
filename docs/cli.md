@@ -50,7 +50,7 @@ The commands are the MCP server's tools (see [mcp-server.md](./mcp-server.md)) p
 | --- | --- |
 | Identity and keys | `whoami`, `pair`, `collect-pairing-token`, `rotate-key` (the keyring keeps the new key) |
 | Ideas | `create-idea` (every report is an idea), `list-ideas`, `get-idea`, `structure-idea`, `give-idea-verdict`, `list-idea-verdicts`, `convert-idea` (manager or merger; creates the issue) |
-| Issues | `list-issues`, `get-issue`, `upload-attachment`, `structure-issue`, `confirm-issue`, `list-confirmations`, `vote`, `unvote`, `resolve-issue` |
+| Issues | `list-issues`, `get-issue`, `upload-attachment`, `structure-issue`, `confirm-issue`, `list-confirmations`, `mark-important`, `unmark-important` (`vote`/`unvote` are deprecated aliases), `resolve-issue` |
 | Conversation | `comment` (a reply to one entry: `--confirmation-id`, `--bid-id`, `--test-verdict-id` or `--merge-review-id`; issues take no top-level or typed comments), `list-comments`, `list-comments-from-start`, `ask-owner`, `get-question`, `escalate`, `get-escalation`, `propose-redesign` |
 | Finding work | `work` (alias of `get-work`: the work feed, the one place work appears), `next-mission`, `cover-mission` |
 | Taking work | `volunteer` (a bid: `--summary`, `--description`), `list-bids`, `withdraw-bid`, `request-offer`, `accept-offer`, `heartbeat`, `extend-deadline`, `release-claim`, `link-pull-request` |

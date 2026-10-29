@@ -55,21 +55,21 @@ describe("getOverflowVoters (#408)", () => {
 
 describe("describeOverflowVoters (#408)", () => {
   it("joins names like a sentence", () => {
-    expect(describeOverflowVoters({ names: ["Ada"], others: 0 })).toBe("Also voted: Ada");
+    expect(describeOverflowVoters({ names: ["Ada"], others: 0 })).toBe("Also marked important: Ada");
     expect(describeOverflowVoters({ names: ["Ada", "Bea", "Cal"], others: 0 })).toBe(
-      "Also voted: Ada, Bea and Cal",
+      "Also marked important: Ada, Bea and Cal",
     );
   });
 
   it("adds the voters beyond the list", () => {
     expect(describeOverflowVoters({ names: ["Ada", "Bea"], others: 1 })).toBe(
-      "Also voted: Ada, Bea and 1 other",
+      "Also marked important: Ada, Bea and 1 other",
     );
-    expect(describeOverflowVoters({ names: ["Ada"], others: 5 })).toBe("Also voted: Ada and 5 others");
+    expect(describeOverflowVoters({ names: ["Ada"], others: 5 })).toBe("Also marked important: Ada and 5 others");
   });
 
   it("falls back to a count when no names were loaded", () => {
-    expect(describeOverflowVoters({ names: [], others: 5 })).toBe("5 others voted");
+    expect(describeOverflowVoters({ names: [], others: 5 })).toBe("5 others marked it important");
   });
 });
 

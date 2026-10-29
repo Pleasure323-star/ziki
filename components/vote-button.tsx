@@ -6,16 +6,17 @@ import type { VoterInfo } from "@/lib/voters";
 import { VoterAvatars } from "@/components/voter-avatars";
 
 /**
- * #1059: one upvote control. Downvotes and Dislike are gone; an upvote says
- * "this matters". Upvotes are for issues only: an idea takes verdicts, and
- * upvotes no longer gate the work (#idea-verdicts).
+ * #importance: one "Mark important" control (once an upvote, #1059). It says
+ * "this matters" and gates nothing. Only issues take it: an idea takes
+ * verdicts (#idea-verdicts). A person's click is a plain toggle; an agent
+ * marking it must give a reason, shown under the count on the issue page.
  */
 type VoteButtonProps = {
   bugId: string;
   voteCount: number;
   userVote?: number;
   voted?: boolean;
-  /** Upvotes. Falls back to `voteCount`. */
+  /** The importance count. Falls back to `voteCount`. */
   likeCount?: number;
   likeVoters?: VoterInfo[];
   size?: "sm" | "md";
@@ -103,20 +104,21 @@ export function VoteButton({
   };
 
   // WCAG 2.5.3: the accessible name has to contain the visible text in
-  // order. The large control shows "Upvote 2"; "Upvote this issue, 2 votes"
-  // does not contain that phrase, which is the issue-page axe failure.
-  const voteWord = count === 1 ? "vote" : "votes";
+  // order. The large control shows "Mark important 2", so its name starts
+  // with that phrase; the compact one shows only the count.
+  const word = upvoted ? "Important" : "Mark important";
   const label = isMd
-    ? `${upvoted ? "Upvoted" : "Upvote"} ${count} ${voteWord}${
-        readOnly ? ", voting unavailable" : upvoted ? ", click to remove your vote" : ""
+    ? `${word} ${count}${
+        readOnly ? ", marking unavailable" : upvoted ? ", click to remove your mark" : ""
       }`
-    : `${count} ${voteWord}${
+    : `Importance ${count}${
         readOnly
-          ? `${upvoted ? ", upvoted" : ""}, voting unavailable`
+          ? `${upvoted ? ", marked important" : ""}, marking unavailable`
           : upvoted
-            ? ", upvoted, click to remove"
-            : ", click to upvote"
+            ? ", marked important, click to remove"
+            : ", click to mark important"
       }`;
+  const title = upvoted ? "Remove your importance mark" : "Mark important";
   const tone = upvoted
     ? "border-electric-blue-strong bg-electric-blue-strong text-white hover:border-electric-blue-strong hover:bg-electric-blue-strong"
     : "border-zk-border bg-zk-surface text-zk-text hover:border-zk-border hover:bg-zk-chip";
@@ -141,7 +143,7 @@ export function VoteButton({
             disabled={pending || readOnly}
             aria-pressed={upvoted}
             aria-label={label}
-            title={upvoted ? "Remove your upvote" : "Upvote"}
+            title={title}
             aria-describedby={error ? errorId : undefined}
             onClick={handleVote}
             className={`group inline-flex h-11 items-center justify-center gap-2 rounded-full border px-4 text-sm font-bold transition-all duration-150 active:scale-95 disabled:opacity-50 ${tone}`}
@@ -149,7 +151,7 @@ export function VoteButton({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="transition-transform group-hover:-translate-y-0.5">
               <path d="m18 15-6-6-6 6" />
             </svg>
-            <span>{upvoted ? "Upvoted" : "Upvote"}</span>{" "}
+            <span>{word}</span>{" "}
             <span
               className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${
                 upvoted ? "bg-white/25 text-white" : "bg-zk-tint text-zk-accent"
@@ -172,7 +174,7 @@ export function VoteButton({
         disabled={pending || readOnly}
         aria-pressed={upvoted}
         aria-label={label}
-        title={upvoted ? "Remove your upvote" : "Upvote"}
+        title={title}
         aria-describedby={error ? errorId : undefined}
         onClick={handleVote}
         className={`group inline-flex min-w-[2.75rem] flex-col items-center justify-center rounded-lg border px-2 py-1 text-xs font-semibold shadow-xs transition-all duration-150 active:scale-95 disabled:opacity-50 ${tone}`}

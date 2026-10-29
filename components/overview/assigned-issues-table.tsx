@@ -85,7 +85,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
           <h2 id="assigned-issues-heading" className="text-lg font-bold text-zk-text">
             Issues assigned to me
           </h2>
-          <span className="text-[13px] text-zk-muted">{countLabel} · sorted by top votes</span>
+          <span className="text-[13px] text-zk-muted">{countLabel} · sorted by importance</span>
         </div>
         <Link
           href="/issues?mine=assigned"
@@ -101,7 +101,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
             className="flex items-center gap-4 rounded-full bg-zk-tint px-4 py-3.5 text-xs font-bold uppercase tracking-[0.05em] text-zk-accent"
             role="row"
           >
-            <span className="w-[52px]">Votes</span>
+            <abbr className="w-[52px] no-underline" title="Importance">Imp.</abbr>
             <span className="min-w-0 flex-1">Issue</span>
             <span className="w-[92px]">Type</span>
             <span className="w-24">Priority</span>
@@ -130,7 +130,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
                     }`}
                   >
                     {typeof issue.ideaScore === "number" ? (
-                      // Ideas take verdicts, not upvotes.
+                      // Ideas take verdicts, not importance marks.
                       <span
                         className="inline-flex h-9 w-[52px] shrink-0 flex-col items-center justify-center rounded-full border border-dashed border-zk-border text-zk-text"
                         aria-label={`Idea score ${issue.ideaScore}`}

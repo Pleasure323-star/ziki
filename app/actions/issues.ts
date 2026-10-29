@@ -1474,7 +1474,11 @@ export type ToggleVoteResult = ActionResult & {
   dislikeCount?: number;
 };
 
-/** Toggles the current user's reaction on a bug; rejects any direction other than 1 or -1. */
+/**
+ * Toggles the current user's importance mark on an issue (#importance; once an
+ * upvote). A person's click needs no reason. Rejects any direction other than
+ * 1 or -1, and -1 because downvotes are gone.
+ */
 export async function toggleVoteAction(
   bugId: string,
   direction: unknown = 1,
@@ -1526,9 +1530,10 @@ export async function toggleVoteAction(
     if (nextVote === 0 && existing) {
       await tx.vote.delete({ where: { id: existing.id } });
     } else if (existing) {
+      // #importance: a person's click is a plain mark, with no agent reason.
       await tx.vote.update({
         where: { id: existing.id },
-        data: { value: nextVote },
+        data: { value: nextVote, agentId: null, summary: null, description: null },
       });
     } else {
       await tx.vote.create({

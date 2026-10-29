@@ -1174,7 +1174,7 @@ export default async function BugsPage({
               <div>
                 <div className="issues-table-heading">
                   {canDelete && !isDeletedView ? <span className="issues-selection" aria-hidden="true" /> : null}
-                  <span className="w-[52px]">Votes</span>
+                  <abbr className="w-[52px] no-underline" title="Importance">Imp.</abbr>
                   <span className="min-w-0 flex-1">Issue</span>
                   <span className="issues-status-cell">Status</span>
                   <span className="issues-priority">Priority</span>

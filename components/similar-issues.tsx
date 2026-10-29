@@ -66,7 +66,8 @@ export function SimilarIssues({ title, id }: { title: string; id?: string }) {
                   <span className="sr-only"> (opens in a new tab)</span>
                 </a>
                 <span className="text-xs text-zk-text2">
-                  {statusLabels[issue.status]} · {issue.voteCount} vote{issue.voteCount === 1 ? "" : "s"}
+                  {statusLabels[issue.status]} ·{" "}
+                  {issue.kind === "idea" ? `score ${issue.voteCount}` : `importance ${issue.voteCount}`}
                 </span>
               </li>
             ))}

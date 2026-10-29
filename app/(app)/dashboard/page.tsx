@@ -242,7 +242,7 @@ export default async function DashboardPage() {
             Welcome back, {name}
           </h1>
           <p className="text-sm text-zk-muted">
-            Issues, votes and your points for Ziki at a glance.
+            Issues, importance and your points for Ziki at a glance.
           </p>
         </div>
         <Link

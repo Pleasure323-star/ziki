@@ -38,7 +38,7 @@ describe("VoteButton interactive optimistic updates (#219)", () => {
       />
     );
 
-    const upvoteButton = screen.getByRole("button", { name: /^5 votes, click to upvote$/i });
+    const upvoteButton = screen.getByRole("button", { name: /^Importance 5, click to mark important$/i });
     expect(upvoteButton).toHaveTextContent("5");
 
     await user.click(upvoteButton);
@@ -67,7 +67,7 @@ describe("VoteButton interactive optimistic updates (#219)", () => {
       />
     );
 
-    const upvoteButton = screen.getByRole("button", { name: /^5 votes, click to upvote$/i });
+    const upvoteButton = screen.getByRole("button", { name: /^Importance 5, click to mark important$/i });
     expect(upvoteButton).toHaveTextContent("5");
 
     await user.click(upvoteButton);
@@ -101,11 +101,11 @@ describe("VoteButton interactive optimistic updates (#219)", () => {
     expect(screen.queryByTestId("readiness-gate-indicator")).toBeNull();
     expect(screen.queryByText(/unlock work/i)).toBeNull();
 
-    // The large button's name starts with its visible "Upvote 2" (WCAG 2.5.3).
-    const likeButton = screen.getByRole("button", { name: /^upvote 2 votes/i });
+    // The large button's name starts with its visible "Mark important 2" (WCAG 2.5.3).
+    const likeButton = screen.getByRole("button", { name: /^mark important 2/i });
     await user.click(likeButton);
 
-    expect(screen.getByRole("button", { name: /^upvoted 3 votes/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^important 3/i })).toBeInTheDocument();
   });
 
   it("renders accessible error with icon, 12px minimum font, and aria-describedby linkage (#703)", async () => {
@@ -123,7 +123,7 @@ describe("VoteButton interactive optimistic updates (#219)", () => {
       />
     );
 
-    const upvoteButton = screen.getByRole("button", { name: /^5 votes, click to upvote$/i });
+    const upvoteButton = screen.getByRole("button", { name: /^Importance 5, click to mark important$/i });
     await user.click(upvoteButton);
 
     await waitFor(() => {

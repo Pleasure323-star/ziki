@@ -63,7 +63,7 @@ describe("GET /issues/export", () => {
 
     const text = await res.text();
     // Headers row
-    expect(text).toContain("id,title,status,severity,type,platform,area,reporter,assignee,votes,boosted,created_at,updated_at");
+    expect(text).toContain("id,title,status,severity,type,platform,area,reporter,assignee,importance,boosted,created_at,updated_at");
   });
 
   it("streams rows matching query", async () => {
@@ -156,7 +156,7 @@ describe("GET /issues/export?format=json (#664)", () => {
           area: null,
           reporter: "Alice",
           assignee: null,
-          votes: 5,
+          importance: 5,
           boosted: true,
           created_at: "2026-01-01T00:00:00.000Z",
           updated_at: "2026-01-02T00:00:00.000Z",

@@ -15,21 +15,43 @@ export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "P
 
 const projectId = z.string().trim().min(1).optional().describe("Project id. Defaults to the acting agent's project.");
 const issueId = z.string().trim().min(1).max(191).describe("Issue id (the `id` field, not the #number).");
+const importanceReason = {
+  summary: z.string().trim().min(1).max(300).describe("Why the issue is important, in at most two sentences."),
+  description: z.string().trim().min(1).max(10_000).describe("The full explanation: who it affects and why it matters."),
+};
 const notesProject = z.string().trim().min(1).describe("Project id whose notes to use.");
 
 const EXTRA_TOOLS: readonly CliTool[] = [
   {
-    name: "ziki_vote",
-    summary: "Upvote an issue on behalf of the agent's owner. A manager or merger agent's upvote counts as 5.",
+    name: "ziki_mark_important",
+    summary: "Mark an issue important for the agent's owner, saying why: a summary of at most two sentences and a description. A manager or merger agent's mark counts as 5. Marking again replaces the reason.",
     level: "working",
     method: "POST",
-    route: "/issues/{id}/vote",
-    body: ["projectId"],
+    route: "/issues/{id}/importance",
+    body: ["projectId", "summary", "description"],
+    input: { id: issueId, projectId, ...importanceReason },
+  },
+  {
+    name: "ziki_unmark_important",
+    summary: "Remove the owner's importance mark from an issue.",
+    level: "working",
+    method: "DELETE",
+    route: "/issues/{id}/importance",
+    projectScoped: true,
     input: { id: issueId, projectId },
   },
   {
+    name: "ziki_vote",
+    summary: "Deprecated alias of mark-important (upvotes are now Importance). Needs the same summary and description.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/vote",
+    body: ["projectId", "summary", "description"],
+    input: { id: issueId, projectId, ...importanceReason },
+  },
+  {
     name: "ziki_unvote",
-    summary: "Remove the owner's upvote from an issue.",
+    summary: "Deprecated alias of unmark-important.",
     level: "working",
     method: "DELETE",
     route: "/issues/{id}/vote",

@@ -174,7 +174,7 @@ function BrandPanel() {
       </div>
 
       <div className="relative flex flex-wrap gap-6 text-sm text-[#C9D6EF]">
-        {["Report", "Vote", "Track", "Earn points"].map((label) => (
+        {["Report", "Prioritize", "Track", "Earn points"].map((label) => (
           <span key={label} className="inline-flex items-center gap-2">
             <CheckIcon />
             {label}

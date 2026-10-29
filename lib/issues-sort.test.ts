@@ -16,15 +16,20 @@ import {
 } from "./issues-sort";
 
 describe("sort options constants and labels", () => {
-  it("lists every option, with top votes still the default", () => {
+  it("lists every option, with importance still the default", () => {
     expect(BUG_SORT_OPTIONS).toEqual([
       "newest",
       "recently_updated",
-      "top_votes",
-      "lowest_votes",
+      "importance",
+      "least_important",
       "severity",
     ]);
-    expect(DEFAULT_BUG_SORT).toBe("top_votes");
+    expect(DEFAULT_BUG_SORT).toBe("importance");
+  });
+
+  it("labels the importance sorts (#importance)", () => {
+    expect(bugSortLabels.importance).toBe("Most important");
+    expect(bugSortLabels.least_important).toBe("Least important");
   });
 
   it("has a label and a description for every option", () => {
@@ -38,16 +43,16 @@ describe("sort options constants and labels", () => {
 });
 
 describe("parseBugSort", () => {
-  it("defaults to top votes when undefined, null, empty, or whitespace", () => {
-    expect(parseBugSort(undefined)).toBe("top_votes");
-    expect(parseBugSort(null)).toBe("top_votes");
-    expect(parseBugSort("")).toBe("top_votes");
-    expect(parseBugSort("   ")).toBe("top_votes");
+  it("defaults to importance when undefined, null, empty, or whitespace", () => {
+    expect(parseBugSort(undefined)).toBe("importance");
+    expect(parseBugSort(null)).toBe("importance");
+    expect(parseBugSort("")).toBe("importance");
+    expect(parseBugSort("   ")).toBe("importance");
   });
 
-  it("defaults to top votes for unrecognized sort options", () => {
-    expect(parseBugSort("invalid")).toBe("top_votes");
-    expect(parseBugSort("random_sort")).toBe("top_votes");
+  it("defaults to importance for unrecognized sort options", () => {
+    expect(parseBugSort("invalid")).toBe("importance");
+    expect(parseBugSort("random_sort")).toBe("importance");
   });
 
   it("parses newest variants", () => {
@@ -56,25 +61,33 @@ describe("parseBugSort", () => {
     expect(parseBugSort("new")).toBe("newest");
   });
 
-  it("parses top_votes variants", () => {
-    expect(parseBugSort("top_votes")).toBe("top_votes");
-    expect(parseBugSort("top-votes")).toBe("top_votes");
-    expect(parseBugSort("top")).toBe("top_votes");
-    expect(parseBugSort("votes_desc")).toBe("top_votes");
+  it("parses importance variants (#importance)", () => {
+    expect(parseBugSort("importance")).toBe("importance");
+    expect(parseBugSort("most-important")).toBe("importance");
+    expect(parseBugSort("important")).toBe("importance");
   });
 
-  it("parses lowest_votes variants", () => {
-    expect(parseBugSort("lowest_votes")).toBe("lowest_votes");
-    expect(parseBugSort("lowest-votes")).toBe("lowest_votes");
-    expect(parseBugSort("lowest")).toBe("lowest_votes");
-    expect(parseBugSort("votes_asc")).toBe("lowest_votes");
+  it("keeps the old top_votes links working as importance", () => {
+    expect(parseBugSort("top_votes")).toBe("importance");
+    expect(parseBugSort("top-votes")).toBe("importance");
+    expect(parseBugSort("top")).toBe("importance");
+    expect(parseBugSort("votes_desc")).toBe("importance");
+  });
+
+  it("parses least_important, and the old lowest_votes links", () => {
+    expect(parseBugSort("least_important")).toBe("least_important");
+    expect(parseBugSort("least-important")).toBe("least_important");
+    expect(parseBugSort("lowest_votes")).toBe("least_important");
+    expect(parseBugSort("lowest-votes")).toBe("least_important");
+    expect(parseBugSort("lowest")).toBe("least_important");
+    expect(parseBugSort("votes_asc")).toBe("least_important");
   });
 
   it("handles repeated query parameters as string array without throwing", () => {
-    expect(parseBugSort(["newest", "top_votes"])).toBe("newest");
-    expect(parseBugSort(["top_votes", "lowest_votes"])).toBe("top_votes");
-    expect(parseBugSort(["lowest_votes", "newest"])).toBe("lowest_votes");
-    expect(parseBugSort([])).toBe("top_votes");
+    expect(parseBugSort(["newest", "importance"])).toBe("newest");
+    expect(parseBugSort(["importance", "least_important"])).toBe("importance");
+    expect(parseBugSort(["least_important", "newest"])).toBe("least_important");
+    expect(parseBugSort([])).toBe("importance");
   });
 });
 
@@ -88,8 +101,8 @@ describe("getBugOrderBy", () => {
     ]);
   });
 
-  it("returns isBoosted desc, boostedAt desc, and voteCount desc for top_votes", () => {
-    expect(getBugOrderBy("top_votes")).toEqual([
+  it("returns isBoosted desc, boostedAt desc, and voteCount desc for importance", () => {
+    expect(getBugOrderBy("importance")).toEqual([
       { isBoosted: "desc" },
       { boostedAt: "desc" },
       { voteCount: "desc" },
@@ -98,8 +111,8 @@ describe("getBugOrderBy", () => {
     ]);
   });
 
-  it("returns isBoosted desc, boostedAt desc, and voteCount asc for lowest_votes", () => {
-    expect(getBugOrderBy("lowest_votes")).toEqual([
+  it("returns isBoosted desc, boostedAt desc, and voteCount asc for least_important", () => {
+    expect(getBugOrderBy("least_important")).toEqual([
       { isBoosted: "desc" },
       { boostedAt: "desc" },
       { voteCount: "asc" },
@@ -215,13 +228,13 @@ describe("sortBugs", () => {
     expect(sorted.map((b) => b.id)).toEqual(["c", "b", "d", "a"]);
   });
 
-  it("sorts by top_votes (voteCount descending with updatedAt tiebreaker)", () => {
-    const sorted = sortBugs(sampleBugs, "top_votes");
+  it("sorts by importance (voteCount descending with updatedAt tiebreaker)", () => {
+    const sorted = sortBugs(sampleBugs, "importance");
     expect(sorted.map((b) => b.id)).toEqual(["d", "b", "a", "c"]);
   });
 
-  it("sorts by lowest_votes (voteCount ascending with updatedAt tiebreaker)", () => {
-    const sorted = sortBugs(sampleBugs, "lowest_votes");
+  it("sorts by least_important (voteCount ascending with updatedAt tiebreaker)", () => {
+    const sorted = sortBugs(sampleBugs, "least_important");
     expect(sorted.map((b) => b.id)).toEqual(["c", "a", "d", "b"]);
   });
 
@@ -232,7 +245,7 @@ describe("sortBugs", () => {
       { id: "regular-recent", voteCount: 5, isBoosted: false, createdAt: "2026-01-20T00:00:00.000Z" },
     ];
 
-    const sortedByVotes = sortBugs(bugsWithBoost, "top_votes");
+    const sortedByVotes = sortBugs(bugsWithBoost, "importance");
     expect(sortedByVotes[0].id).toBe("boosted-low-votes");
 
     const sortedByNewest = sortBugs(bugsWithBoost, "newest");
@@ -244,7 +257,7 @@ describe("sortBugs", () => {
       { id: "boosted-first", isBoosted: true, boostedAt: "2026-01-01T00:00:00.000Z", voteCount: 10, createdAt: "2026-01-01T00:00:00.000Z" },
       { id: "boosted-latest", isBoosted: true, boostedAt: "2026-01-05T00:00:00.000Z", voteCount: 2, createdAt: "2026-01-01T00:00:00.000Z" },
     ];
-    const sorted = sortBugs(multipleBoosted, "top_votes");
+    const sorted = sortBugs(multipleBoosted, "importance");
     expect(sorted.map((b) => b.id)).toEqual(["boosted-latest", "boosted-first"]);
   });
 });
@@ -344,8 +357,8 @@ describe("parseBugSort for the new options", () => {
     expect(parseBugSort("most_severe")).toBe("severity");
   });
 
-  it("still defaults to top votes for anything unknown", () => {
-    expect(parseBugSort("sideways")).toBe("top_votes");
+  it("still defaults to importance for anything unknown", () => {
+    expect(parseBugSort("sideways")).toBe("importance");
   });
 });
 
