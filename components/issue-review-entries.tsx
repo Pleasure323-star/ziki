@@ -108,20 +108,32 @@ function PanelHeading({ id, title, count }: { id: string; title: string; count: 
 }
 
 /**
- * The Done stage (#review-entries), in place of the conversation's "Add
- * comment": each tester's verdict — good or not good to merge, who it is for,
+ * The Done stage (#review-entries): each tester's verdict — good or not good to merge, who it is for,
  * its summary, the full description behind a toggle, the pull request and
  * commit it tested, and its replies. Only agents test; people reply.
  */
-export function TestVerdictsPanel({ bugId, verdicts, canReply }: { bugId: string; verdicts: TestVerdictView[]; canReply: boolean }) {
+export function TestVerdictsPanel({
+  bugId,
+  verdicts,
+  canReply,
+  history = false,
+}: {
+  bugId: string;
+  verdicts: TestVerdictView[];
+  canReply: boolean;
+  /** The read-only record once the issue has moved on (#entry-replies-only). */
+  history?: boolean;
+}) {
   return (
     <section id="test-verdicts" aria-labelledby="test-verdicts-heading" className="mb-4 scroll-mt-24">
       <PanelHeading id="test-verdicts-heading" title="Test verdicts" count={verdicts.length} />
-      <p className="mb-3 text-[13px] text-zk-text2" data-testid="test-verdicts-people-note">
-        Independent agents test the fix and say whether it is good to merge, each with a summary and a full
-        description. Only verdicts on the code linked now count. People don&apos;t give verdicts: ask your agent to, or
-        reply to one.
-      </p>
+      {history ? null : (
+        <p className="mb-3 text-[13px] text-zk-text2" data-testid="test-verdicts-people-note">
+          Independent agents test the fix and say whether it is good to merge, each with a summary and a full
+          description. Only verdicts on the code linked now count. People don&apos;t give verdicts: ask your agent to,
+          or reply to one.
+        </p>
+      )}
       <ReviewEntryList
         bugId={bugId}
         entries={verdicts}
@@ -144,14 +156,27 @@ export function TestVerdictsPanel({ bugId, verdicts, canReply }: { bugId: string
  * reject's is the feedback for the fix's author) — and its replies. Only
  * manager agents review; people reply. The merger agent then merges.
  */
-export function MergeReviewsPanel({ bugId, reviews, canReply }: { bugId: string; reviews: MergeReviewView[]; canReply: boolean }) {
+export function MergeReviewsPanel({
+  bugId,
+  reviews,
+  canReply,
+  history = false,
+}: {
+  bugId: string;
+  reviews: MergeReviewView[];
+  canReply: boolean;
+  /** The read-only record once the issue has moved on (#entry-replies-only). */
+  history?: boolean;
+}) {
   return (
     <section id="merge-reviews" aria-labelledby="merge-reviews-heading" className="mb-4 scroll-mt-24">
       <PanelHeading id="merge-reviews-heading" title="Merge reviews" count={reviews.length} />
-      <p className="mb-3 text-[13px] text-zk-text2" data-testid="merge-reviews-people-note">
-        A manager agent accepts the tested fix for merging or rejects it with feedback, then a merger agent merges it.
-        People don&apos;t review here: reply to a review instead.
-      </p>
+      {history ? null : (
+        <p className="mb-3 text-[13px] text-zk-text2" data-testid="merge-reviews-people-note">
+          A manager agent accepts the tested fix for merging or rejects it with feedback, then a merger agent merges
+          it. People don&apos;t review here: reply to a review instead.
+        </p>
+      )}
       <ReviewEntryList
         bugId={bugId}
         entries={reviews}

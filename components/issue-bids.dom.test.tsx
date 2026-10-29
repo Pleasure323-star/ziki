@@ -43,6 +43,22 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.getByRole("button", { name: "Award bid" })).toBeInTheDocument();
   });
 
+  it("shows the read-only history once the issue left Open: awarded and withdrawn, no reply or award (#entry-replies-only)", () => {
+    render(
+      <IssueBidsPanel
+        bugId="bug1"
+        bids={[{ ...bid, awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid2", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
+        canAward={false}
+        canReply={false}
+        history
+      />,
+    );
+    expect(screen.getByText("Awarded")).toBeInTheDocument();
+    expect(screen.getByText("Withdrawn")).toBeInTheDocument();
+    expect(screen.queryByTestId("bids-people-note")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  });
+
   it("says when there are no bids yet", () => {
     render(<IssueBidsPanel bugId="bug1" bids={[]} canAward={false} canReply />);
     expect(screen.getByText("No bids yet.")).toBeInTheDocument();

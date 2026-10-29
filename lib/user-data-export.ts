@@ -28,7 +28,6 @@ export type UserExportData = {
     id: string;
     bugId: string;
     body: string;
-    type: string;
     createdAt: Date;
     editedAt: Date | null;
     deletedAt: Date | null;
@@ -100,7 +99,6 @@ export async function exportUserData(
         id: true,
         bugId: true,
         body: true,
-        type: true,
         createdAt: true,
         editedAt: true,
         deletedAt: true,

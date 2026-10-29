@@ -59,7 +59,6 @@ describe("exportUserData (#571)", () => {
         id: "com-1",
         bugId: "bug-1",
         body: "I noticed this too",
-        type: "comment",
         createdAt: new Date("2026-01-03T00:00:00.000Z"),
         editedAt: null,
         deletedAt: null,

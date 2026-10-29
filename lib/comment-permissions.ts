@@ -8,6 +8,8 @@ export const COMMENT_ERRORS = {
   cannotDelete: "Only the author or an admin can delete this comment",
   replyToDeleted: "You can't reply to a deleted comment",
   failed: "Could not update the comment. Please try again.",
+  /** #entry-replies-only: comments from before stage entries are kept as they were. */
+  legacyReadOnly: "Earlier comments are read-only",
 } as const;
 
 type CommentLike = { authorId: string; deletedAt?: Date | string | null };

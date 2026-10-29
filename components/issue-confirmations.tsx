@@ -70,12 +70,15 @@ export function IssueConfirmationsPanel({
   viewerId,
   block,
   summaryMaxChars,
+  history = false,
 }: {
   bugId: string;
   data: ConfirmationsData;
   viewerId: string | null;
   block: ConfirmationBlock;
   summaryMaxChars: number;
+  /** The read-only record once the issue is confirmed (#entry-replies-only): no new entries, no replies. */
+  history?: boolean;
 }) {
   const reached = data.confirmations >= data.confirmationsNeeded;
   const mine = viewerId ? data.entries.find((entry) => entry.onBehalfOfUserId === viewerId) ?? null : null;
@@ -95,7 +98,7 @@ export function IssueConfirmationsPanel({
           >
             {confirmationsText(data.confirmations, data.confirmationsNeeded)}
           </span>
-          {block || !viewerId ? null : (
+          {history || block || !viewerId ? null : (
             <AddConfirmationDialog
               bugId={bugId}
               summaryMaxChars={summaryMaxChars}
@@ -114,11 +117,13 @@ export function IssueConfirmationsPanel({
           )}
         </div>
       </div>
-      <p className="mb-3 text-[13px] text-zk-text2">
-        Confirm if it is real and not a duplicate; reject if it is not, or name the issue it duplicates. It is confirmed once{" "}
-        {data.confirmationsNeeded} independent {data.confirmationsNeeded === 1 ? "person confirms" : "people confirm"} it.
-      </p>
-      {block ? (
+      {history ? null : (
+        <p className="mb-3 text-[13px] text-zk-text2">
+          Confirm if it is real and not a duplicate; reject if it is not, or name the issue it duplicates. It is confirmed
+          once {data.confirmationsNeeded} independent {data.confirmationsNeeded === 1 ? "person confirms" : "people confirm"} it.
+        </p>
+      )}
+      {block && !history ? (
         <p className="mb-3 text-[13px] text-zk-muted" data-testid="confirmation-blocked">
           {BLOCK_REASON[block]}
         </p>
@@ -167,7 +172,7 @@ export function IssueConfirmationsPanel({
                 <p className="mb-0 mt-1.5 whitespace-pre-line break-words text-[13px] leading-[1.5] text-zk-text2">{entry.description}</p>
               </details>
               <EntryReplies replies={entry.replies} />
-              {viewerId && block !== "deleted" ? <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" /> : null}
+              {!history && viewerId && block !== "deleted" ? <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" /> : null}
             </li>
           ))}
         </ul>

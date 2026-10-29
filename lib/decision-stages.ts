@@ -1,5 +1,3 @@
-import type { CommentType } from "@/lib/validations/issue";
-
 /**
  * The six stages an issue's agent decisions and conversation are grouped by
  * on the issue page, and counted by on the issues list card (#1446).
@@ -207,29 +205,4 @@ export function stageAt(time: Date | string, starts: StageStarts): DecisionStage
     if (start !== null && start <= at) stage = next;
   }
   return stage;
-}
-
-/**
- * The stage a top-level comment belongs to. Bids, merge requests and
- * deliveries by their type; reviews before the first claim review the issue
- * (Idea or Requires confirmation, by when), later ones the fix; a plain
- * comment goes to the stage it was posted in.
- */
-export function stageOfComment(
-  type: CommentType | null | undefined,
-  createdAt: Date | string,
-  starts: StageStarts,
-): DecisionStage {
-  switch (type) {
-    case "bid":
-      return "open";
-    case "review":
-      return starts.open !== null && new Date(createdAt).getTime() >= starts.open ? "done" : stageAt(createdAt, starts);
-    case "request_to_merge":
-      return "ready";
-    case "delivery":
-      return "live";
-    default:
-      return stageAt(createdAt, starts);
-  }
 }

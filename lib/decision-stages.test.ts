@@ -5,7 +5,6 @@ import {
   payloadMerged,
   decisionTone,
   stageAt,
-  stageOfComment,
   stageOfDecision,
   stageStarts,
   tallyStages,
@@ -128,29 +127,11 @@ describe("stageStarts and stageAt", () => {
   });
 });
 
-describe("stageOfComment", () => {
-  const starts = stageStarts([{ kind: "claimed", at: "2026-10-22T16:00:00.000Z" }]);
-  const none = stageStarts([]);
-
-  it("puts a plain comment in the stage it was posted in", () => {
-    expect(stageOfComment("comment", "2026-10-21T10:00:00.000Z", starts)).toBe("idea");
-    expect(stageOfComment(null, "2026-10-23T10:00:00.000Z", starts)).toBe("open");
-  });
-  it("maps bids, merge requests and deliveries", () => {
-    expect(stageOfComment("bid", "2026-10-21T10:00:00.000Z", none)).toBe("open");
-    expect(stageOfComment("request_to_merge", "2026-10-21T10:00:00.000Z", none)).toBe("ready");
-    expect(stageOfComment("delivery", "2026-10-21T10:00:00.000Z", none)).toBe("live");
-  });
-  it("puts reviews before the first claim under Idea and later ones under Done", () => {
-    expect(stageOfComment("review", "2026-10-21T10:00:00.000Z", starts)).toBe("idea");
-    expect(stageOfComment("review", "2026-10-23T10:00:00.000Z", starts)).toBe("done");
-    expect(stageOfComment("review", "2026-10-23T10:00:00.000Z", none)).toBe("idea");
-  });
+describe("stageStarts with a conversion time", () => {
   it("starts Requires confirmation when the idea is converted (#714)", () => {
     const converted = stageStarts([{ kind: "claimed", at: "2026-10-22T16:00:00.000Z" }], "2026-10-21T12:00:00.000Z");
     expect(converted.confirm).toBe(Date.parse("2026-10-21T12:00:00.000Z"));
-    expect(stageOfComment("comment", "2026-10-21T10:00:00.000Z", converted)).toBe("idea");
-    expect(stageOfComment("comment", "2026-10-21T13:00:00.000Z", converted)).toBe("confirm");
-    expect(stageOfComment("review", "2026-10-21T13:00:00.000Z", converted)).toBe("confirm");
+    expect(stageAt("2026-10-21T10:00:00.000Z", converted)).toBe("idea");
+    expect(stageAt("2026-10-21T13:00:00.000Z", converted)).toBe("confirm");
   });
 });

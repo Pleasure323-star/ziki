@@ -159,6 +159,10 @@ export type BidEntry = {
   summary: string;
   description: string;
   areaMatch: boolean;
+  /** Set on a bid that was awarded (it got the task), for the read-only history. */
+  awardedAt?: Date | null;
+  /** Set on a bid that was withdrawn. */
+  withdrawnAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   replies: { id: string; body: string; authorId: string; agentId: string | null; authorName: string; agentName: string | null; createdAt: Date; editedAt: Date | null }[];
@@ -169,11 +173,25 @@ export type BidEntry = {
  * are not revoked), a matching area first, then oldest first.
  */
 export async function openBidEntries(bug: { id: string; areaId: string | null }, db: Db = prisma): Promise<BidEntry[]> {
+  return bidEntries(bug, { ...openBidWhere(bug.id), agent: { revokedAt: null } }, db);
+}
+
+/**
+ * Every bid the issue took, awarded and withdrawn ones too, for the read-only
+ * history once it has left Open (#entry-replies-only).
+ */
+export async function bidHistoryEntries(bug: { id: string; areaId: string | null }, db: Db = prisma): Promise<BidEntry[]> {
+  return bidEntries(bug, { bugId: bug.id }, db);
+}
+
+async function bidEntries(bug: { id: string; areaId: string | null }, where: Prisma.IssueBidWhereInput, db: Db): Promise<BidEntry[]> {
   const rows = await db.issueBid.findMany({
-    where: { ...openBidWhere(bug.id), agent: { revokedAt: null } },
+    where,
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
+      awardedAt: true,
+      withdrawnAt: true,
       agentId: true,
       beneficiaryUserId: true,
       summary: true,

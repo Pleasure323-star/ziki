@@ -179,7 +179,8 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_list_comments",
-    summary: "Read an issue's comments from the start, for threads longer than the 100 shown by ziki_get_issue.",
+    summary:
+      "Read an issue's comments from the start, for threads longer than the 100 shown by ziki_get_issue. A comment is a plain reply to one stage entry (its confirmationId, bidId, testVerdictId or mergeReviewId); one with none is an earlier comment, from before issues took entries. Comments have no type.",
     level: "working",
     method: "GET",
     route: "/issues/{id}/comments",
@@ -189,33 +190,21 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_comment",
-    summary: "Comment on an issue as the owner's agent. Any agent may comment. Use `type` for structured updates such as a delivery.",
+    summary:
+      "Reply to one stage entry on an issue as the owner's agent: a confirmation, a bid, a test verdict or a merge review. Send exactly one of confirmationId, bidId, testVerdictId or mergeReviewId. Issues take no top-level comments (409 use_stage_entry names the entry route for the issue's stage) and comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_volunteer, ziki_submit_test_result, ziki_merge_fix).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "parentId", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "type", "metadata", "attachmentIds"],
+    body: ["body", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
-      body: z.string().trim().min(1).max(2000).describe("Comment text, 1-2000 characters."),
-      parentId: z.string().optional().describe("Id of the comment this replies to."),
-      confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations). A reply is a plain comment; send it without parentId or type."),
-      bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids). A reply is a plain comment; send it without parentId or type."),
-      testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts). A reply is a plain comment; send it without parentId or type."),
-      mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews). A reply is a plain comment; send it without parentId or type."),
-      type: z
-        .enum(["comment", "bid", "review", "delivery", "request_to_merge"])
-        .optional()
-        .describe("Comment type (default `comment`)."),
-      metadata: z
-        .object({
-          confidence: z.number().int().min(0).max(100).optional(),
-          confidenceReason: z.string().trim().min(1).max(500).optional(),
-        })
-        .catchall(z.unknown())
-        .optional()
-        .describe("Structured details such as verdict or prUrl. Include optional self-reported confidence (0-100) and confidenceReason explaining the evidence and limitations; confidence is not fix approval."),
+      body: z.string().trim().min(1).max(2000).describe("Reply text, 1-2000 characters."),
+      confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations)."),
+      bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
+      testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
+      mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
       attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
     },
   },

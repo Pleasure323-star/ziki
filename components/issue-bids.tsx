@@ -11,12 +11,15 @@ export type BidEntryView = {
   summary: string;
   description: string;
   areaMatch: boolean;
+  /** In the read-only history: it was awarded, or withdrawn. */
+  awardedAt?: Date | string | null;
+  withdrawnAt?: Date | string | null;
   updatedAt: Date | string;
   replies: EntryReplyView[];
 };
 
 /**
- * The Open stage (#issue-bids), in place of the conversation's "Add comment":
+ * The Open stage (#issue-bids): issues take no free-standing comments:
  * each agent's bid — who it is for, its summary, its full description behind
  * a toggle, and its replies. Only agents bid; a person replies, and the
  * reporter or an admin awards one, which gives that agent the task.
@@ -26,11 +29,14 @@ export function IssueBidsPanel({
   bids,
   canAward,
   canReply,
+  history = false,
 }: {
   bugId: string;
   bids: BidEntryView[];
   canAward: boolean;
   canReply: boolean;
+  /** The read-only record once the issue has left Open (#entry-replies-only). */
+  history?: boolean;
 }) {
   return (
     <section id="bids" aria-labelledby="bids-heading" className="mb-4 scroll-mt-24">
@@ -40,10 +46,12 @@ export function IssueBidsPanel({
           <span className="font-mono font-normal normal-case tracking-normal">{bids.length}</span>
         </h3>
       </div>
-      <p className="mb-3 text-[13px] text-zk-text2" data-testid="bids-people-note">
-        Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
-        or reply to a bid. {canAward ? "Award one to give its agent the task." : "The reporter or an admin awards one."}
-      </p>
+      {history ? null : (
+        <p className="mb-3 text-[13px] text-zk-text2" data-testid="bids-people-note">
+          Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
+          or reply to a bid. {canAward ? "Award one to give its agent the task." : "The reporter or an admin awards one."}
+        </p>
+      )}
 
       {bids.length === 0 ? (
         <p className="m-0 text-[13px] text-zk-muted">No bids yet.</p>
@@ -54,6 +62,11 @@ export function IssueBidsPanel({
               <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
                 <b className="font-semibold text-zk-text">{bid.agentName}</b>
                 <span className="text-zk-muted">for {bid.by}</span>
+                {bid.awardedAt ? (
+                  <span className="rounded-full bg-zk-ok-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-ok-fg">Awarded</span>
+                ) : bid.withdrawnAt ? (
+                  <span className="rounded-full bg-zk-chip px-2 py-0.5 text-[11px] font-extrabold text-zk-text2">Withdrawn</span>
+                ) : null}
                 {bid.areaMatch ? (
                   <span className="rounded-full bg-zk-warn-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-warn-fg">Area match</span>
                 ) : null}

@@ -208,23 +208,10 @@ describe("updateBugSchema", () => {
 });
 
 describe("commentSchema", () => {
-  it.each([0, 80, 100])("accepts optional confidence %s with evidence and other metadata", (confidence) => {
-    const metadata = { confidence, confidenceReason: "Source inspected; not reproduced.", verdict: "assessment" };
-    expect(commentSchema.parse({ body: "Review", metadata }).metadata).toEqual(metadata);
-  });
-
-  it.each([-1, 101, 1.5, "80", null])("rejects invalid confidence %s", (confidence) => {
-    expect(commentSchema.safeParse({ body: "Review", metadata: { confidence } }).success).toBe(false);
-  });
-
-  it("rejects blank or overlong confidence explanations", () => {
-    for (const confidenceReason of [" ", "x".repeat(501)]) {
-      expect(commentSchema.safeParse({ body: "Review", metadata: { confidence: 80, confidenceReason } }).success).toBe(false);
-    }
-  });
-  it("accepts a non-empty comment", () => {
-    const result = commentSchema.safeParse({ body: "Looks fixed on staging." });
+  it("accepts a non-empty reply to an entry", () => {
+    const result = commentSchema.safeParse({ body: "Looks fixed on staging.", bidId: "bid-1" });
     expect(result.success).toBe(true);
+    if (result.success) expect(result.data.bidId).toBe("bid-1");
   });
 
   it("rejects an empty comment", () => {
@@ -232,34 +219,17 @@ describe("commentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("accepts an optional parentId for replies", () => {
-    const result = commentSchema.safeParse({
-      body: "Agree with this triage note.",
-      parentId: validCuid,
-    });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.parentId).toBe(validCuid);
-    }
+  it("has no type, metadata or parentId (#entry-replies-only)", () => {
+    const parsed = commentSchema.parse({ body: "Review", type: "review", metadata: { confidence: 80 }, parentId: validCuid });
+    expect(parsed).not.toHaveProperty("type");
+    expect(parsed).not.toHaveProperty("metadata");
+    expect(parsed).not.toHaveProperty("parentId");
   });
 
-  it("treats empty parentId as a top-level comment", () => {
-    const result = commentSchema.safeParse({
-      body: "Top-level note.",
-      parentId: "",
-    });
+  it("treats an empty entry id as none", () => {
+    const result = commentSchema.safeParse({ body: "Note.", confirmationId: "" });
     expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.parentId).toBeUndefined();
-    }
-  });
-
-  it("rejects an invalid parentId", () => {
-    const result = commentSchema.safeParse({
-      body: "Bad parent.",
-      parentId: "not-a-cuid",
-    });
-    expect(result.success).toBe(false);
+    if (result.success) expect(result.data.confirmationId).toBeUndefined();
   });
 });
 

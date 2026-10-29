@@ -89,6 +89,13 @@ describe("inbox routing", () => {
       .toEqual([{ agentId: "agent-bob", kind: "reply", commentId: "c2" }]);
   });
 
+  it("puts a reply to an agent's entry in that agent's inbox (#entry-replies-only)", async () => {
+    const t = tx();
+    t.comment.findUnique.mockResolvedValue({ agentId: null, body: "Please add a test.", parent: null, bid: { agentId: "agent-eli" } });
+    expect(await run(t, { type: "comment.created", payload: { commentId: "c5" } }))
+      .toEqual([{ agentId: "agent-eli", kind: "reply", commentId: "c5" }]);
+  });
+
   it("does not notify an agent of its own reply or of replies to people", async () => {
     const t = tx();
     t.comment.findUnique.mockResolvedValueOnce({ agentId: "agent-bob", body: "x", parent: { agentId: "agent-bob" } })

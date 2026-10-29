@@ -80,6 +80,7 @@ function existingComment(body: string) {
     authorId: "author-1",
     body,
     deletedAt: null,
+    bidId: "bid-1",
     author: { name: "Ada" },
     bug: { isDeleted: false, title: "Login button does nothing", tenantId: "tenant-zedu" },
   };
@@ -300,5 +301,15 @@ describe("updateCommentAction mentions stay inside the tenant (#502)", () => {
     findCommentMock.mockResolvedValue(existingComment("first draft"));
     await edit(`first draft @[Dave Acme](${daveId})`);
     expect(notifyMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("earlier comments are read-only (#entry-replies-only)", () => {
+  it("refuses to edit a comment that replies to no entry", async () => {
+    vi.clearAllMocks();
+    (await import("@/lib/rate-limit")).resetRateLimits();
+    findCommentMock.mockResolvedValue({ ...existingComment("an old comment"), bidId: null });
+    expect(await edit("edited")).toEqual({ error: "Earlier comments are read-only" });
+    expect(txCommentUpdateMany).not.toHaveBeenCalled();
   });
 });

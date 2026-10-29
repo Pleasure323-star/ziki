@@ -9,7 +9,6 @@ vi.mock("@/auth", () => ({
 vi.mock("@/app/actions/comments", () => ({
   deleteCommentAction: vi.fn(),
   updateCommentAction: vi.fn(),
-  createCommentAction: vi.fn(),
 }));
 
 import { CommentThread } from "./comment-thread";
@@ -38,7 +37,6 @@ describe("CommentThread permalinks (#142)", () => {
 
     const html = renderToStaticMarkup(
       createElement(CommentThread, {
-        bugId: "b1",
         issueUrl: "https://issues.example/bugs/b1",
         reporterId: "u1",
         comments,
@@ -74,7 +72,6 @@ describe("CommentThread read-only mode (#122)", () => {
   const render = (readOnly: boolean) =>
     renderToStaticMarkup(
       createElement(CommentThread, {
-        bugId: "b1",
         issueUrl: "https://issues.example/bugs/b1",
         reporterId: "u1",
         comments,
@@ -85,80 +82,23 @@ describe("CommentThread read-only mode (#122)", () => {
       }),
     );
 
-  it("shows the comment form and Reply on a normal issue", () => {
-    const html = render(false);
-    expect(html).toContain("<form");
-    expect(html).toContain(">Reply<");
-  });
-
-  it.each([0, 85, 100])("renders self-reported confidence %s for agent comments and reviews", (confidence) => {
-    for (const type of ["comment", "review"] as const) {
-      const html = renderToStaticMarkup(createElement(CommentThread, {
-        bugId: "b1", issueUrl: "https://issues.example/bugs/b1", reporterId: "u2", users: [],
-        comments: [{ ...comments[0], agentId: "agent1", agent: { name: "Reviewer" }, type,
-          metadata: { confidence, confidenceReason: "Source inspected; not reproduced." } }],
-      }));
-      expect(html).toContain(`Self-reported confidence: ${confidence}%`);
-      expect(html).toContain("Source inspected; not reproduced.");
+  it("never offers a form, Reply or Edit: earlier comments are read-only (#entry-replies-only)", () => {
+    for (const readOnly of [false, true]) {
+      const html = render(readOnly);
+      expect(html).not.toContain("<form");
+      expect(html).not.toContain(">Reply<");
+      expect(html).not.toContain(">Edit<");
     }
   });
 
-  it.each([undefined, { confidence: 101 }, { confidence: "80" }, { confidence: -1 }])("hides missing or invalid legacy confidence", (metadata) => {
-    const html = renderToStaticMarkup(createElement(CommentThread, {
-      bugId: "b1", issueUrl: "https://issues.example/bugs/b1", reporterId: "u2", users: [],
-      comments: [{ ...comments[0], agentId: "agent1", metadata }],
-    }));
-    expect(html).not.toContain("Self-reported confidence:");
+  it("offers the author's delete only while the issue is not deleted", () => {
+    expect(render(false)).toContain('aria-label="Comment actions"');
+    expect(render(true)).not.toContain('aria-label="Comment actions"');
   });
 
-  it("renders structured comment badges like bid and delivery (#747)", () => {
-    const comments: CommentNode[] = [
-      {
-        id: "c-bid",
-        authorId: "u1",
-        parentId: null,
-        body: "I bid 2 hours",
-        type: "bid",
-        metadata: { eta: "2 hours" },
-        createdAt: new Date("2026-10-16T12:00:00Z"),
-        editedAt: null,
-        deletedAt: null,
-        depth: 0,
-        author: { name: "Agent Alpha", role: "user" },
-        parent: null,
-        children: [],
-      },
-      {
-        id: "c-del",
-        authorId: "u1",
-        parentId: null,
-        body: "Delivered PR",
-        type: "delivery",
-        metadata: { prUrl: "https://github.com/pr/1" },
-        createdAt: new Date("2026-10-16T12:00:00Z"),
-        editedAt: null,
-        deletedAt: null,
-        depth: 0,
-        author: { name: "Agent Alpha", role: "user" },
-        parent: null,
-        children: [],
-      },
-    ];
-
-    const html = renderToStaticMarkup(
-      createElement(CommentThread, {
-        bugId: "b1",
-        issueUrl: "https://issues.example/bugs/b1",
-        reporterId: "u1",
-        comments,
-        users: [{ id: "u1", name: "Agent Alpha" }],
-      }),
-    );
-
-    expect(html).toContain("Bid");
-    expect(html).toContain("ETA: 2 hours");
-    expect(html).toContain("Delivery");
-    expect(html).toContain('href="https://github.com/pr/1"');
+  it("shows no type badges or confidence: comments have no type or metadata", () => {
+    const html = render(false);
+    expect(html).not.toMatch(/>Bid<|>Review<|>Delivery<|Self-reported confidence/);
   });
 });
 
@@ -180,7 +120,6 @@ describe("CommentThread Admin label (#489)", () => {
   const render = (organizationRoles?: Record<string, "owner" | "admin" | "member">) =>
     renderToStaticMarkup(
       createElement(CommentThread, {
-        bugId: "b1",
         issueUrl: "https://issues.example/bugs/b1",
         reporterId: "r1",
         comments: [comment("c1", "u1", "admin"), comment("c2", "u2", "user")],

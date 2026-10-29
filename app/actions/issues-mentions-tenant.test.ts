@@ -107,13 +107,13 @@ beforeEach(() => {
     reporterId: "carol",
     assigneeId: null,
     tenantId: "tenant-zedu",
-    convertedToIssueAt: new Date("2026-10-19T13:00:00Z"),
   });
+  db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "carol" });
 });
 
 describe("addCommentAction (#502)", () => {
   it("doesn't notify someone from another tenant, and stores their tag as plain text", async () => {
-    const result = await addCommentAction("bug-1", form({ body: `ping @[Dave Acme](${dave}) and @[Bob](${bob})` }));
+    const result = await addCommentAction("bug-1", form({ body: `ping @[Dave Acme](${dave}) and @[Bob](${bob})`, bidId: "bid-1" }));
 
     expect(result).toEqual({ ok: true, commentId: "comment-new" });
     expect(db.user.findMany.mock.calls[0][0].where.memberships).toEqual({ some: { tenantId: "tenant-zedu" } });
@@ -125,7 +125,7 @@ describe("addCommentAction (#502)", () => {
   });
 
   it("sends no mention at all when the only tag is outside the tenant", async () => {
-    await addCommentAction("bug-1", form({ body: `ping @[Dave Acme](${dave})` }));
+    await addCommentAction("bug-1", form({ body: `ping @[Dave Acme](${dave})`, bidId: "bid-1" }));
     const events = notifyMock.mock.calls[0]!;
     expect(events.some((event) => event.kind === "mentioned")).toBe(false);
     expect(JSON.stringify(events)).not.toContain(dave);
@@ -158,14 +158,17 @@ describe("addCommentAction replies to a bid (#issue-bids)", () => {
     const result = await addCommentAction("bug-1", form({ body: "Please add a test.", bidId: "bid-1" }));
     expect(result).toEqual({ ok: true, commentId: "comment-new" });
     expect(db.issueBid.findFirst).toHaveBeenCalledWith({ where: { id: "bid-1", bugId: "bug-1" }, select: { beneficiaryUserId: true } });
-    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ bidId: "bid-1", parentId: null, confirmationId: null, type: "comment" });
+    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ bidId: "bid-1", confirmationId: null });
+    expect(db.__tx.comment.create.mock.calls[0][0].data).not.toHaveProperty("type");
+    expect(db.__tx.comment.create.mock.calls[0][0].data).not.toHaveProperty("parentId");
   });
 
   it("refuses a bid on another issue, and a typed or nested reply", async () => {
     db.issueBid.findFirst.mockResolvedValue(null);
     expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-x" }))).toEqual({ error: "That bid is not on this issue" });
     db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: bob });
-    expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-1", type: "review" }))).toEqual({ error: "A reply to a bid is a plain comment" });
+    expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-1", type: "review" }))).toEqual({ error: TOP_LEVEL });
+    expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-1", parentId: "cmabcdefghijklmnopqrstuvw" }))).toEqual({ error: TOP_LEVEL });
     expect(db.__tx.comment.create).not.toHaveBeenCalled();
   });
 });
@@ -176,22 +179,31 @@ describe("addCommentAction replies to a test verdict or a merge review (#review-
     const result = await addCommentAction("bug-1", form({ body: "Which browser?", testVerdictId: "tv-1" }));
     expect(result).toEqual({ ok: true, commentId: "comment-new" });
     expect(db.testVerdict.findFirst).toHaveBeenCalledWith({ where: { id: "tv-1", bugId: "bug-1" }, select: { onBehalfOfUserId: true } });
-    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ testVerdictId: "tv-1", mergeReviewId: null, parentId: null, type: "comment" });
+    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ testVerdictId: "tv-1", mergeReviewId: null });
   });
 
   it("files a plain comment under the merge review", async () => {
     db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: bob });
     const result = await addCommentAction("bug-1", form({ body: "Fixed in the next commit.", mergeReviewId: "mr-1" }));
     expect(result).toEqual({ ok: true, commentId: "comment-new" });
-    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ mergeReviewId: "mr-1", testVerdictId: null, parentId: null });
+    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ mergeReviewId: "mr-1", testVerdictId: null });
   });
 
   it("refuses an entry on another issue, a typed reply, and two entries at once", async () => {
     db.testVerdict.findFirst.mockResolvedValue(null);
     expect(await addCommentAction("bug-1", form({ body: "Hi.", testVerdictId: "tv-x" }))).toEqual({ error: "That test verdict is not on this issue" });
     db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: bob });
-    expect(await addCommentAction("bug-1", form({ body: "Hi.", mergeReviewId: "mr-1", type: "review" }))).toEqual({ error: "A reply to a merge review is a plain comment" });
+    expect(await addCommentAction("bug-1", form({ body: "Hi.", mergeReviewId: "mr-1", type: "review" }))).toEqual({ error: TOP_LEVEL });
     expect(await addCommentAction("bug-1", form({ body: "Hi.", mergeReviewId: "mr-1", testVerdictId: "tv-1" }))).toEqual({ error: "Reply to one entry at a time" });
+    expect(db.__tx.comment.create).not.toHaveBeenCalled();
+  });
+});
+
+const TOP_LEVEL = "Issues take no free-standing comments: reply to a confirmation, bid, test verdict or merge review instead.";
+
+describe("addCommentAction takes no top-level comments (#entry-replies-only)", () => {
+  it("refuses a comment that replies to no entry, before writing anything", async () => {
+    expect(await addCommentAction("bug-1", form({ body: "A free-standing comment." }))).toEqual({ error: TOP_LEVEL });
     expect(db.__tx.comment.create).not.toHaveBeenCalled();
   });
 });

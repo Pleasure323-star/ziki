@@ -8,9 +8,7 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/app/actions/comments", () => ({
   deleteCommentAction: vi.fn(),
   updateCommentAction: vi.fn(),
-  createCommentAction: vi.fn(),
 }));
-vi.mock("@/components/comment-form", () => ({ CommentForm: () => null }));
 
 import { CommentThread } from "./comment-thread";
 
@@ -19,7 +17,6 @@ const comment: CommentNode = {
   authorId: "ann",
   parentId: null,
   body: "My own comment.",
-  type: "comment",
   createdAt: new Date("2026-10-22T00:00:00Z"),
   depth: 0,
   author: { name: "Ann", role: "user" },
@@ -29,29 +26,31 @@ const comment: CommentNode = {
 
 afterEach(cleanup);
 
-describe("comment actions (pencil)", () => {
-  it("is a disclosure, not an ARIA menu, offering the viewer's Edit and Delete", () => {
-    render(
-      <CommentThread bugId="b1" issueUrl="https://example.com/issues/b1" reporterId="ann" users={[]} comments={[comment]} currentUserId="ann" />,
-    );
+describe("earlier comment actions (pencil)", () => {
+  it("is a disclosure, not an ARIA menu, offering only Delete: earlier comments are read-only", () => {
+    render(<CommentThread issueUrl="https://example.com/issues/b1" reporterId="ann" users={[]} comments={[comment]} currentUserId="ann" />);
     const pencil = screen.getByRole("button", { name: "Comment actions" });
     expect(pencil).not.toHaveAttribute("aria-haspopup");
     fireEvent.click(pencil);
     expect(pencil).toHaveAttribute("aria-expanded", "true");
     expect(screen.queryByRole("menu")).toBeNull();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
   it("closes on Escape and puts focus back on the pencil", () => {
-    render(
-      <CommentThread bugId="b1" issueUrl="https://example.com/issues/b1" reporterId="ann" users={[]} comments={[comment]} currentUserId="ann" />,
-    );
+    render(<CommentThread issueUrl="https://example.com/issues/b1" reporterId="ann" users={[]} comments={[comment]} currentUserId="ann" />);
     const pencil = screen.getByRole("button", { name: "Comment actions" });
     fireEvent.click(pencil);
-    screen.getByRole("button", { name: "Edit" }).focus();
+    screen.getByRole("button", { name: "Delete" }).focus();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(pencil).toHaveFocus();
+  });
+
+  it("offers nothing on someone else's comment", () => {
+    render(<CommentThread issueUrl="https://example.com/issues/b1" reporterId="ann" users={[]} comments={[comment]} currentUserId="bob" />);
+    expect(screen.queryByRole("button", { name: "Comment actions" })).toBeNull();
   });
 });

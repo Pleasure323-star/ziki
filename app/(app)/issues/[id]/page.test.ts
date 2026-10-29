@@ -192,13 +192,12 @@ describe("BugDetailPage conditional user query (#349)", () => {
     );
     expect(pageSourceFresh).toContain('id="conversation"');
     expect(pageSourceFresh).toContain('id="comments"');
-    // #1446: the count follows the progress report's stage, falling back to the total.
-    expect(pageSourceFresh).toMatch(
-      /Conversation\s*<span[^>]*>\s*<StageConversationCount counts=\{stageCommentCounts\} fallback=\{comments\.visibleCount\} \/>/,
-    );
-    // New comments go through the Add comment modal, not a form under the thread.
-    expect(pageSourceFresh).toContain("<AddCommentDialog");
-    expect(pageSourceFresh).toContain("inlineComposer={false}");
+    // #entry-replies-only: no Add comment anywhere; stage entries and their replies,
+    // earlier comments read-only, and the dispute option on its own button.
+    expect(pageSourceFresh).not.toContain("AddCommentDialog");
+    expect(pageSourceFresh).toContain("<EarlierComments");
+    expect(pageSourceFresh).toContain("<DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />");
+    expect(pageSourceFresh).toContain('data-testid="stage-history"');
   });
 
   describe("runtime execution", () => {

@@ -41,19 +41,16 @@ import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueStageSummary } from "@/components/issue-stage-summary";
-import { StageCommentThread, StageConversationCount } from "@/components/stage-comment-thread";
+import { EarlierComments } from "@/components/comment-thread";
 import {
   claimDecisionKind,
   currentDecisionStage,
   payloadMerged,
-  stageOfComment,
-  stageStarts,
-  type DecisionStage,
 } from "@/lib/decision-stages";
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
-import { openBidEntries } from "@/lib/agent-api/bid";
+import { bidHistoryEntries, openBidEntries } from "@/lib/agent-api/bid";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
 import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
@@ -63,10 +60,9 @@ import { VoteButton } from "@/components/vote-button";
 import { type IdeaVerdictsData } from "@/components/idea-verdicts";
 import { listIdeaVerdicts } from "@/lib/agent-api/idea-verdicts";
 import { UpdateIssueForm } from "@/components/update-issue-form";
-import { AddCommentDialog } from "@/components/add-comment-dialog";
 import { IssueConfirmationsPanel, type ConfirmationBlock, type ConfirmationsData } from "@/components/issue-confirmations";
 import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-api/confirmations";
-import type { DisputeRole } from "@/components/comment-form";
+import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
 import { IssueApprovalBanner } from "@/components/issue-approval-banner";
@@ -738,12 +734,29 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     testing ? loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)) : Promise.resolve([]),
     mergeReviewing ? loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)) : Promise.resolve([]),
   ]);
-  // When each stage began, so every comment lands in the stage it was posted in.
-  const starts = stageStarts(agentDecisions, sourceIdea?.convertedAt ?? null);
-  const stageCommentCounts: Record<DecisionStage, number> = { idea: 0, confirm: 0, open: 0, done: 0, ready: 0, live: 0 };
-  for (const comment of commentTree) {
-    stageCommentCounts[stageOfComment(comment.type, comment.createdAt, starts)] += 1;
-  }
+  // #entry-replies-only: a stage with no entries of its own (in progress,
+  // live, closed) shows the entries of the earlier stages, read-only.
+  const showHistory = !confirming && !bidding && !testing && !mergeReviewing;
+  const [historyConfirmations, historyBids, historyTestVerdicts, historyMergeReviews] = showHistory
+    ? await Promise.all([
+        loadOptional<ConfirmationsData | null>("confirmation history", null, () =>
+          listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
+        ),
+        loadOptional<BidEntryView[]>("bid history", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
+        loadOptional<TestVerdictView[]>("test verdict history", [], () => testVerdictEntries(reviewBug)),
+        loadOptional<MergeReviewView[]>("merge review history", [], () => mergeReviewEntries(reviewBug)),
+      ])
+    : [null, [] as BidEntryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
+  const hasHistory =
+    (historyConfirmations?.entries.length ?? 0) > 0 ||
+    historyBids.length > 0 ||
+    historyTestVerdicts.length > 0 ||
+    historyMergeReviews.length > 0;
+  // Comments from before the stages took entries: read-only, collapsed.
+  const earlierCommentCount = comments.shownThreads + comments.hiddenThreads;
+  const commentTarget = parseCommentTarget(query.comment);
+  const openEarlierComments =
+    typeof query.threads === "string" || Boolean(commentTarget && comments.comments.some((c) => c.id === commentTarget));
   // #489: the Admin label follows each person's role in this issue's
   // organization, not their account-wide role, the same rule as admin powers.
   const namedUserIds = [
@@ -784,7 +797,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const agentResolution =
     bug.status === "resolved" && !bug.isDeleted ? readAgentResolution(latestStatusChange?.metadata) : null;
 
-  // "Dispute award" is a type in the Add comment form, for the issue's reporter and assignee.
+  // "Dispute award", for the issue's reporter and assignee: its own button now
+  // that issues take no free-standing comments (#entry-replies-only).
   const disputeRoles: DisputeRole[] = bug.isDeleted
     ? []
     : [
@@ -1047,7 +1061,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             decisions={agentDecisions}
             currentStage={currentStage}
             setback={bug.reviewStatus === "rejected"}
-            commentCounts={stageCommentCounts}
           />
 
               <section
@@ -1058,19 +1071,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
                     Conversation
-                    <span className="font-mono font-normal normal-case tracking-normal">
-                      <StageConversationCount counts={stageCommentCounts} fallback={comments.visibleCount} />
-                    </span>
                   </h2>
-                  {bug.isDeleted || confirming || bidding || testing || mergeReviewing ? null : (
-                    <AddCommentDialog
-                      bugId={bug.id}
-                      users={commentMentionUsers}
-                      viewerId={user.id}
-                      bugNumber={bug.number}
-                      disputeRoles={disputeRoles}
-                    />
-                  )}
+                  <DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />
                 </div>
                 {/* #186: the picked stage's summary, in place of the Agent decisions card. */}
                 <IssueStageSummary
@@ -1105,35 +1107,38 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 ) : null}
                 {testing ? <TestVerdictsPanel bugId={bug.id} verdicts={testVerdictList} canReply /> : null}
                 {mergeReviewing ? <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply /> : null}
-                {comments.hiddenThreads > 0 ? (
-                  <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
-                    <span>
-                      {comments.hiddenThreads} earlier{" "}
-                      {comments.hiddenThreads === 1 ? "thread" : "threads"} not shown.
-                    </span>
-                    <Link
-                      href={earlierThreadsHref(pageQuery, comments.shownThreads)}
-                      scroll={false}
-                      className="font-bold text-zk-accent hover:underline"
-                    >
-                      Show {Math.min(comments.hiddenThreads, COMMENT_THREADS_PER_PAGE)} earlier
-                    </Link>
-                    {comments.hiddenThreads > COMMENT_THREADS_PER_PAGE ? (
-                      <Link
-                        href={earlierThreadsHref(pageQuery, comments.shownThreads, true)}
-                        scroll={false}
-                        className="font-bold text-zk-accent hover:underline"
-                      >
-                        Show all
-                      </Link>
-                    ) : null}
-                  </div>
+                {showHistory ? (
+                  hasHistory ? (
+                    <div data-testid="stage-history">
+                      {historyConfirmations && historyConfirmations.entries.length > 0 ? (
+                        <IssueConfirmationsPanel
+                          bugId={bug.id}
+                          data={historyConfirmations}
+                          viewerId={user.id}
+                          block={null}
+                          summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
+                          history
+                        />
+                      ) : null}
+                      {historyBids.length > 0 ? (
+                        <IssueBidsPanel bugId={bug.id} bids={historyBids} canAward={false} canReply={false} history />
+                      ) : null}
+                      {historyTestVerdicts.length > 0 ? (
+                        <TestVerdictsPanel bugId={bug.id} verdicts={historyTestVerdicts} canReply={false} history />
+                      ) : null}
+                      {historyMergeReviews.length > 0 ? (
+                        <MergeReviewsPanel bugId={bug.id} reviews={historyMergeReviews} canReply={false} history />
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-[13px] text-zk-muted" data-testid="stage-no-entries">
+                      This stage takes no entries. Earlier stages&apos; entries appear here once there are any.
+                    </p>
+                  )
                 ) : null}
-                <Suspense fallback={null}>
-                  <CommentPermalinkResolver />
-                </Suspense>
-                <StageCommentThread
-                  bugId={bug.id}
+                <EarlierComments
+                  count={earlierCommentCount}
+                  defaultOpen={openEarlierComments}
                   issueUrl={absoluteUrl(issuePath(bug.number))}
                   reporterId={bug.reporterId}
                   comments={commentTree}
@@ -1144,10 +1149,35 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   currentUserRole={user.role}
                   tenantAdmin={access.admin}
                   readOnly={bug.isDeleted}
-                  inlineComposer={false}
-                  stage={currentStage}
-                  stageStarts={starts}
-                />
+                >
+                  {comments.hiddenThreads > 0 ? (
+                    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
+                      <span>
+                        {comments.hiddenThreads} earlier{" "}
+                        {comments.hiddenThreads === 1 ? "thread" : "threads"} not shown.
+                      </span>
+                      <Link
+                        href={earlierThreadsHref(pageQuery, comments.shownThreads)}
+                        scroll={false}
+                        className="font-bold text-zk-accent hover:underline"
+                      >
+                        Show {Math.min(comments.hiddenThreads, COMMENT_THREADS_PER_PAGE)} earlier
+                      </Link>
+                      {comments.hiddenThreads > COMMENT_THREADS_PER_PAGE ? (
+                        <Link
+                          href={earlierThreadsHref(pageQuery, comments.shownThreads, true)}
+                          scroll={false}
+                          className="font-bold text-zk-accent hover:underline"
+                        >
+                          Show all
+                        </Link>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </EarlierComments>
+                <Suspense fallback={null}>
+                  <CommentPermalinkResolver />
+                </Suspense>
               </section>
 
           {canUpdateStatus && !bug.isDeleted ? (

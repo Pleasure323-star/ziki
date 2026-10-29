@@ -27,7 +27,6 @@ import {
   resolveSessionUserId,
   SESSION_EXPIRED_MESSAGE,
 } from "@/lib/session-user";
-import { MAX_COMMENT_DEPTH, commentDepth } from "@/lib/comments";
 import {
   extractMentionedUserIds,
   newlyMentionedUserIds,
@@ -96,7 +95,8 @@ import {
 } from "@/lib/rate-limit";
 import { publish } from "@/lib/agent-api/events";
 import { issueChangePayload, publishWebEvent } from "@/lib/agent-api/web-events";
-import { firstPullRequestLink, pullRequestAttachment } from "@/lib/github/pr-mention";
+import { firstPullRequestLink } from "@/lib/github/pr-mention";
+import { topLevelCommentMessageForPeople } from "@/lib/stage-entry-route";
 import { isPullRequestClosedUnmerged, standingAcceptance } from "@/lib/github/merge-pr";
 import {
   agentMentionNames,
@@ -1283,7 +1283,7 @@ export async function editProofLinksAction(
   return { ok: true };
 }
 
-/** Adds a (possibly threaded) comment to a bug and records the activity. */
+/** Adds a reply to one stage entry of a bug (#entry-replies-only) and records the activity. */
 export async function addCommentAction(
   bugId: string,
   formData: FormData,
@@ -1298,30 +1298,30 @@ export async function addCommentAction(
     return { error: RATE_LIMIT_MESSAGE };
   }
 
-  let metadata: Record<string, unknown> | undefined;
-  const metadataRaw = formData.get("metadata");
-  if (typeof metadataRaw === "string" && metadataRaw.trim()) {
-    try {
-      metadata = JSON.parse(metadataRaw);
-    } catch {
-      // ignore invalid json metadata
-    }
+  // #entry-replies-only: a comment is a plain reply to one stage entry.
+  if (formData.get("type") || formData.get("metadata") || formData.get("parentId")) {
+    return { error: topLevelCommentMessageForPeople() };
   }
 
   const parsed = commentSchema.safeParse({
     body: formData.get("body"),
-    parentId: formData.get("parentId") || undefined,
     confirmationId: formData.get("confirmationId") || undefined,
     bidId: formData.get("bidId") || undefined,
     testVerdictId: formData.get("testVerdictId") || undefined,
     mergeReviewId: formData.get("mergeReviewId") || undefined,
-    type: formData.get("type") || undefined,
-    metadata,
   });
 
   if (!parsed.success) {
     return fromZodError(parsed.error, "Invalid comment");
   }
+
+  const confirmationId = parsed.data.confirmationId ?? null;
+  const bidId = parsed.data.bidId ?? null;
+  const testVerdictId = parsed.data.testVerdictId ?? null;
+  const mergeReviewId = parsed.data.mergeReviewId ?? null;
+  const entryCount = [confirmationId, bidId, testVerdictId, mergeReviewId].filter(Boolean).length;
+  if (entryCount === 0) return { error: topLevelCommentMessageForPeople() };
+  if (entryCount > 1) return { error: "Reply to one entry at a time" };
 
   const bug = await prisma.bug.findUnique({
     where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
@@ -1332,49 +1332,29 @@ export async function addCommentAction(
       reporterId: true,
       assigneeId: true,
       tenantId: true,
-      pullRequestUrl: true,
-      proofLinks: true,
     },
   });
   if (!bug || bug.isDeleted) {
     return { error: "Issue not found" };
   }
 
-  const parentId = parsed.data.parentId;
+  // Whom the reply answers: the entry's author.
   let parentAuthorId: string | null = null;
-
-  // #issue-confirmations: a reply to a confirmation entry is a plain comment under it.
-  const confirmationId = parsed.data.confirmationId ?? null;
   if (confirmationId) {
     const entry = await prisma.issueConfirmation.findFirst({
       where: { id: confirmationId, bugId },
       select: { onBehalfOfUserId: true },
     });
     if (!entry) return { error: "That confirmation is not on this issue" };
-    if (parentId) return { error: "Reply to the confirmation itself" };
-    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a confirmation is a plain comment" };
     parentAuthorId = entry.onBehalfOfUserId;
   }
-
-  // #issue-bids: a reply to a bid is a plain comment under it, too.
-  const bidId = parsed.data.bidId ?? null;
   if (bidId) {
-    if (confirmationId) return { error: "Reply to one entry at a time" };
     const bid = await prisma.issueBid.findFirst({
       where: { id: bidId, bugId },
       select: { beneficiaryUserId: true },
     });
     if (!bid) return { error: "That bid is not on this issue" };
-    if (parentId) return { error: "Reply to the bid itself" };
-    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a bid is a plain comment" };
     parentAuthorId = bid.beneficiaryUserId;
-  }
-
-  // #review-entries: so is a reply to a test verdict or a merge review.
-  const testVerdictId = parsed.data.testVerdictId ?? null;
-  const mergeReviewId = parsed.data.mergeReviewId ?? null;
-  if ([confirmationId, bidId, testVerdictId, mergeReviewId].filter(Boolean).length > 1) {
-    return { error: "Reply to one entry at a time" };
   }
   if (testVerdictId) {
     const verdict = await prisma.testVerdict.findFirst({
@@ -1382,8 +1362,6 @@ export async function addCommentAction(
       select: { onBehalfOfUserId: true },
     });
     if (!verdict) return { error: "That test verdict is not on this issue" };
-    if (parentId) return { error: "Reply to the test verdict itself" };
-    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a test verdict is a plain comment" };
     parentAuthorId = verdict.onBehalfOfUserId;
   }
   if (mergeReviewId) {
@@ -1392,58 +1370,23 @@ export async function addCommentAction(
       select: { onBehalfOfUserId: true },
     });
     if (!review) return { error: "That merge review is not on this issue" };
-    if (parentId) return { error: "Reply to the merge review itself" };
-    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a merge review is a plain comment" };
     parentAuthorId = review.onBehalfOfUserId;
-  }
-
-  if (parentId) {
-    const parent = await prisma.comment.findUnique({
-      where: { id: parentId },
-      select: { id: true, bugId: true, parentId: true, deletedAt: true, authorId: true },
-    });
-
-    if (!parent || parent.bugId !== bugId) {
-      return { error: "Parent comment not found on this issue" };
-    }
-    if (parent.deletedAt) {
-      return { error: "You can't reply to a deleted comment" };
-    }
-    parentAuthorId = parent.authorId;
-
-    const threadComments = await prisma.comment.findMany({
-      where: { bugId },
-      select: { id: true, parentId: true },
-    });
-    const parentById = new Map(
-      threadComments.map((c) => [c.id, c.parentId] as const),
-    );
-    const parentDepth = commentDepth(parent.id, parentById);
-
-    if (parentDepth >= MAX_COMMENT_DEPTH) {
-      return {
-        error: `Replies are limited to ${MAX_COMMENT_DEPTH} levels of nesting`,
-      };
-    }
   }
 
   // #603: only agents in this issue's organization can be mentioned.
   const agents = await mentionedAgents(prisma, bug.tenantId, parsed.data.body);
   const normalizedBody = await normalizeMentionTags(parsed.data.body, bug.tenantId, agents);
 
-  const { commentId, attachedPrUrl } = await prisma.$transaction(async (tx) => {
+  const commentId = await prisma.$transaction(async (tx) => {
     const created = await tx.comment.create({
       data: {
         bugId,
         authorId: userId,
         body: normalizedBody,
-        parentId: parentId ?? null,
         confirmationId,
         bidId,
         testVerdictId,
         mergeReviewId,
-        type: parsed.data.type ?? "comment",
-        metadata: parsed.data.metadata ? (parsed.data.metadata as Prisma.InputJsonValue) : undefined,
       },
       select: { id: true },
     });
@@ -1472,36 +1415,7 @@ export async function addCommentAction(
         } as Prisma.InputJsonValue,
       },
     });
-    let attachedPrUrl: string | null = null;
-    const attachment = pullRequestAttachment({
-      authorId: userId,
-      assigneeId: bug.assigneeId,
-      pullRequestUrl: bug.pullRequestUrl,
-      proofLinks: bug.proofLinks ?? [],
-      body: normalizedBody,
-      type: parsed.data.type,
-      metadata: parsed.data.metadata as Record<string, unknown> | undefined,
-    });
-    if (attachment) attachedPrUrl = attachment.pullRequestUrl;
-    await tx.bug.update({
-      where: { id: bugId },
-      data: {
-        updatedAt: new Date(),
-        ...(attachment ? { pullRequestUrl: attachment.pullRequestUrl } : {}),
-        ...(attachment?.proofLinks ? { proofLinks: attachment.proofLinks } : {}),
-      },
-    });
-    if (attachment) {
-      await tx.bugActivity.create({
-        data: {
-          bugId,
-          actorId: userId,
-          type: "edited",
-          summary: `linked PR ${attachment.pullRequestUrl}`,
-          metadata: { field: "pullRequestUrl", pullRequestUrl: attachment.pullRequestUrl, via: "comment" },
-        },
-      });
-    }
+    await tx.bug.update({ where: { id: bugId }, data: { updatedAt: new Date() } });
     // Commenting on an issue means you want to hear about replies (#216).
     await ensureWatching(tx, bugId, [userId]);
     // #600: a person's reply reaches the agents polling /api/v1/events.
@@ -1511,12 +1425,11 @@ export async function addCommentAction(
       actorUserId: userId,
       payload: {
         commentId: created.id,
-        parentId: parentId ?? null,
+        parentId: null,
         authorId: userId,
-        ...(attachment ? { linkedPullRequestUrl: attachment.pullRequestUrl } : {}),
       },
     });
-    return { commentId: created.id, attachedPrUrl };
+    return created.id;
   });
 
   // A mentioned agent's owner hears about it like a mention of them (#603).
@@ -1550,7 +1463,7 @@ export async function addCommentAction(
   revalidateIssue(bugId);
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
-  return { ok: true, commentId, ...(attachedPrUrl ? { linkedPullRequestUrl: attachedPrUrl } : {}) };
+  return { ok: true, commentId };
 }
 
 export type ToggleVoteResult = ActionResult & {

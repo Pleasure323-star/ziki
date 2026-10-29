@@ -1,6 +1,5 @@
 import type { AppRole } from "@/lib/roles";
 import { stripMarkdown } from "@/lib/rich-text";
-import type { CommentType } from "@/lib/validations/issue";
 
 /** Root = 0. Replies may nest up to this depth (3 levels total). */
 export const MAX_COMMENT_DEPTH = 2;
@@ -10,8 +9,6 @@ export type CommentAuthor = { name: string; role?: AppRole | null; image?: strin
 export type FlatComment = {
   id: string;
   body: string;
-  type?: CommentType | null;
-  metadata?: unknown;
   createdAt: Date | string;
   editedAt?: Date | string | null;
   deletedAt?: Date | string | null;

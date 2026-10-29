@@ -4,7 +4,6 @@ import type { AgentLevel, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { agentErrorResponse, assertKeyProject, requireAgent, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
-import { reviewerConflict, ReviewerNotIndependentError, type ReviewedBug } from "@/lib/agents/independence";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
@@ -18,11 +17,10 @@ import { parseIssueRef } from "@/lib/issue-ref";
 import { cursorOrderBy, cursorWhere, decodeCursor, LIMIT_RANGE_ERROR, pageSize, toPage, type IssueCursor } from "@/lib/agent-api/create-policy";
 import { commentedSummary, commentPreview } from "@/lib/activity-log";
 import { extractMentionedUserIds, normalizeMentions } from "@/lib/mentions";
-import { commentDepth, MAX_COMMENT_DEPTH } from "@/lib/comments";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 import { publish } from "@/lib/agent-api/events";
-import { pullRequestAttachment } from "@/lib/github/pr-mention";
+import { ENTRY_REPLY_FIELDS, PARENT_ID_MESSAGE, STAGE_ENTRY_ROUTES, stageEntryRoute, TYPED_COMMENT_MESSAGE, topLevelCommentMessage } from "@/lib/stage-entry-route";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { notifyLater } from "@/lib/notify";
 import type { NotificationEvent } from "@/lib/notifications";
@@ -248,7 +246,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, type: true, metadata: true, createdAt: true, editedAt: true },
+      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true },
     }, attachments: {
       // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -274,7 +272,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, type: true, metadata: true, createdAt: true, editedAt: true,
+  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
 } satisfies Prisma.CommentSelect;
@@ -301,12 +299,8 @@ export async function listAgentIssueComments(scope: Scope, id: string, params: U
   if (cursorRaw !== null && !cursor) throw new IssueApiError(400, "Invalid cursor.");
   const limit = pageSize(params.get("limit"));
   if (limit === null) throw new IssueApiError(422, LIMIT_RANGE_ERROR);
-  const typeParam = params.get("type");
-  const validTypes = ["comment", "bid", "review", "delivery", "request_to_merge"];
-  if (typeParam && !validTypes.includes(typeParam)) {
-    throw new IssueApiError(400, `Unknown comment type: ${typeParam}.`, { validTypes });
-  }
-  const filterType = typeParam ? (typeParam as Prisma.EnumCommentTypeFilter["equals"]) : undefined;
+  // #entry-replies-only: comments have no type to filter by.
+  if (params.has("type")) throw new IssueApiError(400, "comment_has_no_type", { message: TYPED_COMMENT_MESSAGE });
 
   const issue = await prisma.bug.findFirst({ where: { ...scope, id, isDeleted: false }, select: { id: true } });
   if (!issue) throw new IssueApiError(404, "Issue not found.");
@@ -314,7 +308,6 @@ export async function listAgentIssueComments(scope: Scope, id: string, params: U
     where: {
       bugId: id,
       deletedAt: null,
-      ...(filterType ? { type: filterType } : {}),
       ...(cursor ? commentsAfter(cursor) : {}),
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -333,76 +326,58 @@ async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: s
 }
 
 export async function commentOnAgentIssue(agent: AgentContext, request: NextRequest, bugId: string) {
-  const input = agentCommentSchema.parse(await issueJson(request));
+  const raw = await issueJson(request);
+  // #entry-replies-only: comments have no type, metadata or parent. Say why,
+  // instead of the bare unknown-key error the strict schema would give.
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    if ("type" in raw || "metadata" in raw) {
+      throw new IssueApiError(400, "comment_has_no_type", { message: TYPED_COMMENT_MESSAGE, entryRoutes: [...STAGE_ENTRY_ROUTES] });
+    }
+    if ("parentId" in raw) throw new IssueApiError(400, "replies_are_flat", { message: PARENT_ID_MESSAGE });
+  }
+  const input = agentCommentSchema.parse(raw);
   const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
-  let bug: ({
-    id: string;
-    title: string;
-    reporterId: string;
-    assigneeId: string | null;
-    pullRequestUrl: string | null;
-    proofLinks: string[];
-  } & ReviewedBug) | null = null;
+  let bug: { id: string; title: string; reporterId: string; assigneeId: string | null } | null = null;
   let parentAuthorId: string | null = null;
   const comment = await prisma.$transaction(async (tx) => {
-    bug = await tx.bug.findFirst({
+    const found = await tx.bug.findFirst({
       where: { ...scope, id: bugId, isDeleted: false },
-      select: {
-        id: true, title: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
-        pullRequestUrl: true, proofLinks: true,
-        createdByAgent: { select: { ownerUserId: true } },
-        claims: { where: { status: "active", releasedAt: null }, select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
-      },
+      select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, reviewStatus: true, pullRequestUrl: true },
     });
-    if (!bug) throw new IssueApiError(404, "Issue not found.");
-    if (input.type === "review") {
-      const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);
-      if (conflict) throw new IssueApiError(403, "not_independent", { message: new ReviewerNotIndependentError(conflict).message });
+    if (!found) throw new IssueApiError(404, "Issue not found.");
+    bug = found;
+    const entryIds = [input.confirmationId, input.bidId, input.testVerdictId, input.mergeReviewId].filter(Boolean);
+    // #entry-replies-only: no top-level comments; stage decisions are entries.
+    if (entryIds.length === 0) {
+      const entry = stageEntryRoute(found);
+      throw new IssueApiError(409, "use_stage_entry", {
+        message: topLevelCommentMessage(found),
+        entryRoute: entry?.route ?? null,
+        replyFields: [...ENTRY_REPLY_FIELDS],
+      });
     }
-    // #issue-confirmations: a reply to a confirmation entry is a plain comment under it.
+    if (entryIds.length > 1) {
+      throw new IssueApiError(422, "Reply to one entry: send only one of confirmationId, bidId, testVerdictId or mergeReviewId.");
+    }
     if (input.confirmationId) {
       const entry = await tx.issueConfirmation.findFirst({ where: { id: input.confirmationId, bugId }, select: { onBehalfOfUserId: true } });
       if (!entry) throw new IssueApiError(422, "Confirmation not found on this issue.");
-      if (input.parentId) throw new IssueApiError(422, "Reply to the confirmation itself: send confirmationId without parentId.");
-      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a confirmation is a plain comment.");
       parentAuthorId = entry.onBehalfOfUserId;
     }
-    // #issue-bids: a reply to a bid is a plain comment under it, too.
     if (input.bidId) {
-      if (input.confirmationId) throw new IssueApiError(422, "Reply to one entry: send confirmationId or bidId, not both.");
       const bid = await tx.issueBid.findFirst({ where: { id: input.bidId, bugId }, select: { beneficiaryUserId: true } });
       if (!bid) throw new IssueApiError(422, "Bid not found on this issue.");
-      if (input.parentId) throw new IssueApiError(422, "Reply to the bid itself: send bidId without parentId.");
-      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a bid is a plain comment.");
       parentAuthorId = bid.beneficiaryUserId;
-    }
-    // #review-entries: a reply to a test verdict or a merge review is a plain comment under it.
-    const entryIds = [input.confirmationId, input.bidId, input.testVerdictId, input.mergeReviewId].filter(Boolean);
-    if (entryIds.length > 1) {
-      throw new IssueApiError(422, "Reply to one entry: send only one of confirmationId, bidId, testVerdictId or mergeReviewId.");
     }
     if (input.testVerdictId) {
       const verdict = await tx.testVerdict.findFirst({ where: { id: input.testVerdictId, bugId }, select: { onBehalfOfUserId: true } });
       if (!verdict) throw new IssueApiError(422, "Test verdict not found on this issue.");
-      if (input.parentId) throw new IssueApiError(422, "Reply to the test verdict itself: send testVerdictId without parentId.");
-      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a test verdict is a plain comment.");
       parentAuthorId = verdict.onBehalfOfUserId;
     }
     if (input.mergeReviewId) {
       const review = await tx.mergeReview.findFirst({ where: { id: input.mergeReviewId, bugId }, select: { onBehalfOfUserId: true } });
       if (!review) throw new IssueApiError(422, "Merge review not found on this issue.");
-      if (input.parentId) throw new IssueApiError(422, "Reply to the merge review itself: send mergeReviewId without parentId.");
-      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a merge review is a plain comment.");
       parentAuthorId = review.onBehalfOfUserId;
-    }
-    if (input.parentId) {
-      const parent = await tx.comment.findFirst({ where: { id: input.parentId, bugId, deletedAt: null }, select: { id: true, authorId: true } });
-      if (!parent) throw new IssueApiError(422, "Parent comment not found on this issue.");
-      parentAuthorId = parent.authorId;
-      const thread = await tx.comment.findMany({ where: { bugId }, select: { id: true, parentId: true } });
-      if (commentDepth(parent.id, new Map(thread.map((row) => [row.id, row.parentId]))) >= MAX_COMMENT_DEPTH) {
-        throw new IssueApiError(422, "The reply nesting limit has been reached.");
-      }
     }
     const body = await normalizeTenantMentions(tx, scope.tenantId, input.body);
     const created = await tx.comment.create({
@@ -411,13 +386,10 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         authorId: agent.ownerId,
         agentId: agent.agentId,
         body,
-        parentId: input.parentId ?? null,
         confirmationId: input.confirmationId ?? null,
         bidId: input.bidId ?? null,
         testVerdictId: input.testVerdictId ?? null,
         mergeReviewId: input.mergeReviewId ?? null,
-        type: input.type ?? "comment",
-        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : undefined,
       },
       select: {
         id: true,
@@ -430,8 +402,6 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         bidId: true,
         testVerdictId: true,
         mergeReviewId: true,
-        type: true,
-        metadata: true,
         createdAt: true,
       },
     });
@@ -440,61 +410,21 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       bugId, actorId: agent.ownerId, type: "commented", summary: commentedSummary(body),
       metadata: { commentId: created.id, commentPreview: commentPreview(body) },
     } });
-    let attachedPrUrl: string | null = null;
-    const attachment = pullRequestAttachment({
-      authorId: agent.ownerId,
-      assigneeId: bug.assigneeId,
-      pullRequestUrl: bug.pullRequestUrl,
-      proofLinks: bug.proofLinks ?? [],
-      body,
-      type: input.type,
-      metadata: input.metadata,
-    });
-    if (attachment) attachedPrUrl = attachment.pullRequestUrl;
-    await tx.bug.update({
-      where: { id: bugId },
-      data: {
-        updatedAt: new Date(),
-        ...(attachment ? { pullRequestUrl: attachment.pullRequestUrl } : {}),
-        ...(attachment?.proofLinks ? { proofLinks: attachment.proofLinks } : {}),
-      },
-    });
-    if (attachment) {
-      await tx.bugActivity.create({
-        data: {
-          bugId,
-          actorId: agent.ownerId,
-          type: "edited",
-          summary: `linked PR ${attachment.pullRequestUrl}`,
-          metadata: { field: "pullRequestUrl", pullRequestUrl: attachment.pullRequestUrl, via: "comment" },
-        },
-      });
-    }
+    await tx.bug.update({ where: { id: bugId }, data: { updatedAt: new Date() } });
     await tx.issueWatch.upsert({ where: { userId_bugId: { bugId, userId: agent.ownerId } },
       create: { bugId, userId: agent.ownerId }, update: {} });
     await audit(agent, "comment.created", created.id, { authorId: agent.ownerId }, { db: tx, bugId });
     await publish(tx, {
       tenantId: scope.tenantId,
       type: "comment.created",
-      payload: {
-        commentId: created.id,
-        issueId: bugId,
-        authorId: agent.ownerId,
-        ...(attachment ? { linkedPullRequestUrl: attachment.pullRequestUrl } : {}),
-      },
+      payload: { commentId: created.id, issueId: bugId, authorId: agent.ownerId },
       actorAgentId: agent.agentId,
       bugId,
     });
-    return { created, attachedPrUrl };
+    return created;
   });
-  notifyAgentComment(agent, bug, comment.created, parentAuthorId);
-  return NextResponse.json(
-    {
-      comment: comment.created,
-      ...(comment.attachedPrUrl ? { linkedPullRequestUrl: comment.attachedPrUrl } : {}),
-    },
-    { status: 201 },
-  );
+  notifyAgentComment(agent, bug, comment, parentAuthorId);
+  return NextResponse.json({ comment }, { status: 201 });
 }
 
 /**

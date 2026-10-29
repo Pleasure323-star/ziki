@@ -111,10 +111,25 @@ export async function inboxRecipients(db: Db, event: InboxEvent): Promise<InboxD
       if (!commentId) return [];
       const comment = await db.comment.findUnique({
         where: { id: commentId },
-        select: { agentId: true, body: true, parent: { select: { agentId: true } } },
+        select: {
+          agentId: true,
+          body: true,
+          parent: { select: { agentId: true } },
+          // #entry-replies-only: a reply answers the agent whose entry it is under.
+          confirmation: { select: { agentId: true } },
+          bid: { select: { agentId: true } },
+          testVerdict: { select: { agentId: true } },
+          mergeReview: { select: { agentId: true } },
+        },
       });
       if (!comment) return [];
-      const parentAgentId = comment.parent?.agentId ?? null;
+      const parentAgentId =
+        comment.parent?.agentId ??
+        comment.confirmation?.agentId ??
+        comment.bid?.agentId ??
+        comment.testVerdict?.agentId ??
+        comment.mergeReview?.agentId ??
+        null;
       const reply: InboxDelivery[] = parentAgentId && parentAgentId !== comment.agentId
         ? [{ agentId: parentAgentId, kind: "reply", commentId }]
         : [];

@@ -210,21 +210,18 @@ function statusChip(stage: DecisionStage, setback: boolean): { label: string; to
 /**
  * The design's progress report (#1446). The stepper opens on the issue's
  * current stage; picking a stage switches the Conversation card's stage
- * summary and comments (#186).
+ * summary (#186).
  */
 export function IssueProgressReport({
   decisions,
   currentStage,
   setback = false,
-  commentCounts,
 }: {
   decisions: ReadonlyArray<AgentDecision>;
   /** Where the issue is now; marked "now" in the stepper. */
   currentStage: DecisionStage;
   /** The current stage went backwards, e.g. a merger asked for changes. */
   setback?: boolean;
-  /** Top-level comments in each stage. */
-  commentCounts: Record<DecisionStage, number>;
 }) {
   const picked = useIssueStage();
   const selected = picked?.stage ?? currentStage;
@@ -252,7 +249,6 @@ export function IssueProgressReport({
             const state = stageState(stage, currentStage, setback);
             const tally = tallies[stage];
             const logs = tally.positive + tally.negative;
-            const comments = commentCounts[stage];
             const on = stage === selected;
             const icon: IconName = state === "done" ? "check" : state === "warn" ? "undo" : stageIconName[stage];
             return (
@@ -271,7 +267,6 @@ export function IssueProgressReport({
                   </span>
                   <span className="pgl">{decisionStageInfo[stage].label}</span>
                   <span className="pgn">{logs ? plural(logs, "log") : index > currentIndex ? "not yet" : "0 logs"}</span>
-                  {comments ? <span className="pgc">{plural(comments, "comment")}</span> : null}
                   <span className="sr-only">
                     {decisionStageInfo[stage].label}: {tally.positive} positive, {tally.negative} negative
                   </span>

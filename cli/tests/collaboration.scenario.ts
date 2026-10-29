@@ -7,29 +7,37 @@ describe("working on issues together", () => {
   let id: string;
 
   beforeAll(async () => {
-    // Comments are for issues; ideas take only verdicts.
+    // Replies are for issue entries; ideas take only verdicts.
     id = await fileIssue("cara", "CLI collaboration: list goes blank", ["ada", "bob", "eli"]);
   });
 
-  it("threads comments and replies, readable newest-first and from the start", async () => {
-    const first = await ok("bob", "comment", { id, body: "I can reproduce this on Firefox." });
-    const commentId = first.comment?.id ?? first.id;
-    expect(commentId, JSON.stringify(first)).toBeTruthy();
-    await ok("dana", "comment", { id, body: "Same here, after the last deploy.", parentId: commentId });
-    const latest = await ok("ada", "list-comments", { id });
-    expect(JSON.stringify(latest)).toContain("I can reproduce this on Firefox.");
-    const fromStart = await ok("ada", "list-comments-from-start", { id });
-    expect(JSON.stringify(fromStart)).toContain("Same here, after the last deploy.");
+  it("takes no top-level comments: a comment replies to an entry, and the 409 names the stage's entry route", async () => {
+    const body = await refused("bob", "comment", { id, body: "I can reproduce this on Firefox." }, 409);
+    expect(body.error).toBe("use_stage_entry");
+    // A new issue requires confirmation, so the entry is a confirmation.
+    expect(body.entryRoute).toMatch(/\/confirmations$/);
+    expect(body.message).toMatch(/confirmationId/);
   });
 
-  it("files a structured delivery-type comment with metadata", async () => {
-    const posted = await ok("bob", "comment", {
-      id,
-      body: "Root cause found in the list query.",
-      type: "review",
-      metadata: JSON.stringify({ confidence: 80, confidenceReason: "Reproduced locally." }),
-    });
-    expect(JSON.stringify(posted)).toContain("Root cause found");
+  it("refuses typed comments, metadata and nested replies with a 400 that lists the entry routes", async () => {
+    const { projectId } = (await ok("ada", "get-issue", { id })).issue;
+    const typed = await ziki(
+      "request", "POST", `/api/v1/issues/${id}/comments?projectId=${projectId}`,
+      "--body", JSON.stringify({ body: "Root cause found in the list query.", type: "review", metadata: { confidence: 80 } }),
+      "--as", "bob",
+    );
+    expect(typed.code).toBe(1);
+    expect(typed.json?.status).toBe(400);
+    expect(typed.out + typed.err).toMatch(/comment_has_no_type/);
+    expect(typed.out + typed.err).toMatch(/test-results/);
+    const nested = await ziki(
+      "request", "POST", `/api/v1/issues/${id}/comments?projectId=${projectId}`,
+      "--body", JSON.stringify({ body: "Same here.", parentId: "c0000000000000000000000000" }),
+      "--as", "dana",
+    );
+    expect(nested.code).toBe(1);
+    expect(nested.json?.status).toBe(400);
+    expect(nested.out + nested.err).toMatch(/replies_are_flat/);
   });
 
   it("waits for confirmation before taking bids", async () => {
@@ -58,6 +66,9 @@ describe("working on issues together", () => {
     expect(again).toMatchObject({ bid_id: bid.bid_id, replaced: true, summary: "I can fix this within the hour." });
     const reply = await ok("cara", "comment", { id, body: "Please include a regression test.", bidId: bid.bid_id });
     expect(reply.comment).toMatchObject({ bidId: bid.bid_id, parentId: null });
+    // Replies read newest-first and from the start, like any comment.
+    expect(JSON.stringify(await ok("ada", "list-comments", { id }))).toContain("Please include a regression test.");
+    expect(JSON.stringify(await ok("ada", "list-comments-from-start", { id }))).toContain("Please include a regression test.");
     const listed = JSON.stringify(await ok("cara", "list-bids", { id }));
     expect(listed).toContain(bid.bid_id);
     expect(listed).toContain("I can fix this within the hour.");

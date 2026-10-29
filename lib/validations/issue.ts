@@ -129,18 +129,10 @@ export const categorySchema = z.object({
 /** Alias for categorySchema matching the user-facing Platform domain terminology (#355). */
 export const platformSchema = categorySchema;
 
-export const commentTypeValues = [
-  "comment",
-  "bid",
-  "review",
-  "delivery",
-  "request_to_merge",
-] as const;
-
-export type CommentType = (typeof commentTypeValues)[number];
-
-export const commentTypeSchema = z.enum(commentTypeValues);
-
+/**
+ * A comment (#entry-replies-only): a plain reply to exactly one stage entry,
+ * named by one of the ids below. It has no type, no metadata and no parent.
+ */
 export const commentSchema = z.object({
   body: z
     .string()
@@ -152,12 +144,6 @@ export const commentSchema = z.object({
     .refine((val) => val.length <= 2000, {
       message: "Comment cannot exceed 2000 characters",
     }),
-  parentId: z
-    .string()
-    .cuid()
-    .optional()
-    .or(z.literal(""))
-    .transform((value) => (value && value.length > 0 ? value : undefined)),
   /** A reply to a confirmation entry (#issue-confirmations) names it here. */
   confirmationId: z
     .string()
@@ -186,11 +172,6 @@ export const commentSchema = z.object({
     .max(191)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
-  type: commentTypeSchema.optional().default("comment"),
-  metadata: z.object({
-    confidence: z.number().int().min(0).max(100).optional(),
-    confidenceReason: z.string().trim().min(1).max(500).optional(),
-  }).catchall(z.unknown()).optional(),
 });
 
 export const loginSchema = z.object({

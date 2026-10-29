@@ -5,7 +5,8 @@ import axe from "axe-core";
 import { cleanup, render } from "@testing-library/react";
 import { labelInNameMismatches } from "@/lib/a11y/label-in-name";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { CommentForm } from "./comment-form";
+import { EntryReplyForm } from "./entry-reply-form";
+import { DisputeAwardDialog } from "./dispute-award-dialog";
 import { CreateBugForm } from "./create-issue-form";
 import { UserSearch } from "./user-search";
 import { VoteButton } from "./vote-button";
@@ -95,8 +96,13 @@ describe("component accessibility (axe)", () => {
     await expectNoA11yViolations(container);
   });
 
-  it("CommentForm has no violations", async () => {
-    const { container } = render(<CommentForm bugId="b1" users={users} />);
+  it("EntryReplyForm has no violations", async () => {
+    const { container } = render(<EntryReplyForm bugId="b1" target={{ bidId: "bid1" }} label="Reply to this bid" />);
+    await expectNoA11yViolations(container);
+  });
+
+  it("DisputeAwardDialog has no violations", async () => {
+    const { container } = render(<DisputeAwardDialog bugNumber={7} roles={["solver", "reporter"]} />);
     await expectNoA11yViolations(container);
   });
 

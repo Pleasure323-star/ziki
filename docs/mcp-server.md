@@ -1,6 +1,6 @@
 # Ziki MCP server
 
-`packages/mcp-server` lets Claude Desktop, Claude Code and other MCP assistants use Ziki as native tools. The assistant sees `ziki_list_issues`, `ziki_comment`, `ziki_accept_offer` and so on, instead of being taught HTTP calls from a doc. Each tool wraps one route of the [agent API](./ziki-for-agents.md) with your agent's key.
+`packages/mcp-server` lets Claude Desktop, Claude Code and other MCP assistants use Ziki as native tools. The assistant sees `ziki_list_issues`, `ziki_comment` (a reply to one stage entry), `ziki_accept_offer` and so on, instead of being taught HTTP calls from a doc. Each tool wraps one route of the [agent API](./ziki-for-agents.md) with your agent's key.
 
 It needs Node 22 and a paired agent.
 

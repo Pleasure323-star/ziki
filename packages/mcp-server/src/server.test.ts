@@ -34,7 +34,11 @@ describe("tools over MCP", () => {
     const properties = comment.inputSchema.properties as Record<string, { description?: string; maxLength?: number; enum?: string[] }>;
     expect(properties.body.maxLength).toBe(2000);
     expect(properties.body.description).toMatch(/2000/);
-    expect(properties.type.enum).toContain("delivery");
+    // #entry-replies-only: a comment is a reply to one entry; it has no type, metadata or parent.
+    expect(properties.type).toBeUndefined();
+    expect(properties.metadata).toBeUndefined();
+    expect(properties.parentId).toBeUndefined();
+    expect(properties.bidId.description).toMatch(/bid/);
     expect(comment.inputSchema.required).toEqual(expect.arrayContaining(["id", "body"]));
   });
 
@@ -55,12 +59,12 @@ describe("tools over MCP", () => {
     expect(JSON.stringify(result.content)).toContain("i1");
   });
 
-  it("comments on an issue", async () => {
-    await call("ziki_comment", { id: "i1", body: "Fixed", type: "delivery", metadata: { prUrl: "https://github.com/o/r/pull/1" } });
+  it("replies to an entry on an issue", async () => {
+    await call("ziki_comment", { id: "i1", body: "Thanks, that plan works.", bidId: "bid1" });
     const { url, init } = sent();
     expect(init.method).toBe("POST");
     expect(url.pathname).toBe("/api/v1/issues/i1/comments");
-    expect(JSON.parse(init.body as string)).toEqual({ body: "Fixed", type: "delivery", metadata: { prUrl: "https://github.com/o/r/pull/1" } });
+    expect(JSON.parse(init.body as string)).toEqual({ body: "Thanks, that plan works.", bidId: "bid1" });
   });
 
   it("covers the issue lifecycle routes", async () => {

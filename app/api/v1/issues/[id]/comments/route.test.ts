@@ -75,17 +75,18 @@ beforeEach(() => {
     title: "Bug 1",
     reporterId: "owner-a",
     assigneeId: null,
-    convertedToIssueAt: new Date("2026-10-19T13:00:00Z"),
+    status: "open",
+    reviewStatus: null,
+    pullRequestUrl: null,
   });
   db.comment.create.mockResolvedValue({
     id: "c-1",
     bugId: "bug-1",
     authorId: "owner-a",
     agentId: "agent-a",
-    body: "Here is my bid",
+    body: "Please add a test.",
     parentId: null,
-    type: "bid",
-    metadata: { eta: "2 hours" },
+    bidId: "bid-1",
     createdAt: new Date(),
   });
   db.comment.findMany.mockResolvedValue([]);
@@ -94,67 +95,30 @@ beforeEach(() => {
   db.webhookSubscription.findMany.mockResolvedValue([]);
 });
 
-describe("Structured Comments API (#747)", () => {
-  it("creates a structured bid comment with metadata", async () => {
-    const res = await POST(
-      postRequest({
-        body: "I bid on this issue",
-        type: "bid",
-        metadata: { eta: "2 hours" },
-      }),
-      { params: Promise.resolve({ id: "bug-1" }) },
-    );
+describe("no typed or top-level comments (#entry-replies-only)", () => {
+  const params = { params: Promise.resolve({ id: "bug-1" }) };
 
-    expect(res.status).toBe(201);
+  it("refuses a comment that replies to no entry with 409 use_stage_entry, naming the bid route at Open", async () => {
+    const res = await POST(postRequest({ body: "A free-standing comment." }), params);
+    expect(res.status).toBe(409);
     const data = await res.json();
-    expect(data.comment).toMatchObject({
-      id: "c-1",
-      type: "bid",
-      metadata: { eta: "2 hours" },
-    });
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          type: "bid",
-          metadata: { eta: "2 hours" },
-        }),
-      }),
-    );
+    expect(data).toMatchObject({ error: "use_stage_entry", entryRoute: "POST /api/v1/issues/bug-1/bid" });
+    expect(db.comment.create).not.toHaveBeenCalled();
   });
 
-  it("filters comments by type query param", async () => {
-    db.comment.findMany.mockResolvedValue([
-      {
-        id: "c-delivery",
-        body: "Delivered PR",
-        type: "delivery",
-        metadata: { prUrl: "https://github.com/pull/1" },
-        authorId: "owner-a",
-        agentId: "agent-a",
-        parentId: null,
-        createdAt: new Date(),
-        editedAt: null,
-        author: { id: "owner-a", name: "Ada" },
-        agent: { id: "agent-a", name: "Agent A" },
-      },
-    ]);
-
-    const res = await GET(getRequest("&type=delivery"), {
-      params: Promise.resolve({ id: "bug-1" }),
-    });
-
-    expect(res.status).toBe(200);
+  it("refuses type and metadata with a 400 listing the entry routes", async () => {
+    const res = await POST(postRequest({ body: "I bid on this issue", type: "bid", metadata: { eta: "2 hours" } }), params);
+    expect(res.status).toBe(400);
     const data = await res.json();
-    expect(data.items).toHaveLength(1);
-    expect(data.items[0].type).toBe("delivery");
-    expect(db.comment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          bugId: "bug-1",
-          type: "delivery",
-        }),
-      }),
-    );
+    expect(data.error).toBe("comment_has_no_type");
+    expect(data.entryRoutes.join(" ")).toMatch(/confirmations.*bid.*test-results.*merge/);
+    expect(db.comment.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a ?type= filter", async () => {
+    const res = await GET(getRequest("&type=delivery"), params);
+    expect(res.status).toBe(400);
+    expect(db.comment.findMany).not.toHaveBeenCalled();
   });
 });
 
@@ -167,7 +131,10 @@ describe("replies to a bid (#issue-bids)", () => {
     expect(res.status).toBe(201);
     expect(db.issueBid.findFirst).toHaveBeenCalledWith({ where: { id: "bid-1", bugId: "bug-1" }, select: { beneficiaryUserId: true } });
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ bidId: "bid-1", parentId: null, confirmationId: null, type: "comment" }),
+      data: expect.not.objectContaining({ type: expect.anything() }),
+    }));
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bidId: "bid-1", confirmationId: null }),
     }));
   });
 
@@ -179,14 +146,14 @@ describe("replies to a bid (#issue-bids)", () => {
   });
 
   it.each([
-    [{ parentId: "cmabcdefghijklmnopqrstuvw" }, "parentId"],
-    [{ type: "delivery" }, "type"],
-    [{ confirmationId: "conf-1" }, "confirmationId"],
-  ])("refuses a reply to a bid that also sends %j (%s)", async (extra, field) => {
+    [{ parentId: "cmabcdefghijklmnopqrstuvw" }, 400],
+    [{ type: "delivery" }, 400],
+    [{ confirmationId: "conf-1" }, 422],
+  ])("refuses a reply to a bid that also sends %j", async (extra, status) => {
     db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
     db.issueConfirmation.findFirst.mockResolvedValue({ onBehalfOfUserId: "someone" });
     const res = await POST(postRequest({ body: "Hello.", bidId: "bid-1", ...extra }), params);
-    expect(res.status, field).toBe(422);
+    expect(res.status).toBe(status);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 });
@@ -200,7 +167,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
     expect(res.status).toBe(201);
     expect(db.testVerdict.findFirst).toHaveBeenCalledWith({ where: { id: "tv-1", bugId: "bug-1" }, select: { onBehalfOfUserId: true } });
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ testVerdictId: "tv-1", mergeReviewId: null, parentId: null, type: "comment" }),
+      data: expect.objectContaining({ testVerdictId: "tv-1", mergeReviewId: null }),
     }));
   });
 
@@ -209,20 +176,20 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
     const res = await POST(postRequest({ body: "On it.", mergeReviewId: "mr-1" }), params);
     expect(res.status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ mergeReviewId: "mr-1", testVerdictId: null, parentId: null }),
+      data: expect.objectContaining({ mergeReviewId: "mr-1", testVerdictId: null }),
     }));
   });
 
   it.each([
-    [{ testVerdictId: "tv-elsewhere" }, "a verdict on another issue"],
-    [{ mergeReviewId: "mr-1", parentId: "cmabcdefghijklmnopqrstuvw" }, "parentId"],
-    [{ mergeReviewId: "mr-1", type: "delivery" }, "type"],
-    [{ mergeReviewId: "mr-1", testVerdictId: "tv-1" }, "two entries"],
-  ])("refuses %j (%s)", async (extra, label) => {
+    [{ testVerdictId: "tv-elsewhere" }, 422],
+    [{ mergeReviewId: "mr-1", parentId: "cmabcdefghijklmnopqrstuvw" }, 400],
+    [{ mergeReviewId: "mr-1", type: "delivery" }, 400],
+    [{ mergeReviewId: "mr-1", testVerdictId: "tv-1" }, 422],
+  ])("refuses %j", async (extra, status) => {
     db.testVerdict.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) => (where.id === "tv-1" ? { onBehalfOfUserId: "tester" } : null));
     db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: "manager" });
     const res = await POST(postRequest({ body: "Hello.", ...extra }), params);
-    expect(res.status, label).toBe(422);
+    expect(res.status).toBe(status);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 });

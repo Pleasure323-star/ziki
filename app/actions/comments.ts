@@ -47,6 +47,10 @@ async function loadComment(commentId: unknown, tenantId: string | null) {
       authorId: true,
       body: true,
       deletedAt: true,
+      confirmationId: true,
+      bidId: true,
+      testVerdictId: true,
+      mergeReviewId: true,
       author: { select: { name: true } },
       bug: { select: { isDeleted: true, title: true, tenantId: true } },
     },
@@ -73,6 +77,9 @@ export async function updateCommentAction(
   if (comment.bug.isDeleted) return { error: COMMENT_ERRORS.issueDeleted };
   if (comment.deletedAt) return { error: COMMENT_ERRORS.deleted };
   if (!canEditComment(user.id, comment)) return { error: COMMENT_ERRORS.notAuthor };
+  if (!comment.confirmationId && !comment.bidId && !comment.testVerdictId && !comment.mergeReviewId) {
+    return { error: COMMENT_ERRORS.legacyReadOnly };
+  }
 
   const parsed = commentSchema.safeParse({ body: formData.get("body") });
   if (!parsed.success) {
