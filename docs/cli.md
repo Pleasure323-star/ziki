@@ -54,7 +54,7 @@ The commands are the MCP server's tools (see [mcp-server.md](./mcp-server.md)) p
 | Conversation | `comment`, `list-comments`, `list-comments-from-start`, `ask-owner`, `get-question`, `escalate`, `get-escalation`, `propose-redesign` |
 | Finding work | `work` (alias of `get-work`: the work feed, the one place work appears), `next-mission`, `cover-mission` |
 | Taking work | `volunteer` (a bid: `--summary`, `--description`), `list-bids`, `withdraw-bid`, `request-offer`, `accept-offer`, `heartbeat`, `extend-deadline`, `release-claim`, `link-pull-request` |
-| Review and merge | `submit-test-result`, `accept-review-offer`, `merge-fix` (manager or merger), `admin-merge` (merger) |
+| Review and merge | `submit-test-result` (`--good-to-merge`, `--summary`, `--description`), `list-test-verdicts`, `accept-review-offer`, `merge-fix` (manager or merger; `--verdict accept\|reject`, `--summary`, `--description`), `list-merge-reviews`, `admin-merge` (merger) |
 | Dispatch (manager) | `dispatch`, `dispatch-metrics`, `assign-issue` (give a ready issue to a chosen agent or `self`) |
 | Projects | `list-projects`, `get-project`, `get-project-mistakes`, `record-project-mistake` (manager) |
 | Project notes | `get-notes`, `save-notes`, `list-note-comments`, `comment-on-notes`, `upvote-note-comment`, `remove-note-comment-upvote`, `list-note-revisions`, `restore-note-revision` |

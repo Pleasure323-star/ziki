@@ -54,6 +54,9 @@ import { IssueEscalations, type TicketEscalation } from "@/components/issue-esca
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
 import { openBidEntries } from "@/lib/agent-api/bid";
+import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
+import { mergeReviewEntries } from "@/lib/agent-api/merge";
+import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
 import { GoalBudgetSection } from "@/components/goal-budgets";
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
@@ -129,13 +132,6 @@ async function loadOptional<T>(label: string, fallback: T, load: () => Promise<T
     console.error(`[issue] ${label} failed`, error);
     return fallback;
   }
-}
-
-/** A manager agent's rejection notes (#1429), from its audit payload. */
-function payloadNotes(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const notes = (payload as { notes?: unknown }).notes;
-  return typeof notes === "string" && notes.trim() ? notes : null;
 }
 
 /** Why a merger agent's deployment failed (#1446), from its audit payload. */
@@ -484,7 +480,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         "agent decisions",
         [],
         async () => {
-          const [confirmations, claims, verdicts, accepted] = await Promise.all([
+          const [confirmations, claims, verdicts, reviews, accepted] = await Promise.all([
             // #issue-confirmations: confirm and reject entries; neutral decides nothing.
             prisma.issueConfirmation.findMany({
               where: { bugId: id, verdict: { in: ["confirm", "reject"] }, undoneAt: null },
@@ -529,10 +525,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 onBehalfOf: { select: { name: true } },
               },
             }),
-            // #1429: a manager agent's rejection is a merge decision too, and #1446 a
-            // merger agent's failed deployment.
+            // #review-entries: a manager agent's accept or reject (#1429) is its merge review.
+            prisma.mergeReview.findMany({
+              where: { bugId: id },
+              orderBy: { createdAt: "asc" },
+              select: { id: true, createdAt: true, verdict: true, summary: true, agent: { select: { name: true } } },
+            }),
+            // #1446: the merger agent's merge and its failed deployments are actions, in the audit log.
             prisma.agentAuditEvent.findMany({
-              where: { bugId: id, action: { in: ["issue.accepted", "issue.merge_rejected", "github.merge_failed"] } },
+              where: { bugId: id, action: { in: ["issue.accepted", "github.merge_failed"] } },
               orderBy: { createdAt: "asc" },
               select: {
                 id: true,
@@ -544,18 +545,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             }),
           ]);
 
-          const mergerDecisions: AgentDecision[] = accepted
-            .filter((e) => e.agent.level === "manager" || e.agent.level === "merger")
-            .map<AgentDecision>((e) =>
-              e.action === "issue.merge_rejected"
-                ? {
-                    id: `merge-rejected-${e.id}`,
-                    at: e.createdAt,
-                    kind: "merge_rejected",
-                    agentName: e.agent.name,
-                    notes: payloadNotes(e.payload),
-                  }
-                : e.action === "github.merge_failed"
+          const mergerDecisions: AgentDecision[] = [
+            ...reviews.map<AgentDecision>((r) =>
+              r.verdict === "reject"
+                ? { id: `merge-review-${r.id}`, at: r.createdAt, kind: "merge_rejected", agentName: r.agent.name, notes: r.summary }
+                : { id: `merge-review-${r.id}`, at: r.createdAt, kind: "accepted", agentName: r.agent.name },
+            ),
+            ...accepted
+              .filter((e) => e.action === "github.merge_failed" || payloadMerged(e.payload))
+              .map<AgentDecision>((e) =>
+                e.action === "github.merge_failed"
                   ? {
                       id: `deploy-failed-${e.id}`,
                       at: e.createdAt,
@@ -563,14 +562,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       agentName: e.agent.name,
                       reason: payloadReason(e.payload),
                     }
-                  : {
-                      id: `accepted-${e.id}`,
-                      at: e.createdAt,
-                      kind: "accepted",
-                      agentName: e.agent.name,
-                      merged: payloadMerged(e.payload),
-                    },
-            );
+                  : { id: `accepted-${e.id}`, at: e.createdAt, kind: "accepted", agentName: e.agent.name, merged: true },
+              ),
+          ];
 
           const otherDecisions: AgentDecision[] = [
             // A person's own entry names them; an agent's names the agent, for its owner.
@@ -629,17 +623,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               personName: v.onBehalfOf.name,
               goodToMerge: v.goodToMerge,
             })),
-            ...accepted
-              .filter(
-                (e) =>
-                  e.action === "issue.accepted" && e.agent.level !== "manager" && e.agent.level !== "merger",
-              )
-              .map<AgentDecision>((e) => ({
-                id: `accepted-${e.id}`,
-                at: e.createdAt,
-                kind: "accepted",
-                agentName: e.agent.name,
-              })),
           ].sort((a, b) => {
             const at = new Date(a.at).getTime() - new Date(b.at).getTime();
             if (at !== 0) return at;
@@ -746,6 +729,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     hasClaim: agentDecisions.some((d) => d.kind === "claimed"),
     ideaAccepted: intakeStage === "ready",
   });
+  // #review-entries: at Done the issue takes test verdicts, at Ready to merge
+  // merge reviews, not comments.
+  const reviewBug = { id: bug.id, pullRequestUrl: bug.pullRequestUrl ?? null, pullRequestHeadSha: bug.pullRequestHeadSha ?? null };
+  const testing = !bug.isDeleted && currentStage === "done";
+  const mergeReviewing = !bug.isDeleted && currentStage === "ready";
+  const [testVerdictList, mergeReviewList] = await Promise.all([
+    testing ? loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)) : Promise.resolve([]),
+    mergeReviewing ? loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)) : Promise.resolve([]),
+  ]);
   // When each stage began, so every comment lands in the stage it was posted in.
   const starts = stageStarts(agentDecisions, sourceIdea?.convertedAt ?? null);
   const stageCommentCounts: Record<DecisionStage, number> = { idea: 0, confirm: 0, open: 0, done: 0, ready: 0, live: 0 };
@@ -1070,7 +1062,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       <StageConversationCount counts={stageCommentCounts} fallback={comments.visibleCount} />
                     </span>
                   </h2>
-                  {bug.isDeleted || confirming || bidding ? null : (
+                  {bug.isDeleted || confirming || bidding || testing || mergeReviewing ? null : (
                     <AddCommentDialog
                       bugId={bug.id}
                       users={commentMentionUsers}
@@ -1111,6 +1103,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     canReply
                   />
                 ) : null}
+                {testing ? <TestVerdictsPanel bugId={bug.id} verdicts={testVerdictList} canReply /> : null}
+                {mergeReviewing ? <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply /> : null}
                 {comments.hiddenThreads > 0 ? (
                   <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
                     <span>

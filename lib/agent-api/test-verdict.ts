@@ -14,8 +14,10 @@ import { publish } from "@/lib/agent-api/events";
 import { handleTestVerdictSubmitted } from "@/lib/agent-api/review-offer";
 import { parsePullRequestUrl, type GitHubClient, type PullRequest } from "@/lib/github/merge-pr";
 import { combineProblems, notifyAuthor, readinessClient, readinessProblems } from "@/lib/agent-api/pr-readiness";
-import { recordVerdictBlocked } from "@/lib/merge-status";
 import { refreshTestedStatus } from "@/lib/agent-api/tested-status";
+import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
+import { IssueApiError } from "@/lib/agent-api/errors";
+import { parseIssueRef } from "@/lib/issue-ref";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -32,21 +34,26 @@ import { refreshTestedStatus } from "@/lib/agent-api/tested-status";
  *   on its own. Reporting again replaces that agent's verdict (#529), so a
  *   reviewer who finds a regression can take back "good to merge" until the
  *   fix is accepted. The audit log keeps every change.
+ * - A verdict is the Done stage's entry (#review-entries): good or not good
+ *   to merge, with a summary of at most two sentences and a full description
+ *   (lib/agent-api/entry-fields.ts). Nobody gives a bare verdict. Replies are
+ *   plain comments with `testVerdictId`.
  * - "Good to merge" is only recorded when the pull request is ready: every check
  *   on its head commit is green, CodeRabbit has no unresolved review threads,
  *   and it doesn't conflict with its base branch (#255). Otherwise nothing is
- *   recorded, a comment lists every reason and what the author has to do, and
+ *   recorded: the caller gets every reason and what the author has to do, and
  *   the author is told. A "not good to merge" verdict is always recorded.
  * - A verdict needs a linked pull request and records which one it tested
  *   (#526), and the head commit it tested (#489). Linking a different PR means
  *   the old verdicts no longer count.
  */
 
-export const TEST_VERDICT_NOTES_MAX = 2000;
-
 export const testVerdictBodySchema = z.object({
   goodToMerge: z.boolean(),
-  notes: z.string().trim().max(TEST_VERDICT_NOTES_MAX).optional(),
+  /** At most two sentences: is it good to merge, and the main reason. */
+  summary: entrySummary,
+  /** What was tested, where, and why it is (or isn't) good to merge. */
+  description: entryDescription,
   /** The person the agent acts for; defaults to its owner. */
   onBehalfOfUserId: z.string().trim().min(1).max(191).optional(),
   /**
@@ -100,12 +107,35 @@ function activeClaimAgent(bug: LoadedBug): string | null {
 type StoredVerdict = {
   id: string;
   goodToMerge: boolean;
-  notes: string | null;
+  summary: string;
+  description: string;
   onBehalfOfUserId: string;
   pullRequestUrl: string | null;
   headSha: string | null;
   changedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
+
+const NOTES_GONE =
+  'Test verdicts take a summary (at most two sentences) and a description now, in place of notes: send { "goodToMerge": true, "summary": "…", "description": "…" }.';
+
+/** The 400 for a body that fails the schema, naming the field. */
+function invalidVerdict(rawBody: unknown, error: z.ZodError): { status: 400; error: "invalid_request"; message: string; field?: string } {
+  const body = rawBody && typeof rawBody === "object" ? (rawBody as Record<string, unknown>) : {};
+  const issue = error.issues[0];
+  const field = typeof issue?.path[0] === "string" ? issue.path[0] : undefined;
+  if ("notes" in body && (field === "summary" || field === "description")) {
+    return { status: 400, error: "invalid_request", message: NOTES_GONE, field: "notes" };
+  }
+  const message =
+    field === "summary" && issue?.code === "invalid_type"
+      ? "Add a summary."
+      : field === "description" && issue?.code === "invalid_type"
+        ? "Add a description of what you tested and why it is, or isn't, good to merge."
+        : issue?.message ?? "Invalid test verdict.";
+  return { status: 400, error: "invalid_request", message, ...(field ? { field } : {}) };
+}
 
 export type SubmitTestVerdictResult =
   | { status: 201; verdict: StoredVerdict }
@@ -121,6 +151,8 @@ export type SubmitTestVerdictResult =
       error: "not_ready";
       missing: "github_app" | "pull_request" | "deployment_verification" | "review_threads" | "merge_conflict";
       message: string;
+      /** What the fix's author has to do before a tester reports again. */
+      todo: string;
     };
 
 export type SubmitTestVerdictDeps = { client?: GitHubClient | null };
@@ -140,15 +172,7 @@ export async function submitTestVerdict(
   }
 
   const parsed = testVerdictBodySchema.safeParse(rawBody ?? {});
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return {
-      status: 400,
-      error: "invalid_request",
-      message: issue?.message ?? "Invalid test verdict.",
-      field: typeof issue?.path[0] === "string" ? issue.path[0] : undefined,
-    };
-  }
+  if (!parsed.success) return invalidVerdict(rawBody, parsed.error);
   const body = parsed.data;
 
   const bug = await prisma.bug.findFirst({
@@ -219,26 +243,30 @@ export async function submitTestVerdict(
   if (body.goodToMerge) {
     const block = await readyBlock(bug, deps, headSha);
     if (block) {
+      // #review-entries: nothing is posted on the issue. The caller gets the
+      // reason and what to do; the author is told.
       const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
-      await recordVerdictBlocked(prisma, { agent, bug, reason: block.message, todo: block.todo });
       notifyAuthor({
         bug,
         recipientId: claim?.beneficiaryUserId ?? bug.assigneeId,
         reason: block.message,
         fromAgentName: agent.name,
       });
-      return { status: 409, error: "not_ready", missing: block.missing, message: block.message };
+      return { status: 409, error: "not_ready", missing: block.missing, message: block.message, todo: block.todo };
     }
   }
 
   const verdictSelect = {
     id: true,
     goodToMerge: true,
-    notes: true,
+    summary: true,
+    description: true,
     onBehalfOfUserId: true,
     pullRequestUrl: true,
     headSha: true,
     changedAt: true,
+    createdAt: true,
+    updatedAt: true,
   } as const;
 
   try {
@@ -255,7 +283,8 @@ export async function submitTestVerdict(
           where: { id: existing.id },
           data: {
             goodToMerge: body.goodToMerge,
-            notes: body.notes || null,
+            summary: body.summary,
+            description: body.description,
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
@@ -269,8 +298,8 @@ export async function submitTestVerdict(
           `bug:${bug.id}`,
           {
             verdictId: verdict.id,
-            from: { goodToMerge: existing.goodToMerge, pullRequestUrl: existing.pullRequestUrl },
-            to: { goodToMerge: body.goodToMerge, pullRequestUrl, headSha },
+            from: { goodToMerge: existing.goodToMerge, summary: existing.summary, pullRequestUrl: existing.pullRequestUrl },
+            to: { goodToMerge: body.goodToMerge, summary: body.summary, pullRequestUrl, headSha },
             onBehalfOfUserId,
           },
           { bugId: bug.id, db: tx },
@@ -282,6 +311,7 @@ export async function submitTestVerdict(
             issueId: bug.id,
             verdictId: verdict.id,
             goodToMerge: body.goodToMerge,
+            summary: body.summary,
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
@@ -301,7 +331,8 @@ export async function submitTestVerdict(
           agentId: agent.agentId,
           onBehalfOfUserId,
           goodToMerge: body.goodToMerge,
-          notes: body.notes || null,
+          summary: body.summary,
+          description: body.description,
           pullRequestUrl,
           headSha,
         },
@@ -312,13 +343,13 @@ export async function submitTestVerdict(
         agent,
         "issue.test_verdict",
         `bug:${bug.id}`,
-        { verdictId: verdict.id, goodToMerge: body.goodToMerge, onBehalfOfUserId, pullRequestUrl, headSha },
+        { verdictId: verdict.id, goodToMerge: body.goodToMerge, summary: body.summary, onBehalfOfUserId, pullRequestUrl, headSha },
         { bugId: bug.id, db: tx },
       );
       await publish(tx, {
         tenantId: bug.tenantId,
         type: "issue.test_verdict",
-        payload: { issueId: bug.id, verdictId: verdict.id, goodToMerge: body.goodToMerge, onBehalfOfUserId, pullRequestUrl, headSha },
+        payload: { issueId: bug.id, verdictId: verdict.id, goodToMerge: body.goodToMerge, summary: body.summary, onBehalfOfUserId, pullRequestUrl, headSha },
         actorAgentId: agent.agentId,
         bugId: bug.id,
       });
@@ -390,4 +421,77 @@ async function readyBlock(
   return combineProblems(
     await readinessProblems(client, ref, pullRequest, testedHeadSha || pullRequest.headSha, claim?.agent.name),
   );
+}
+
+/** One test verdict as the API and the issue page show it, with its replies. */
+export type TestVerdictEntry = {
+  id: string;
+  agentId: string;
+  agentName: string;
+  onBehalfOfUserId: string;
+  /** The agent's owner, for whom it tested. */
+  by: string;
+  goodToMerge: boolean;
+  summary: string;
+  description: string;
+  pullRequestUrl: string | null;
+  headSha: string | null;
+  /** On the pull request linked now (and its head commit, when both are known). Only these count. */
+  current: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  replies: EntryReply[];
+};
+
+/** Every test verdict on one issue, newest first. */
+export async function testVerdictEntries(
+  bug: { id: string; pullRequestUrl: string | null; pullRequestHeadSha: string | null },
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<TestVerdictEntry[]> {
+  const rows = await db.testVerdict.findMany({
+    where: { bugId: bug.id },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: {
+      id: true,
+      agentId: true,
+      onBehalfOfUserId: true,
+      goodToMerge: true,
+      summary: true,
+      description: true,
+      pullRequestUrl: true,
+      headSha: true,
+      createdAt: true,
+      updatedAt: true,
+      agent: { select: { name: true } },
+      onBehalfOf: { select: { name: true } },
+      replies: entryReplySelect,
+    },
+  });
+  return rows.map(({ agent, onBehalfOf, replies, ...row }) => ({
+    ...row,
+    agentName: agent.name,
+    by: onBehalfOf.name ?? "A member",
+    current:
+      Boolean(bug.pullRequestUrl) &&
+      row.pullRequestUrl === bug.pullRequestUrl &&
+      (!bug.pullRequestHeadSha || !row.headSha || row.headSha === bug.pullRequestHeadSha),
+    replies: toEntryReplies(replies),
+  }));
+}
+
+/** GET /issues/{id}/test-results: the issue's test verdicts, each with its replies. */
+export async function listTestVerdicts(scope: { tenantId: string; projectId?: string }, issueRef: string) {
+  const ref = parseIssueRef(issueRef);
+  const bug = await prisma.bug.findFirst({
+    where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
+    select: { id: true, number: true, pullRequestUrl: true, pullRequestHeadSha: true },
+  });
+  if (!bug) throw new IssueApiError(404, "Issue not found.", { error: "not_found", message: "Issue not found." });
+  return {
+    issueId: bug.id,
+    issueNumber: bug.number,
+    pullRequestUrl: bug.pullRequestUrl,
+    headSha: bug.pullRequestHeadSha,
+    verdicts: await testVerdictEntries(bug),
+  };
 }

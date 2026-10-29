@@ -28,18 +28,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!budget.allowed) return agentBudgetExceededResponse(budget.retryAfterSeconds, budget);
 
   const { id } = await params;
-  let options: Record<string, unknown> | undefined;
-  try {
-    const json = await req.json();
-    if (json && typeof json === "object") {
-      options = json;
-    }
-  } catch {
-    // Empty body is valid
-  }
-  const result = options
-    ? await executeAdminMerge(agent, id, {}, options)
-    : await executeAdminMerge(agent, id);
+  // An action, not an entry (#review-entries): it takes no body.
+  const result = await executeAdminMerge(agent, id);
   const { status, ...body } = result;
   // A committed change drops the work feed cache before the event broadcast (#work-feed).
   if (status < 400) eventStreamBus.emit(TENANT_WRITE, agent.tenantId);

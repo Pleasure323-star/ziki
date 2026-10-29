@@ -4,7 +4,7 @@ const events = vi.hoisted(() => ({ publish: vi.fn() }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: events.publish }));
 
 import { currentDecisionStage } from "@/lib/decision-stages";
-import { MERGE_BLOCKED, MERGE_FAILED, REVIEW_STATUSES, mergeOutcomeComment, recordMergeOutcome } from "./merge-status";
+import { MERGE_BLOCKED, MERGE_FAILED, REVIEW_STATUSES, mergeOutcomeSummary, recordMergeOutcome } from "./merge-status";
 
 const agent = { agentId: "am1", name: "Admin merger", ownerId: "amo", tenantId: "tenant", level: "merger", burst: false, keyId: "k" };
 
@@ -19,14 +19,14 @@ function fakeDb() {
 }
 
 describe("merge statuses", () => {
-  it("says what was blocked and that nothing was merged, resolved or paid", () => {
-    expect(mergeOutcomeComment(MERGE_BLOCKED, "The checks are not green.")).toBe(
-      "Merge blocked: The checks are not green. Nothing was merged on GitHub, the issue was not resolved, and no points were paid.",
+  it("says what was blocked and that nothing was merged", () => {
+    expect(mergeOutcomeSummary(MERGE_BLOCKED, "The checks are not green.")).toBe(
+      "Merge blocked: The checks are not green. Nothing was merged on GitHub.",
     );
-    expect(mergeOutcomeComment(MERGE_FAILED, "GitHub refused the merge.")).toMatch(/^Merge failed: GitHub refused the merge\./);
+    expect(mergeOutcomeSummary(MERGE_FAILED, "GitHub refused the merge.")).toMatch(/^Merge failed: GitHub refused the merge\./);
   });
 
-  it("sets the status and posts the comment together", async () => {
+  it("sets the status, logs it with its reason and what to do, and posts no comment (#review-entries)", async () => {
     const { db, tx } = fakeDb();
 
     await recordMergeOutcome(db as never, {
@@ -34,16 +34,28 @@ describe("merge statuses", () => {
       bug: { id: "bug1", tenantId: "tenant", pullRequestUrl: "https://github.com/o/r/pull/1" },
       status: MERGE_BLOCKED,
       reason: "CodeRabbit has 1 unresolved review thread on this pull request. Resolve them before merging.",
+      todo: "The author resolves the thread.",
     });
 
     expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { reviewStatus: "merge_blocked" } });
-    expect(tx.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ agentId: "am1", body: expect.stringMatching(/^Merge blocked: CodeRabbit/) }) }),
-    );
+    expect(tx.comment.create).not.toHaveBeenCalled();
+    expect(tx.bugActivity.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        type: "status_changed",
+        actorId: "amo",
+        summary: expect.stringMatching(/^Merge blocked: CodeRabbit/),
+        metadata: expect.objectContaining({
+          reviewStatus: "merge_blocked",
+          reason: expect.stringMatching(/^CodeRabbit/),
+          todo: "The author resolves the thread.",
+          note: "What to do: The author resolves the thread.",
+        }),
+      }),
+    });
     expect(events.publish).toHaveBeenCalledWith(
       tx,
-      expect.objectContaining({ type: "issue.updated", payload: expect.objectContaining({ reviewStatus: "merge_blocked" }) }),
+      expect.objectContaining({ type: "issue.updated", payload: expect.objectContaining({ reviewStatus: "merge_blocked", todo: "The author resolves the thread." }) }),
     );
   });
 

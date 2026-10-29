@@ -1,3 +1,4 @@
+import { mergeReviewBodySchema } from "@/lib/agent-api/merge";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { TOOLS } from "../../packages/mcp-server/src/tools";
@@ -33,6 +34,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_confirm_issue: confirmationSchema,
   ziki_give_idea_verdict: ideaVerdictFields,
   ziki_submit_test_result: testVerdictBodySchema,
+  ziki_merge_fix: mergeReviewBodySchema,
   ziki_ask_owner: agentQuestionSchema,
   ziki_escalate: agentEscalationSchema,
   ziki_claim_issue: claimSchema,
@@ -58,6 +60,8 @@ const AGENT_LAYER_FIELDS = new Set(["attachmentIds", "acknowledgeSimilar"]);
 // them, and severity is set by reviewers), so a tool must not offer them.
 const NOT_OFFERED_TO_AGENTS: Record<string, readonly string[]> = {
   ziki_create_idea: ["severity", "typeId", "assigneeId"],
+  // `action` is the older name for `verdict`, kept for old clients only.
+  ziki_merge_fix: ["action"],
 };
 
 // Fields the route doesn't take from the body: the tool puts them in the path or query.

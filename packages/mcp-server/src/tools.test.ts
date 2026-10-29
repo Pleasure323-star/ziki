@@ -130,12 +130,15 @@ describe("buildRequest", () => {
   });
 
   it("sends the tested commit with a test result, and rejects a malformed one before calling the API", () => {
-    const withSha = buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true, headSha: "a1b2c3d4e5f6" }, { projectId: "p" });
-    expect(withSha.body).toEqual({ goodToMerge: true, headSha: "a1b2c3d4e5f6" });
-    const without = buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true }, { projectId: "p" });
-    expect(without.body).toEqual({ goodToMerge: true });
+    const withSha = buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true, summary: "Good.", description: "Tested.", headSha: "a1b2c3d4e5f6" }, { projectId: "p" });
+    expect(withSha.body).toEqual({ goodToMerge: true, summary: "Good.", description: "Tested.", headSha: "a1b2c3d4e5f6" });
+    const without = buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true, summary: "Good.", description: "Tested." }, { projectId: "p" });
+    expect(without.body).toEqual({ goodToMerge: true, summary: "Good.", description: "Tested." });
+    // A bare verdict is refused before the API is called (#review-entries).
+    expect(() => buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true }, { projectId: "p" })).toThrow();
+    expect(() => buildRequest(tool("ziki_merge_fix"), { id: "i", verdict: "accept" }, { projectId: "p" })).toThrow();
     for (const bad of ["not-a-sha", "abc12", "g1b2c3d4e5f6", "a".repeat(65)]) {
-      expect(() => buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true, headSha: bad }, { projectId: "p" })).toThrow();
+      expect(() => buildRequest(tool("ziki_submit_test_result"), { id: "i", goodToMerge: true, summary: "Good.", description: "Tested.", headSha: bad }, { projectId: "p" })).toThrow();
     }
   });
 

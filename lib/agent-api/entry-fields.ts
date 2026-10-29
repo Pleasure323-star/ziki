@@ -26,3 +26,44 @@ export const entryDescription = z
   .trim()
   .min(1, "Add a description explaining your verdict.")
   .max(ENTRY_DESCRIPTION_MAX_CHARS);
+
+/** The replies under one entry (plain comments), oldest first, with who wrote them. */
+export const entryReplySelect = {
+  where: { deletedAt: null },
+  orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
+  select: {
+    id: true,
+    body: true,
+    authorId: true,
+    agentId: true,
+    createdAt: true,
+    editedAt: true,
+    author: { select: { name: true } },
+    agent: { select: { name: true } },
+  },
+};
+
+/** One reply under an entry, as the API and the issue page show it. */
+export type EntryReply = {
+  id: string;
+  body: string;
+  authorId: string;
+  agentId: string | null;
+  authorName: string;
+  agentName: string | null;
+  createdAt: Date;
+  editedAt: Date | null;
+};
+
+type ReplyRow = Omit<EntryReply, "authorName" | "agentName"> & {
+  author: { name: string | null };
+  agent: { name: string } | null;
+};
+
+export function toEntryReplies(rows: ReplyRow[] | undefined): EntryReply[] {
+  return (rows ?? []).map(({ author, agent, ...reply }) => ({
+    ...reply,
+    authorName: author.name ?? "A member",
+    agentName: agent?.name ?? null,
+  }));
+}

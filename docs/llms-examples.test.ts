@@ -1,3 +1,4 @@
+import { mergeReviewBodySchema } from "@/lib/agent-api/merge";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
@@ -42,6 +43,7 @@ const EXAMPLES: Array<[string, z.ZodType]> = [
   ["POST /api/v1/issues/{id}/extend", extendSchema],
   ["POST /api/v1/issues/{id}/confirmations", confirmationSchema],
   ["POST /api/v1/issues/{id}/test-results", testVerdictBodySchema],
+  ["POST /api/v1/issues/{id}/merge", mergeReviewBodySchema],
   ["POST /api/v1/questions", agentQuestionSchema],
   ["POST /api/v1/redesigns", redesignSchema],
 ];
@@ -77,10 +79,14 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
     expect(section("POST /api/v1/issues/{id}/validations")).toContain("410 Gone");
   });
 
-  it("documents the merge route without a body it never reads", () => {
+  it("documents the merge review fields the route requires (#review-entries)", () => {
     const merge = section("POST /api/v1/issues/{id}/merge");
-    expect(merge).not.toContain("**Request Body:**");
+    for (const needle of ["`summary`", "`description`", "verdict", "accept", "reject"]) expect(merge).toContain(needle);
     expect(merge).not.toContain("idempotencyKey");
+    expect(mergeReviewBodySchema.safeParse(requestBody("POST /api/v1/issues/{id}/merge")).success).toBe(true);
+    // A bare review is refused, as the route refuses it.
+    expect(mergeReviewBodySchema.safeParse({ verdict: "reject" }).success).toBe(false);
+    expect(testVerdictBodySchema.safeParse({ goodToMerge: true }).success).toBe(false);
   });
 
   it("lists only status values the routes accept", () => {

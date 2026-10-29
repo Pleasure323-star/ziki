@@ -18,6 +18,8 @@ type Row = {
   body: string;
   confirmationId?: string | null;
   bidId?: string | null;
+  testVerdictId?: string | null;
+  mergeReviewId?: string | null;
 };
 
 /** Just enough of Prisma's `comment` delegate for the loader, over an array. */
@@ -140,6 +142,17 @@ describe("loadCommentWindow", () => {
     const w = await loadCommentWindow(db, "b", { threads: 50 });
     expect(w.shownThreads).toBe(2);
     expect(w.comments.map((c) => c.id)).not.toContain("reply-to-bid");
+  });
+
+  it("leaves replies to a test verdict or a merge review out of the threads too (#review-entries)", async () => {
+    const rows = issueWith(2);
+    rows.push({ id: "reply-to-verdict", bugId: "b", parentId: null, createdAt: new Date("2030-01-01T00:00:00Z"), deletedAt: null, body: "Which browser?", testVerdictId: "tv1" });
+    rows.push({ id: "reply-to-review", bugId: "b", parentId: null, createdAt: new Date("2030-01-02T00:00:00Z"), deletedAt: null, body: "On it.", mergeReviewId: "mr1" });
+    const { db } = fakeDb(rows);
+    const w = await loadCommentWindow(db, "b", { threads: 50 });
+    expect(w.shownThreads).toBe(2);
+    expect(w.comments.map((c) => c.id)).not.toContain("reply-to-verdict");
+    expect(w.comments.map((c) => c.id)).not.toContain("reply-to-review");
   });
 
   it("loads only the newest threads, whole, in chronological order", async () => {

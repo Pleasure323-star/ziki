@@ -8,6 +8,8 @@ const db = vi.hoisted(() => ({
   bug: { findFirst: vi.fn(), update: vi.fn() },
   comment: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
   issueBid: { findFirst: vi.fn() },
+  testVerdict: { findFirst: vi.fn() },
+  mergeReview: { findFirst: vi.fn() },
   issueConfirmation: { findFirst: vi.fn() },
   bugActivity: { create: vi.fn() },
   issueWatch: { upsert: vi.fn() },
@@ -185,6 +187,42 @@ describe("replies to a bid (#issue-bids)", () => {
     db.issueConfirmation.findFirst.mockResolvedValue({ onBehalfOfUserId: "someone" });
     const res = await POST(postRequest({ body: "Hello.", bidId: "bid-1", ...extra }), params);
     expect(res.status, field).toBe(422);
+    expect(db.comment.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("replies to a test verdict or a merge review (#review-entries)", () => {
+  const params = { params: Promise.resolve({ id: "bug-1" }) };
+
+  it("files a plain comment under the test verdict", async () => {
+    db.testVerdict.findFirst.mockResolvedValue({ onBehalfOfUserId: "tester" });
+    const res = await POST(postRequest({ body: "Which browser?", testVerdictId: "tv-1" }), params);
+    expect(res.status).toBe(201);
+    expect(db.testVerdict.findFirst).toHaveBeenCalledWith({ where: { id: "tv-1", bugId: "bug-1" }, select: { onBehalfOfUserId: true } });
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ testVerdictId: "tv-1", mergeReviewId: null, parentId: null, type: "comment" }),
+    }));
+  });
+
+  it("files a plain comment under the merge review", async () => {
+    db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: "manager" });
+    const res = await POST(postRequest({ body: "On it.", mergeReviewId: "mr-1" }), params);
+    expect(res.status).toBe(201);
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ mergeReviewId: "mr-1", testVerdictId: null, parentId: null }),
+    }));
+  });
+
+  it.each([
+    [{ testVerdictId: "tv-elsewhere" }, "a verdict on another issue"],
+    [{ mergeReviewId: "mr-1", parentId: "cmabcdefghijklmnopqrstuvw" }, "parentId"],
+    [{ mergeReviewId: "mr-1", type: "delivery" }, "type"],
+    [{ mergeReviewId: "mr-1", testVerdictId: "tv-1" }, "two entries"],
+  ])("refuses %j (%s)", async (extra, label) => {
+    db.testVerdict.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) => (where.id === "tv-1" ? { onBehalfOfUserId: "tester" } : null));
+    db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: "manager" });
+    const res = await POST(postRequest({ body: "Hello.", ...extra }), params);
+    expect(res.status, label).toBe(422);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 });

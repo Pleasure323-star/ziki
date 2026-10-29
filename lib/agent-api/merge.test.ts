@@ -23,6 +23,7 @@ const db = vi.hoisted(() => ({
   bugActivity: { create: vi.fn() },
   comment: { create: vi.fn() },
   testVerdict: { findMany: vi.fn() },
+  mergeReview: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   issueConfirmation: { findMany: vi.fn() },
   pointEntry: { createMany: vi.fn() },
   agentAuditEvent: { create: vi.fn(), findMany: vi.fn() },
@@ -44,7 +45,7 @@ const notify = vi.hoisted(() => ({ notifyMergeFailed: vi.fn() }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyMergeFailed: notify.notifyMergeFailed }));
 
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { acceptFix, executeAdminMerge } from "./merge";
+import { acceptFix as acceptFixRaw, executeAdminMerge } from "./merge";
 import { resetWorkflowCache } from "@/lib/workflow";
 import type { GitHubClient } from "@/lib/github/merge-pr";
 
@@ -59,6 +60,29 @@ function defaultMockGhClient(overrides: Partial<GitHubClient> = {}): GitHubClien
 }
 
 const PR = "https://github.com/Zedu-Endor/issue-tracker/pull/42";
+
+/** A written merge review (#review-entries): every call to /merge carries one. */
+const REVIEW = { summary: "Accept: small and tested.", description: "Two independent testers verified it on the linked commit." };
+
+/** `acceptFix` with a written accept unless the test sends its own body. */
+function acceptFix(
+  agent: Parameters<typeof acceptFixRaw>[0],
+  bugId: string,
+  deps: Parameters<typeof acceptFixRaw>[2] = {},
+  body: Record<string, unknown> = {},
+) {
+  return acceptFixRaw(agent, bugId, deps, { ...REVIEW, ...body });
+}
+
+/** The activity line a merge status logs (#review-entries: no comment), with its "What to do". */
+function outcomeLine(): string {
+  const call = db.bugActivity.create.mock.calls.find(
+    (args: unknown[]) => (args[0] as { data: { metadata?: { field?: string } } }).data.metadata?.field === "reviewStatus",
+  );
+  if (!call) return "";
+  const { summary, metadata } = call[0].data as { summary: string; metadata: { note?: string } };
+  return `${summary} ${metadata.note ?? ""}`.trim();
+}
 
 function bugRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -127,6 +151,13 @@ beforeEach(() => {
   db.bug.update.mockResolvedValue({});
   db.bugActivity.create.mockResolvedValue({});
   db.comment.create.mockResolvedValue({ id: "merge-comment-1" });
+  db.mergeReview.findUnique.mockResolvedValue(null);
+  db.mergeReview.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+    id: "review-1", createdAt: new Date(), updatedAt: new Date(), headSha: null, ...data,
+  }));
+  db.mergeReview.update.mockImplementation(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({
+    id: where.id, createdAt: new Date(), updatedAt: new Date(), headSha: null, ...data,
+  }));
   db.pointEntry.createMany.mockResolvedValue({ count: 1 });
   db.agentEvent.create.mockResolvedValue({ id: "e1" });
   db.webhookSubscription.findMany.mockResolvedValue([]);
@@ -221,22 +252,23 @@ describe("acceptFix: the merger must be independent too (#493)", () => {
     expect(await acceptFix(merger("m1", "mo", "manager"), "bug1", { client: defaultMockGhClient() })).toMatchObject({ status: 200, accepted: true });
   });
 
-  it("leaves a comment on the issue saying the fix was merged (#458)", async () => {
+  it("records the merge in the activity, not in a comment (#458, #review-entries)", async () => {
     confirmWith("rob", "sam");
     verdict("r1", "rob");
     verdict("r2", "sam");
     expect(await executeAdminMerge(merger("m1", "mo", "merger"), "bug1", { client: defaultMockGhClient() })).toMatchObject({ status: 200, accepted: true });
-    expect(db.comment.create).toHaveBeenCalledWith(
+    expect(db.comment.create).not.toHaveBeenCalled();
+    // The admin merge is an action: it gives no review.
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          bugId: "bug1",
-          authorId: "mo",
-          agentId: "m1",
-          type: "comment",
+          type: "status_changed",
+          metadata: expect.objectContaining({ to: "resolved", reviewStatus: "merged", mergeCommitSha: "git-merge-commit-sha", pullRequestUrl: PR }),
         }),
       }),
     );
-    expect(db.bugActivity.create).toHaveBeenCalledWith(
+    expect(db.bugActivity.create).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ type: "commented" }) }),
     );
   });
@@ -414,7 +446,7 @@ describe("acceptFix: a successful accept (#434)", () => {
         actorId: "mo",
         type: "status_changed",
         summary: "changed status from Open to Resolved",
-        metadata: { field: "status", from: "open", to: "resolved" },
+        metadata: expect.objectContaining({ field: "status", from: "open", to: "resolved", mergeCommitSha: "git-merge-commit-sha" }),
       },
     });
     expect(db.issueClaim.updateMany).toHaveBeenCalledWith({
@@ -512,7 +544,7 @@ describe("acceptFix: a successful accept (#434)", () => {
         actorId: "mo",
         type: "status_changed",
         summary: "Fix accepted by merger agent and marked ready to merge",
-        metadata: { field: "status", readyToMerge: true, headSha: "linked-sha" },
+        metadata: { field: "status", readyToMerge: true, headSha: "linked-sha", mergeReviewId: "review-1" },
       },
     });
   });
@@ -579,21 +611,21 @@ describe("acceptFix: a successful accept (#434)", () => {
         actorId: "mo",
         type: "status_changed",
         summary: "changed status from In progress to Resolved",
-        metadata: { field: "status", from: "in_progress", to: "resolved" },
+        metadata: expect.objectContaining({ field: "status", from: "in_progress", to: "resolved", reviewStatus: "merged" }),
       },
     });
   });
 
-  it("rejecting a fix sets reviewStatus to rejected and records mistake if provided", async () => {
+  it("rejecting a fix records a merge review with the feedback, sets reviewStatus to rejected and records the mistake", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow());
     db.project.findFirst.mockResolvedValue({ id: "proj-1" });
     db.agentMistake.findFirst.mockResolvedValue(null);
     db.agentMistake.create.mockResolvedValue({ id: "m-1", title: "Missing unit tests", category: "correctness", recurrenceCount: 1 });
-    db.comment.create.mockResolvedValue({ id: "c-1" });
 
     const result = await acceptFix(merger("m1", "mo", "manager"), "bug1", {}, {
       verdict: "reject",
-      notes: "Tests missing for edge case.",
+      summary: "Reject: tests are missing.",
+      description: "Tests missing for edge case.",
       mistake: {
         title: "Missing unit tests",
         antiPattern: "PR was submitted without edge case tests for boundary conditions.",
@@ -601,44 +633,93 @@ describe("acceptFix: a successful accept (#434)", () => {
       },
     });
 
-    expect(result).toEqual({ status: 200, accepted: false, notes: "Tests missing for edge case." });
+    expect(result).toMatchObject({
+      status: 200,
+      accepted: false,
+      replaced: false,
+      review: { id: "review-1", verdict: "reject", summary: "Reject: tests are missing.", description: "Tests missing for edge case.", pullRequestUrl: PR, headSha: "linked-sha" },
+    });
+    expect(db.mergeReview.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ bugId: "bug1", agentId: "m1", onBehalfOfUserId: "mo", verdict: "reject", pullRequestUrl: PR }),
+      }),
+    );
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "bug1" },
       data: { reviewStatus: "rejected" },
     });
     expect(db.agentMistake.create).toHaveBeenCalled();
-    // #1429: the rejection is a merge decision on the issue page.
+    // #review-entries: the review is the record; no comment narrates it.
+    expect(db.comment.create).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ type: "status_changed", metadata: expect.objectContaining({ reviewStatus: "rejected", mergeReviewId: "review-1" }) }),
+      }),
+    );
+    // #1429: the audit log keeps every merge decision.
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         agentId: "m1",
         action: "issue.merge_rejected",
         target: "bug:bug1",
         bugId: "bug1",
-        payload: expect.objectContaining({ reviewStatus: "rejected", notes: "Tests missing for edge case." }),
+        payload: expect.objectContaining({ reviewStatus: "rejected", mergeReviewId: "review-1", notes: "Tests missing for edge case." }),
       }),
     });
   });
 
-  it("rejecting a fix via action and feedback options sets reviewStatus to rejected", async () => {
+  it("reviewing again replaces the agent's review; `action` still names the verdict", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow());
-    db.comment.create.mockResolvedValue({ id: "c-1" });
+    db.mergeReview.findUnique.mockResolvedValue({ id: "review-0" });
 
     const result = await acceptFix(merger("m1", "mo", "manager"), "bug1", {}, {
       action: "reject",
-      feedback: "Feedback via action field.",
+      summary: "Reject again.",
+      description: "Feedback via action field.",
     });
 
-    expect(result).toEqual({ status: 200, accepted: false, notes: "Feedback via action field." });
-    expect(db.bug.update).toHaveBeenCalledWith({
-      where: { id: "bug1" },
-      data: { reviewStatus: "rejected" },
-    });
-    expect(db.agentAuditEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        action: "issue.merge_rejected",
-        payload: expect.objectContaining({ notes: "Feedback via action field." }),
-      }),
-    });
+    expect(result).toMatchObject({ status: 200, accepted: false, replaced: true, review: { id: "review-0", verdict: "reject" } });
+    expect(db.mergeReview.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { bugId_agentId: { bugId: "bug1", agentId: "m1" } } }));
+    expect(db.mergeReview.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "review-0" } }));
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bare review (400) before touching the issue, and tells old clients notes is gone", async () => {
+    const bare = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "reject" });
+    expect(bare).toMatchObject({ status: 400, error: "invalid_request", field: "summary" });
+    const noDescription = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "reject", summary: "No." });
+    expect(noDescription).toMatchObject({ status: 400, field: "description" });
+    const old = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { action: "reject", feedback: "Old client." });
+    expect(old).toMatchObject({ status: 400, message: expect.stringContaining("in place of notes or feedback") });
+    const tooLong = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { summary: "One. Two. Three.", description: "x" });
+    expect(tooLong).toMatchObject({ status: 400, field: "summary", message: "Keep the summary to two sentences." });
+    expect(db.bug.findFirst).not.toHaveBeenCalled();
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
+  });
+
+  it("a reject needs the reviewer to be independent of the fix, and a linked pull request", async () => {
+    db.bug.findFirst.mockResolvedValue(bugRow());
+    const own = await acceptFix(merger("m1", "ada", "manager"), "bug1", {}, { verdict: "reject" });
+    expect(own).toMatchObject({ status: 403, error: "not_independent" });
+    db.bug.findFirst.mockResolvedValue(bugRow({ pullRequestUrl: null }));
+    const noPr = await acceptFix(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "reject" });
+    expect(noPr).toMatchObject({ status: 409, missing: "pull_request" });
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
+  });
+
+  it("an accept records the manager's merge review and posts no comment", async () => {
+    confirmWith("rob", "sam");
+    verdict("r1", "rob");
+    verdict("r2", "sam");
+    db.bug.findFirst.mockResolvedValue(bugRow());
+
+    const result = await acceptFix(merger("m1", "mo", "manager"), "bug1", { client: defaultMockGhClient() });
+
+    expect(result).toMatchObject({ status: 200, accepted: true, readyToMerge: true, review: { verdict: "accept", summary: REVIEW.summary, headSha: "linked-sha" } });
+    expect(db.mergeReview.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ verdict: "accept", description: REVIEW.description, pullRequestUrl: PR, headSha: "linked-sha" }) }),
+    );
+    expect(db.comment.create).not.toHaveBeenCalled();
   });
 
   it("admin merger without a GitHub App records merge_blocked and resolves nothing", async () => {
@@ -654,9 +735,8 @@ describe("acceptFix: a successful accept (#434)", () => {
     expect(db.bug.update).not.toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "resolved" }) }),
     );
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: expect.stringMatching(/^Merge blocked: The GitHub App is not set up/) }) }),
-    );
+    expect(outcomeLine()).toMatch(/^Merge blocked: The GitHub App is not set up/);
+    expect(db.comment.create).not.toHaveBeenCalled();
     expect(db.issueClaim.updateMany).not.toHaveBeenCalled();
     expect(db.pointEntry.createMany).not.toHaveBeenCalled();
   });
@@ -720,25 +800,24 @@ describe("acceptFix: a successful accept (#434)", () => {
 
     expect(result).toMatchObject({ status: 409, missing: "github_merge_failed" });
     expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { reviewStatus: "merge_failed" } });
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: expect.stringMatching(/^Merge failed: The app is not allowed/) }) }),
-    );
+    expect(outcomeLine()).toMatch(/^Merge failed: The app is not allowed/);
+    expect(db.comment.create).not.toHaveBeenCalled();
     expect(db.pointEntry.createMany).not.toHaveBeenCalled();
   });
 
-  it("admin merger takes the merge commit from GitHub and ignores one sent in the request", async () => {
+  it("admin merger takes the merge commit from GitHub, never from the request", async () => {
     confirmWith("rob", "sam");
     verdict("r1", "rob");
     verdict("r2", "sam");
     db.bug.findFirst.mockResolvedValue(bugRow());
-    const forged = { commitSha: "forged-sha", mergeCommitSha: "forged-sha" } as Parameters<typeof executeAdminMerge>[3];
 
-    const result = await executeAdminMerge(merger("m1", "mo", "merger"), "bug1", { client: defaultMockGhClient() }, forged);
+    // The admin-merge route reads no body, so nothing the caller sends can reach it.
+    const result = await executeAdminMerge(merger("m1", "mo", "merger"), "bug1", { client: defaultMockGhClient() });
 
     expect(result).toMatchObject({ status: 200, merged: true, mergeCommitSha: "git-merge-commit-sha" });
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: `Merged on GitHub by the admin merger: commit git-mer of ${PR}.` }) }),
-    );
+    expect(db.agentAuditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "issue.accepted", payload: expect.objectContaining({ mergeCommitSha: "git-merge-commit-sha", merged: true }) }),
+    });
   });
 
   it("admin merger refuses to merge when GitHub Actions CI/CD checks fail", async () => {
@@ -921,11 +1000,16 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
       expect.objectContaining({ data: expect.objectContaining({ reviewStatus: "ready_to_merge" }) }),
     );
     expect(db.agentAuditEvent.create).not.toHaveBeenCalled();
+    // #review-entries: nothing is posted or recorded on the issue.
+    expect(db.comment.create).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).not.toHaveBeenCalled();
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
   };
-  const blockedComment = (text: RegExp) =>
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: expect.stringMatching(text) }) }),
-    );
+  /** The refusal the caller gets: every reason, then what the author has to do. */
+  const refusal = (result: unknown, text: RegExp) => {
+    const { message, todo } = result as { message: string; todo?: string };
+    expect(`${message} What to do: ${todo ?? ""}`).toMatch(text);
+  };
 
   it("does not accept while the pull request's checks are red, and says what the author must do", async () => {
     readyToAccept();
@@ -935,7 +1019,7 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
 
     expect(result).toMatchObject({ status: 409, error: "not_ready", missing: "deployment_verification" });
     acceptsNothing();
-    blockedComment(/^Accept blocked: GitHub Actions CI\/CD checks.*stays In Review\. What to do: The author opens the pull request's Checks tab/);
+    refusal(result, /^GitHub Actions CI\/CD checks.* What to do: The author opens the pull request's Checks tab/);
   });
 
   it("does not give ready to merge to a pull request that conflicts: it comments and tells the author", async () => {
@@ -948,7 +1032,7 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
 
     expect(result).toMatchObject({ status: 409, error: "not_ready", missing: "merge_conflict" });
     acceptsNothing();
-    blockedComment(/^Accept blocked: .*merge conflicts.*don't resolve conflicts: the agent that delivered this fix and its owner have to\..*What to do: .*come and resolve it/);
+    refusal(result, /merge conflicts.*don't resolve conflicts: the agent that delivered this fix and its owner have to\..*What to do: .*come and resolve it/);
     expect(notify.notifyMergeFailed).toHaveBeenCalledWith(
       expect.objectContaining({ recipientId: "ada", reason: expect.stringContaining("merge conflicts") }),
     );
@@ -976,7 +1060,7 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
 
     expect(result).toMatchObject({ status: 409, missing: "deployment_verification" });
     acceptsNothing();
-    blockedComment(/Not green: deployment to Production: failure, Build failed \(https:\/\/vercel\.example\/d\/1\)/);
+    refusal(result, /Not green: deployment to Production: failure, Build failed \(https:\/\/vercel\.example\/d\/1\)/);
   });
 
   it("accepts when nothing is deployed for the commit and every check is green", async () => {
@@ -997,7 +1081,7 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
 
     expect(result).toMatchObject({ status: 409, missing: "merge_conflict", message: expect.stringContaining("for 2 reasons") });
     acceptsNothing();
-    blockedComment(/for 2 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*What to do: \(1\) .*\(2\) /);
+    refusal(result, /for 2 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*What to do: \(1\) .*\(2\) /);
   });
 
   it("does not accept when the head commit moved after the testers approved it", async () => {
@@ -1021,7 +1105,7 @@ describe("acceptFix: a manager checks the fix won't break the code before accept
 
     expect(result).toMatchObject({ status: 409, missing: "deployment_verification" });
     acceptsNothing();
-    blockedComment(/GitHub could not be reached.*Try accepting again/);
+    refusal(result, /GitHub could not be reached.*Try accepting again/);
   });
 
   it("does not accept at all when the GitHub App isn't set up, since nothing can be checked", async () => {
@@ -1063,15 +1147,10 @@ describe("executeAdminMerge: the merger checks again that the fix won't break th
     expect(result).toMatchObject({ status: 409, error: "not_ready", missing: "merge_conflict" });
     expect(client.mergePullRequest).not.toHaveBeenCalled();
     expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { reviewStatus: "merge_blocked" } });
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          body: expect.stringMatching(
-            /^Merge blocked: .*merge conflicts.*don't resolve conflicts: the agent that delivered this fix and its owner have to\. Nothing was merged.*What to do: .*come and resolve it.*git merge origin\/<base-branch>.*the testers check it and report again/,
-          ),
-        }),
-      }),
+    expect(outcomeLine()).toMatch(
+      /^Merge blocked: .*merge conflicts.*don't resolve conflicts: the agent that delivered this fix and its owner have to\. Nothing was merged.*What to do: .*come and resolve it.*git merge origin\/<base-branch>.*the testers check it and report again/,
     );
+    expect(db.comment.create).not.toHaveBeenCalled();
     expect(db.pointEntry.createMany).not.toHaveBeenCalled();
   });
 
@@ -1093,9 +1172,7 @@ describe("executeAdminMerge: the merger checks again that the fix won't break th
 
     await executeAdminMerge(merger("m1", "mo", "merger"), "bug1", { client: conflictingClient() });
 
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: expect.stringContaining("Ada's Claude and its owner have to") }) }),
-    );
+    expect(outcomeLine()).toContain("Ada's Claude and its owner have to");
     expect(notify.notifyMergeFailed).toHaveBeenCalledWith(
       expect.objectContaining({ recipientId: "ada", reason: expect.stringContaining("merge conflicts") }),
     );
@@ -1127,13 +1204,7 @@ describe("executeAdminMerge: the merger checks again that the fix won't break th
 
     expect(result).toMatchObject({ status: 409, missing: "merge_conflict" });
     expect(client.mergePullRequest).not.toHaveBeenCalled();
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          body: expect.stringMatching(/for 3 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*\(3\) CodeRabbit has 1 unresolved review thread.*What to do: \(1\) .*\(2\) .*\(3\) /),
-        }),
-      }),
-    );
+    expect(outcomeLine()).toMatch(/for 3 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*\(3\) CodeRabbit has 1 unresolved review thread.*What to do: \(1\) .*\(2\) .*\(3\) /);
   });
 
   it("does not merge while a deployment is failing, and names the failing deployment", async () => {
@@ -1160,9 +1231,8 @@ describe("executeAdminMerge: the merger checks again that the fix won't break th
 
     expect(result).toMatchObject({ status: 409, missing: "deployment_verification" });
     expect(client.mergePullRequest).not.toHaveBeenCalled();
-    expect(db.comment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ body: expect.stringContaining("What to do: The author opens the pull request's Checks tab") }) }),
-    );
+    expect(outcomeLine()).toContain("What to do: The author opens the pull request's Checks tab");
+    expect(result).toMatchObject({ todo: expect.stringContaining("The author opens the pull request's Checks tab") });
   });
 
   it("doesn't treat an already merged pull request as conflicting", async () => {

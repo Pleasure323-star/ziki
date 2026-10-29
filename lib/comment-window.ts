@@ -70,6 +70,15 @@ const commentInclude = {
   },
 } satisfies Prisma.CommentInclude;
 
+/** A conversation thread's root: not a reply, and not under a stage entry. */
+const THREAD_ROOT = {
+  parentId: null,
+  confirmationId: null,
+  bidId: null,
+  testVerdictId: null,
+  mergeReviewId: null,
+} as const;
+
 /** The root comment of `commentId`'s thread on this issue, or null. */
 async function rootOf(db: Db, bugId: string, commentId: string) {
   let current = await db.comment.findFirst({
@@ -90,10 +99,11 @@ export async function loadCommentWindow(
   bugId: string,
   options: { threads: number; target?: string | null },
 ): Promise<CommentWindow> {
-  // Replies to a confirmation entry (#issue-confirmations) or a bid
-  // (#issue-bids) show under their entry, not in the conversation's threads.
+  // Replies to a confirmation entry (#issue-confirmations), a bid
+  // (#issue-bids), a test verdict or a merge review (#review-entries) show
+  // under their entry, not in the conversation's threads.
   const [totalThreads, visibleCount] = await Promise.all([
-    db.comment.count({ where: { bugId, parentId: null, confirmationId: null, bidId: null } }),
+    db.comment.count({ where: { bugId, ...THREAD_ROOT } }),
     db.comment.count({ where: { bugId, deletedAt: null } }),
   ]);
 
@@ -106,9 +116,7 @@ export async function loadCommentWindow(
       const fromRoot = await db.comment.count({
         where: {
           bugId,
-          parentId: null,
-          confirmationId: null,
-          bidId: null,
+          ...THREAD_ROOT,
           OR: [
             { createdAt: { gt: root.createdAt } },
             { createdAt: root.createdAt, id: { gte: root.id } },
@@ -120,7 +128,7 @@ export async function loadCommentWindow(
   }
 
   const roots = await db.comment.findMany({
-    where: { bugId, parentId: null, confirmationId: null, bidId: null },
+    where: { bugId, ...THREAD_ROOT },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take,
     select: { id: true },

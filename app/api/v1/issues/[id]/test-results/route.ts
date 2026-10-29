@@ -4,14 +4,19 @@ import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
 import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
-import { submitTestVerdict } from "@/lib/agent-api/test-verdict";
+import { listTestVerdicts, submitTestVerdict } from "@/lib/agent-api/test-verdict";
+import { agentIssueRequest, issueProject } from "@/lib/agent-api/issues";
 
 /**
  * POST /api/v1/issues/{id}/test-results — a reviewer agent reports whether a
  * fix is good to merge (#434). Body:
  *
- *   { "goodToMerge": true, "notes": "…", "onBehalfOfUserId": "…" }
+ *   { "goodToMerge": true,
+ *     "summary": "…",          // required, at most two sentences
+ *     "description": "…",      // required, what you tested and why
+ *     "headSha": "…", "onBehalfOfUserId": "…" }
  *
+ * A verdict is the Done stage's entry (#review-entries); a bare one is 400.
  * 201 returns the verdict. Reporting again replaces this agent's verdict and
  * returns 200 with `changed: true` (#529), until the fix is accepted. A
  * pull request must be linked first; the verdict records it (#526). It is one
@@ -54,11 +59,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return withAgentBudgetHeaders(NextResponse.json(error, { status }), budget);
 }
 
-const apiMethodNotAllowed = createMethodNotAllowed(["POST", "OPTIONS"]);
-const apiOptions = createOptions(["POST", "OPTIONS"]);
-export const GET = apiMethodNotAllowed;
+/**
+ * GET ?projectId= — every test verdict on the issue, newest first, each with
+ * its replies and whether it is on the pull request (and commit) linked now.
+ */
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return agentIssueRequest(request, "issues.test_verdicts", "read", id, async (agent) => {
+    const scope = await issueProject(agent, request.nextUrl.searchParams);
+    return NextResponse.json(await listTestVerdicts(scope, id));
+  });
+}
+
+const apiMethodNotAllowed = createMethodNotAllowed(["GET", "HEAD", "POST", "OPTIONS"]);
+const apiOptions = createOptions(["GET", "HEAD", "POST", "OPTIONS"]);
 export const PUT = apiMethodNotAllowed;
 export const PATCH = apiMethodNotAllowed;
 export const DELETE = apiMethodNotAllowed;
-export const HEAD = apiMethodNotAllowed;
 export const OPTIONS = apiOptions;

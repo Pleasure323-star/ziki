@@ -41,17 +41,26 @@ describe("POST /api/v1/issues/[id]/merge (#434)", () => {
     expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {}, {});
   });
 
-  it("handles rejection verdict and passes notes", async () => {
-    mocks.accept.mockResolvedValue({ status: 200, accepted: false, notes: "Changes requested on PR." });
+  it("passes a reject's written review through and returns it", async () => {
+    const review = { id: "rev1", verdict: "reject", summary: "Reject.", description: "Changes requested on PR." };
+    mocks.accept.mockResolvedValue({ status: 200, accepted: false, review, replaced: false });
+    const body = { verdict: "reject", summary: "Reject.", description: "Changes requested on PR." };
     const req = new NextRequest("http://localhost/api/v1/issues/bug1/merge", {
       method: "POST",
       headers: { authorization: "Bearer test-key", "content-type": "application/json" },
-      body: JSON.stringify({ verdict: "reject", notes: "Changes requested on PR." }),
+      body: JSON.stringify(body),
     });
     const response = await POST(req, params);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ accepted: false, notes: "Changes requested on PR." });
-    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {}, { verdict: "reject", notes: "Changes requested on PR." });
+    expect(await response.json()).toEqual({ accepted: false, review, replaced: false });
+    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {}, body);
+  });
+
+  it("maps a bare review's 400 through", async () => {
+    mocks.accept.mockResolvedValue({ status: 400, error: "invalid_request", message: "Add a summary.", field: "summary" });
+    const response = await POST(request(), params);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_request", message: "Add a summary.", field: "summary" });
   });
 
   it("rejects a missing or bad key", async () => {

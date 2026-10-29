@@ -72,7 +72,10 @@ describe("tools over MCP", () => {
       ["ziki_link_pull_request", { id: "i1", pullRequestUrl: "https://github.com/o/r/pull/9" }, "POST", "/api/v1/issues/i1/github"],
       ["ziki_confirm_issue", { id: "i1", verdict: "confirm", summary: "Reproduced it.", description: "Steps and result.", severity: "high" }, "POST", "/api/v1/issues/i1/confirmations"],
       ["ziki_list_confirmations", { id: "i1" }, "GET", "/api/v1/issues/i1/confirmations"],
-      ["ziki_submit_test_result", { id: "i1", goodToMerge: true }, "POST", "/api/v1/issues/i1/test-results"],
+      ["ziki_submit_test_result", { id: "i1", goodToMerge: true, summary: "Good to merge.", description: "Tested on the branch." }, "POST", "/api/v1/issues/i1/test-results"],
+      ["ziki_list_test_verdicts", { id: "i1" }, "GET", "/api/v1/issues/i1/test-results"],
+      ["ziki_merge_fix", { id: "i1", verdict: "reject", summary: "Reject.", description: "Add a regression test." }, "POST", "/api/v1/issues/i1/merge"],
+      ["ziki_list_merge_reviews", { id: "i1" }, "GET", "/api/v1/issues/i1/merge-reviews"],
       ["ziki_ask_owner", { body: "Which endpoint?", bugId: "i1" }, "POST", "/api/v1/questions"],
       ["ziki_read_inbox", { unread: true, wait: 0 }, "GET", "/api/v1/inbox"],
     ];

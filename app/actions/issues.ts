@@ -1313,6 +1313,8 @@ export async function addCommentAction(
     parentId: formData.get("parentId") || undefined,
     confirmationId: formData.get("confirmationId") || undefined,
     bidId: formData.get("bidId") || undefined,
+    testVerdictId: formData.get("testVerdictId") || undefined,
+    mergeReviewId: formData.get("mergeReviewId") || undefined,
     type: formData.get("type") || undefined,
     metadata,
   });
@@ -1368,6 +1370,33 @@ export async function addCommentAction(
     parentAuthorId = bid.beneficiaryUserId;
   }
 
+  // #review-entries: so is a reply to a test verdict or a merge review.
+  const testVerdictId = parsed.data.testVerdictId ?? null;
+  const mergeReviewId = parsed.data.mergeReviewId ?? null;
+  if ([confirmationId, bidId, testVerdictId, mergeReviewId].filter(Boolean).length > 1) {
+    return { error: "Reply to one entry at a time" };
+  }
+  if (testVerdictId) {
+    const verdict = await prisma.testVerdict.findFirst({
+      where: { id: testVerdictId, bugId },
+      select: { onBehalfOfUserId: true },
+    });
+    if (!verdict) return { error: "That test verdict is not on this issue" };
+    if (parentId) return { error: "Reply to the test verdict itself" };
+    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a test verdict is a plain comment" };
+    parentAuthorId = verdict.onBehalfOfUserId;
+  }
+  if (mergeReviewId) {
+    const review = await prisma.mergeReview.findFirst({
+      where: { id: mergeReviewId, bugId },
+      select: { onBehalfOfUserId: true },
+    });
+    if (!review) return { error: "That merge review is not on this issue" };
+    if (parentId) return { error: "Reply to the merge review itself" };
+    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a merge review is a plain comment" };
+    parentAuthorId = review.onBehalfOfUserId;
+  }
+
   if (parentId) {
     const parent = await prisma.comment.findUnique({
       where: { id: parentId },
@@ -1411,6 +1440,8 @@ export async function addCommentAction(
         parentId: parentId ?? null,
         confirmationId,
         bidId,
+        testVerdictId,
+        mergeReviewId,
         type: parsed.data.type ?? "comment",
         metadata: parsed.data.metadata ? (parsed.data.metadata as Prisma.InputJsonValue) : undefined,
       },

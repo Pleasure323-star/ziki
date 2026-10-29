@@ -153,18 +153,55 @@ describe("a report from idea to merge", () => {
   });
 
   it("is tested by independent owners, not by the solver, once its PR is ready on GitHub", async () => {
-    await refused(solver, "submit-test-result", { id, goodToMerge: true }, 403);
+    const verdict = { summary: "Good to merge.", description: "Verified on the branch: Save works again." };
+    await refused(solver, "submit-test-result", { id, goodToMerge: true, ...verdict }, 403);
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
+    // #review-entries: a bare verdict is refused, and old clients are told notes is gone.
+    const { projectId } = (await ok(testers[0], "get-issue", { id })).issue;
+    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/test-results?projectId=${projectId}`, "--body", JSON.stringify({ goodToMerge: true, notes: "Looks fine." }), "--as", testers[0]);
+    expect(bare.code).toBe(1);
+    expect(bare.json?.status).toBe(400);
+    expect(bare.out + bare.err).toMatch(/summary/);
     // #255: a fix only moves forward once GitHub says its PR is ready, which
-    // needs the GitHub App. Locally there is none, so testing stops here.
-    const first = await refused(testers[0], "submit-test-result", { id, goodToMerge: true, notes: "Verified on the branch." }, 409);
+    // needs the GitHub App. Locally there is none, so "good to merge" stops here,
+    // and nothing is posted on the issue: the answer says why and what to do.
+    const first = await refused(testers[0], "submit-test-result", { id, goodToMerge: true, ...verdict }, 409);
     expect(first).toMatchObject({ error: "not_ready", missing: "github_app" });
+    expect(first.todo).toBeTruthy();
+    // "Not good to merge" is always recorded, and giving it again replaces it.
+    const fail = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge yet.", description: "Save still fails on the second click." });
+    expect(fail.verdict).toMatchObject({ goodToMerge: false, summary: "Not good to merge yet." });
+    const again = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Still not good to merge.", description: "Retested: the second click still fails." });
+    expect(again).toMatchObject({ changed: true, verdict: { id: fail.verdict.id, summary: "Still not good to merge." } });
+    const reply = await ok("ada", "comment", { id, body: "Which browser was this in?", testVerdictId: fail.verdict.id });
+    expect(reply.comment).toMatchObject({ testVerdictId: fail.verdict.id, parentId: null });
+    const listed = await ok("dana", "list-test-verdicts", { id });
+    expect(listed.verdicts).toHaveLength(1);
+    expect(listed.verdicts[0]).toMatchObject({ id: fail.verdict.id, goodToMerge: false, current: true });
+    expect(JSON.stringify(listed)).toContain("Which browser was this in?");
   });
 
-  it("is accepted only by a manager or merger agent", async () => {
-    expect((await refused("cara", "merge-fix", { id }, 403)).error).toBe("insufficient_level");
+  it("is reviewed only by a manager or merger agent, with a written review", async () => {
+    const review = { verdict: "accept", summary: "Accept.", description: "The fix is small and tested." };
+    expect((await refused("cara", "merge-fix", { id, ...review }, 403)).error).toBe("insufficient_level");
+    // A bare review is refused.
+    const { projectId } = (await ok("dana", "get-issue", { id })).issue;
+    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/merge?projectId=${projectId}`, "--body", JSON.stringify({ action: "reject", feedback: "No." }), "--as", "dana");
+    expect(bare.code).toBe(1);
+    expect(bare.json?.status).toBe(400);
     // Untested, so even a manager can't accept it yet.
-    expect((await refused("dana", "merge-fix", { id }, 409)).error).toBe("not_ready");
+    expect((await refused("dana", "merge-fix", { id, ...review }, 409)).error).toBe("not_ready");
+    // A reject is a merge review: the feedback is its description, and no comment narrates it.
+    const rejected = await ok("dana", "merge-fix", { id, verdict: "reject", summary: "Reject: Save still fails.", description: "The second click still fails; handle the pending state and add a test." });
+    expect(rejected).toMatchObject({ accepted: false, replaced: false, review: { verdict: "reject", summary: "Reject: Save still fails." } });
+    const reply = await ok(solver, "comment", { id, body: "On it.", mergeReviewId: rejected.review.id });
+    expect(reply.comment).toMatchObject({ mergeReviewId: rejected.review.id });
+    const reviews = await ok("ada", "list-merge-reviews", { id });
+    expect(reviews.reviewStatus).toBe("rejected");
+    expect(reviews.reviews[0]).toMatchObject({ id: rejected.review.id, verdict: "reject" });
+    expect(JSON.stringify(reviews)).toContain("On it.");
+    const comments = JSON.stringify(await ok("ada", "list-comments", { id }));
+    expect(comments).not.toMatch(/Fix rejected|Fix accepted|Good-to-merge verdict not recorded|Accept blocked/);
   });
 
   it("is merged only by a merger agent", async () => {

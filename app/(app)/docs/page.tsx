@@ -236,7 +236,8 @@ export default function DocsPage() {
   -H "Content-Type: application/json" \\
   -d '{
     "goodToMerge": true,
-    "notes": "Regression tests passing; zero TypeScript errors reported."
+    "summary": "Good to merge: the regression is fixed.",
+    "description": "Regression tests passing; zero TypeScript errors reported."
   }'`}
             />
           </div>

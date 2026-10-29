@@ -248,7 +248,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, type: true, metadata: true, createdAt: true, editedAt: true },
+      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, type: true, metadata: true, createdAt: true, editedAt: true },
     }, attachments: {
       // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -274,7 +274,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, type: true, metadata: true, createdAt: true, editedAt: true,
+  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, type: true, metadata: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
 } satisfies Prisma.CommentSelect;
@@ -376,6 +376,25 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a bid is a plain comment.");
       parentAuthorId = bid.beneficiaryUserId;
     }
+    // #review-entries: a reply to a test verdict or a merge review is a plain comment under it.
+    const entryIds = [input.confirmationId, input.bidId, input.testVerdictId, input.mergeReviewId].filter(Boolean);
+    if (entryIds.length > 1) {
+      throw new IssueApiError(422, "Reply to one entry: send only one of confirmationId, bidId, testVerdictId or mergeReviewId.");
+    }
+    if (input.testVerdictId) {
+      const verdict = await tx.testVerdict.findFirst({ where: { id: input.testVerdictId, bugId }, select: { onBehalfOfUserId: true } });
+      if (!verdict) throw new IssueApiError(422, "Test verdict not found on this issue.");
+      if (input.parentId) throw new IssueApiError(422, "Reply to the test verdict itself: send testVerdictId without parentId.");
+      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a test verdict is a plain comment.");
+      parentAuthorId = verdict.onBehalfOfUserId;
+    }
+    if (input.mergeReviewId) {
+      const review = await tx.mergeReview.findFirst({ where: { id: input.mergeReviewId, bugId }, select: { onBehalfOfUserId: true } });
+      if (!review) throw new IssueApiError(422, "Merge review not found on this issue.");
+      if (input.parentId) throw new IssueApiError(422, "Reply to the merge review itself: send mergeReviewId without parentId.");
+      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a merge review is a plain comment.");
+      parentAuthorId = review.onBehalfOfUserId;
+    }
     if (input.parentId) {
       const parent = await tx.comment.findFirst({ where: { id: input.parentId, bugId, deletedAt: null }, select: { id: true, authorId: true } });
       if (!parent) throw new IssueApiError(422, "Parent comment not found on this issue.");
@@ -395,6 +414,8 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         parentId: input.parentId ?? null,
         confirmationId: input.confirmationId ?? null,
         bidId: input.bidId ?? null,
+        testVerdictId: input.testVerdictId ?? null,
+        mergeReviewId: input.mergeReviewId ?? null,
         type: input.type ?? "comment",
         metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : undefined,
       },
@@ -407,6 +428,8 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         parentId: true,
         confirmationId: true,
         bidId: true,
+        testVerdictId: true,
+        mergeReviewId: true,
         type: true,
         metadata: true,
         createdAt: true,

@@ -499,11 +499,11 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "test_fix",
       key: `test_fix:${test.id}:${test.pullRequestUrl ?? ""}`,
       title: `Test the fix for #${test.number}`,
-      detail: "Check out the linked pull request, test it, and say whether it is good to merge.",
+      detail: "Check out the linked pull request, test it, and say whether it is good to merge: a summary of at most two sentences and a full description of what you tested.",
       minimumRole: "working",
       canAct: true,
       issue: issueRef(test),
-      actions: [{ name: "submit_test_result", minimumRole: "working", method: "POST", path: apiPath(test.id, "test-results", pid), cli: `submit-test-result --id ${test.id} --good-to-merge true|false --notes <what you checked>` }],
+      actions: [{ name: "submit_test_result", minimumRole: "working", method: "POST", path: apiPath(test.id, "test-results", pid), cli: `submit-test-result --id ${test.id} --good-to-merge true|false --summary <your verdict> --description <what you tested and why>` }],
     });
   }
   for (const issue of work.ready) {
@@ -572,11 +572,14 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "accept_fix",
       key: `accept_fix:${fix.id}`,
       title: `Review and accept the fix for #${fix.number}`,
-      detail: "Tested and waiting for a manager: accept it for merging or reject it with feedback.",
+      detail: "Tested and waiting for a manager: read the test verdicts, then give your merge review — accept it for merging or reject it — with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on).",
       minimumRole: "manager",
       ...roleGate("manager", fix.id),
       issue: issueRef(fix),
-      actions: [{ name: "merge_fix", minimumRole: "manager", method: "POST", path: apiPath(fix.id, "merge", pid), cli: `merge-fix --id ${fix.id}` }],
+      actions: [
+        { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(fix.id, "test-results", pid), cli: `list-test-verdicts --id ${fix.id}` },
+        { name: "merge_fix", minimumRole: "manager", method: "POST", path: apiPath(fix.id, "merge", pid), cli: `merge-fix --id ${fix.id} --verdict accept|reject --summary <your review> --description <why, or what to change>` },
+      ],
     });
   }
   for (const fix of work.toMerge) {

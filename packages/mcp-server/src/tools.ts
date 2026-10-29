@@ -194,7 +194,7 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "parentId", "confirmationId", "bidId", "type", "metadata", "attachmentIds"],
+    body: ["body", "parentId", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "type", "metadata", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
@@ -202,6 +202,8 @@ export const TOOLS: readonly ToolDef[] = [
       parentId: z.string().optional().describe("Id of the comment this replies to."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations). A reply is a plain comment; send it without parentId or type."),
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids). A reply is a plain comment; send it without parentId or type."),
+      testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts). A reply is a plain comment; send it without parentId or type."),
+      mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews). A reply is a plain comment; send it without parentId or type."),
       type: z
         .enum(["comment", "bid", "review", "delivery", "request_to_merge"])
         .optional()
@@ -415,17 +417,18 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_submit_test_result",
     summary:
-      "Submit a test verdict for the issue's linked pull request. Reporting again replaces your earlier verdict until the fix is accepted.",
+      "Submit a test verdict for the issue's linked pull request: good to merge or not, with a summary of at most two sentences and a full description of what you tested. Reporting again replaces your earlier verdict until the fix is accepted. \"Good to merge\" is refused (409, with what the author must do) until the pull request is ready on GitHub.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/test-results",
     projectScoped: true,
-    body: ["goodToMerge", "notes", "onBehalfOfUserId", "headSha"],
+    body: ["goodToMerge", "summary", "description", "onBehalfOfUserId", "headSha"],
     input: {
       id: issueId,
       projectId,
       goodToMerge: z.boolean().describe("true if the fix is good to merge."),
-      notes: z.string().trim().max(2000).optional().describe("What you tested and where, at most 2000 characters."),
+      summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
+      description: z.string().trim().min(1).max(10000).describe("What you tested, where, and why it is or isn't good to merge."),
       onBehalfOfUserId: z.string().optional().describe("Defaults to the agent's owner."),
       headSha: z
         .string()
@@ -436,6 +439,16 @@ export const TOOLS: readonly ToolDef[] = [
           "The commit you tested (7-64 hex characters). Defaults to the SHA recorded when the pull request was linked.",
         ),
     },
+  },
+  {
+    name: "ziki_list_test_verdicts",
+    summary:
+      "Read every test verdict on an issue, newest first, each with its summary, description, the pull request and commit it tested, whether it is on the code linked now, and its replies. Reply to one with ziki_comment and its testVerdictId.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/test-results",
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_ask_owner",
@@ -843,10 +856,38 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_merge_fix",
-    summary: "Accept a fix and resolve the issue. Needs a confirmed issue and enough independent good-to-merge verdicts.",
+    summary:
+      "Give your merge review of a tested fix: accept it for merging (needs a confirmed issue and enough independent good-to-merge verdicts on the current code) or reject it, with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on). Reviewing again replaces your review. A merger agent's accept merges at once.",
     level: "manager",
     method: "POST",
     route: "/issues/{id}/merge",
+    projectScoped: true,
+    body: ["verdict", "summary", "description", "mistake"],
+    input: {
+      id: issueId,
+      projectId,
+      verdict: z.enum(["accept", "reject"]).optional().describe("accept (default) or reject."),
+      summary: z.string().trim().min(1).max(300).describe("Your review in at most two sentences."),
+      description: z.string().trim().min(1).max(10000).describe("Why you accept it, or what the author must change."),
+      mistake: z
+        .object({
+          category: z.enum(["correctness", "efficiency", "completeness", "mergeability", "architecture", "security"]).optional(),
+          title: z.string().trim().min(1),
+          antiPattern: z.string().trim().min(1),
+          remediation: z.string().trim().min(1),
+        })
+        .catchall(z.unknown())
+        .optional()
+        .describe("With reject only: an anti-pattern to record in the project's mistake registry."),
+    },
+  },
+  {
+    name: "ziki_list_merge_reviews",
+    summary:
+      "Read every manager agent's merge review on an issue, newest first: accept or reject, summary, description, the pull request and commit it was about, and its replies. Reply to one with ziki_comment and its mergeReviewId.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/merge-reviews",
     projectScoped: true,
     input: { id: issueId, projectId },
   },

@@ -7,7 +7,8 @@ type Row = {
   agentId: string;
   onBehalfOfUserId: string;
   goodToMerge: boolean;
-  notes: string | null;
+  summary: string;
+  description: string;
   pullRequestUrl?: string | null;
   changedAt?: Date | null;
 };
@@ -78,7 +79,8 @@ function reviewer(id: string, ownerId: string, level: "working" | "manager" | "m
   return { agentId: id, name: id, ownerId, tenantId: "tenant_zedu", level, burst: false, keyId: `key-${id}` };
 }
 
-const good = { goodToMerge: true };
+const good = { goodToMerge: true, summary: "Good to merge.", description: "Tested on the branch: it works." };
+const notGood = (description: string) => ({ goodToMerge: false, summary: "Not good to merge.", description });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -215,8 +217,8 @@ describe("submitTestVerdict: the body and record (#434)", () => {
   it("keeps one verdict per agent per issue: reporting again replaces it (#529)", async () => {
     const rob = reviewer("r1", "rob");
     expect(await submitTestVerdict(rob, "bug1", good)).toMatchObject({ status: 201 });
-    const changed = await submitTestVerdict(rob, "bug1", { goodToMerge: false, notes: "Regresses the Safari login" });
-    expect(changed).toMatchObject({ status: 200, changed: true, verdict: { goodToMerge: false, notes: "Regresses the Safari login" } });
+    const changed = await submitTestVerdict(rob, "bug1", notGood("Regresses the Safari login"));
+    expect(changed).toMatchObject({ status: 200, changed: true, verdict: { goodToMerge: false, summary: "Not good to merge.", description: "Regresses the Safari login" } });
     expect(state.verdicts).toHaveLength(1);
     expect(state.verdicts[0]).toMatchObject({ goodToMerge: false, changedAt: expect.any(Date) });
   });
@@ -264,7 +266,7 @@ describe("submitTestVerdict: changing a verdict (#529)", () => {
     db.agentEvent.create.mockResolvedValue({ id: "e2" });
     db.webhookSubscription.findMany.mockResolvedValue([]);
 
-    await submitTestVerdict(rob, "bug1", { goodToMerge: false });
+    await submitTestVerdict(rob, "bug1", notGood("Regressed."));
 
     expect(db.testVerdict.create).not.toHaveBeenCalled();
     expect(db.agentAuditEvent.create.mock.calls[0][0].data).toMatchObject({
@@ -279,7 +281,7 @@ describe("submitTestVerdict: changing a verdict (#529)", () => {
 
   it("can't change once the fix is accepted", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow({ status: "resolved" }));
-    expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: false })).toMatchObject({
+    expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", notGood("Regressed."))).toMatchObject({
       status: 409,
       error: "already_accepted",
     });
@@ -307,7 +309,7 @@ describe("submitTestVerdict: needs a pull request (#526)", () => {
 
 describe("submitTestVerdict: the head commit it tested (#489)", () => {
   it("records the head commit named in the body", async () => {
-    await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: true, headSha: "abc1234" });
+    await submitTestVerdict(reviewer("r1", "rob"), "bug1", { ...good, headSha: "abc1234" });
     expect(db.testVerdict.create.mock.calls[0][0].data).toMatchObject({
       pullRequestUrl: "https://github.com/Zedu-Endor/issue-tracker/pull/42",
       headSha: "abc1234",
@@ -326,10 +328,7 @@ describe("submitTestVerdict: the head commit it tested (#489)", () => {
   });
 
   it("rejects a head commit that is not a hexadecimal SHA", async () => {
-    const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", {
-      goodToMerge: true,
-      headSha: "not-a-sha",
-    });
+    const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", { ...good, headSha: "not-a-sha" });
     expect(result).toMatchObject({ status: 400, field: "headSha" });
     expect(db.testVerdict.create).not.toHaveBeenCalled();
   });
@@ -338,7 +337,13 @@ describe("submitTestVerdict: the head commit it tested (#489)", () => {
 describe("submitTestVerdict: good to merge needs a ready pull request (#255)", () => {
   const tester = () => reviewer("r1", "rob");
   const recorded = () => db.testVerdict.create.mock.calls.length + db.testVerdict.update.mock.calls.length;
-  const commentBodies = () => db.comment.create.mock.calls.map((call) => call[0].data.body as string);
+  /** What the caller is told: every reason, then what the author has to do. Nothing is posted (#review-entries). */
+  const refusal = (result: unknown) => {
+    expect(db.comment.create).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).not.toHaveBeenCalled();
+    const { message, todo } = result as { message: string; todo: string };
+    return `${message} What to do: ${todo}`;
+  };
 
   it("records the verdict when checks are green, CodeRabbit is resolved and there is no conflict", async () => {
     expect(await submitTestVerdict(tester(), "bug1", good)).toMatchObject({ status: 201 });
@@ -352,16 +357,17 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
 
     expect(result).toMatchObject({ status: 409, error: "not_ready", missing: "deployment_verification" });
     expect(recorded()).toBe(0);
-    expect(commentBodies()[0]).toMatch(/^Good-to-merge verdict not recorded: GitHub Actions CI\/CD checks.*What to do: The author opens the pull request's Checks tab/);
+    expect(refusal(result)).toMatch(/^GitHub Actions CI\/CD checks.*What to do: The author opens the pull request's Checks tab/);
     expect(notify.notifyMergeFailed).toHaveBeenCalledWith(expect.objectContaining({ recipientId: "ada" }));
   });
 
   it("records nothing while CodeRabbit has unresolved threads", async () => {
     gh.client.mockReturnValue(readyClient({ unresolvedCodeRabbitThreads: vi.fn(async () => 2) }));
 
-    expect(await submitTestVerdict(tester(), "bug1", good)).toMatchObject({ status: 409, missing: "review_threads" });
+    const result = await submitTestVerdict(tester(), "bug1", good);
+    expect(result).toMatchObject({ status: 409, missing: "review_threads" });
     expect(recorded()).toBe(0);
-    expect(commentBodies()[0]).toContain("2 unresolved review threads");
+    expect(refusal(result)).toContain("2 unresolved review threads");
   });
 
   it("records nothing while the pull request conflicts with its base branch", async () => {
@@ -369,12 +375,13 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
       readyClient({ getPullRequest: vi.fn(async () => ({ state: "open", merged: false, mergeable: false, headSha: "abc1234" })) }),
     );
 
-    expect(await submitTestVerdict(tester(), "bug1", good)).toMatchObject({ status: 409, missing: "merge_conflict" });
+    const result = await submitTestVerdict(tester(), "bug1", good);
+    expect(result).toMatchObject({ status: 409, missing: "merge_conflict" });
     expect(recorded()).toBe(0);
-    expect(commentBodies()[0]).toMatch(/don't resolve conflicts.*come and resolve it/);
+    expect(refusal(result)).toMatch(/don't resolve conflicts.*come and resolve it/);
   });
 
-  it("lists every reason in one comment when more than one thing is wrong", async () => {
+  it("lists every reason in one answer when more than one thing is wrong, and posts no comment", async () => {
     gh.client.mockReturnValue(
       readyClient({
         getPullRequest: vi.fn(async () => ({ state: "open", merged: false, mergeable: false, headSha: "abc1234" })),
@@ -383,12 +390,12 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
       }),
     );
 
-    await submitTestVerdict(tester(), "bug1", good);
+    const result = await submitTestVerdict(tester(), "bug1", good);
 
     expect(recorded()).toBe(0);
-    expect(commentBodies()).toHaveLength(1);
-    expect(commentBodies()[0]).toMatch(/for 3 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*\(3\) CodeRabbit has 1 unresolved review thread/);
-    expect(commentBodies()[0]).toMatch(/What to do: \(1\) .*\(2\) .*\(3\) /);
+    const text = refusal(result);
+    expect(text).toMatch(/for 3 reasons: \(1\) .*merge conflicts.*\(2\) GitHub Actions.*\(3\) CodeRabbit has 1 unresolved review thread/);
+    expect(text).toMatch(/What to do: \(1\) .*\(2\) .*\(3\) /);
   });
 
   it("records nothing when GitHub can't be asked", async () => {
@@ -404,7 +411,7 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
   it("always records a not-good-to-merge verdict, even when the pull request isn't ready", async () => {
     gh.client.mockReturnValue(readyClient({ checksGreen: vi.fn(async () => false) }));
 
-    expect(await submitTestVerdict(tester(), "bug1", { goodToMerge: false, notes: "It breaks the tab bar." })).toMatchObject({ status: 201 });
+    expect(await submitTestVerdict(tester(), "bug1", notGood("It breaks the tab bar."))).toMatchObject({ status: 201 });
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 });
@@ -418,7 +425,43 @@ describe("submitTestVerdict: moves the fix to Done once enough reviewers agree (
   it("re-counts when a reviewer takes a verdict back", async () => {
     await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
     tested.refreshTestedStatus.mockClear();
-    await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: false, notes: "Breaks the tab bar." });
+    await submitTestVerdict(reviewer("r1", "rob"), "bug1", notGood("Breaks the tab bar."));
     expect(tested.refreshTestedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
+  });
+});
+
+describe("submitTestVerdict: a verdict is an entry with a summary and a description (#review-entries)", () => {
+  it("refuses a bare verdict with 400, naming the missing field, before touching the issue", async () => {
+    const rob = reviewer("r1", "rob");
+    expect(await submitTestVerdict(rob, "bug1", { goodToMerge: true })).toMatchObject({ status: 400, error: "invalid_request", field: "summary", message: "Add a summary." });
+    expect(await submitTestVerdict(rob, "bug1", { goodToMerge: true, summary: "Good." })).toMatchObject({ status: 400, field: "description" });
+    expect(await submitTestVerdict(rob, "bug1", { goodToMerge: true, summary: "One. Two. Three.", description: "x" })).toMatchObject({
+      status: 400,
+      field: "summary",
+      message: "Keep the summary to two sentences.",
+    });
+    expect(db.bug.findFirst).not.toHaveBeenCalled();
+    expect(state.verdicts).toHaveLength(0);
+  });
+
+  it("tells a client still sending notes that it is gone", async () => {
+    const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: true, notes: "Looks good." });
+    expect(result).toMatchObject({ status: 400, field: "notes", message: expect.stringContaining("in place of notes") });
+  });
+
+  it("stores the summary and description, and returns them", async () => {
+    const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
+    expect(result).toMatchObject({ status: 201, verdict: { summary: "Good to merge.", description: "Tested on the branch: it works." } });
+    expect(db.testVerdict.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ summary: "Good to merge.", description: "Tested on the branch: it works." }) }),
+    );
+  });
+
+  it("a blocked good to merge returns the refusal with what to do, and posts no comment", async () => {
+    gh.client.mockReturnValue(null);
+    const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
+    expect(result).toMatchObject({ status: 409, error: "not_ready", missing: "github_app", todo: expect.stringContaining("GitHub App") });
+    expect(db.comment.create).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).not.toHaveBeenCalled();
   });
 });

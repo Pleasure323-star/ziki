@@ -31,14 +31,14 @@ describe("POST /api/v1/issues/[id]/test-results (#434)", () => {
     vi.clearAllMocks();
     mocks.requireAgent.mockResolvedValue(agent);
     mocks.budget.mockResolvedValue({ allowed: true });
-    mocks.submit.mockResolvedValue({ status: 201, verdict: { id: "tv1", goodToMerge: true, notes: null, onBehalfOfUserId: "rob" } });
+    mocks.submit.mockResolvedValue({ status: 201, verdict: { id: "tv1", goodToMerge: true, summary: "Good to merge.", description: "Tested.", onBehalfOfUserId: "rob" } });
   });
 
   it("charges a write and returns the verdict", async () => {
     const response = await POST(request(), params);
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({
-      verdict: { id: "tv1", goodToMerge: true, notes: null, onBehalfOfUserId: "rob" },
+      verdict: { id: "tv1", goodToMerge: true, summary: "Good to merge.", description: "Tested.", onBehalfOfUserId: "rob" },
     });
     expect(mocks.budget).toHaveBeenCalledWith({ id: "r1", burst: false, burstUntil: null }, "write");
     expect(mocks.submit).toHaveBeenCalledWith(agent, "bug1", { goodToMerge: true });

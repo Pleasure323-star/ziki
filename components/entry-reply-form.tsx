@@ -3,12 +3,17 @@
 import { useId, useState, useTransition } from "react";
 import { addCommentAction } from "@/app/actions/issues";
 
-/** Which stage entry a reply is under: a confirmation or a bid. */
-export type ReplyTarget = { confirmationId: string } | { bidId: string };
+/** Which stage entry a reply is under: a confirmation, a bid, a test verdict or a merge review. */
+export type ReplyTarget =
+  | { confirmationId: string }
+  | { bidId: string }
+  | { testVerdictId: string }
+  | { mergeReviewId: string };
 
 /**
- * A plain reply to one stage entry: a confirmation (#issue-confirmations) or
- * a bid (#issue-bids). Replies carry no type or verdict.
+ * A plain reply to one stage entry: a confirmation (#issue-confirmations),
+ * a bid (#issue-bids), a test verdict or a merge review (#review-entries).
+ * Replies carry no type or verdict.
  */
 export function EntryReplyForm({ bugId, target, label }: { bugId: string; target: ReplyTarget; label: string }) {
   const id = useId();
@@ -35,8 +40,7 @@ export function EntryReplyForm({ bugId, target, label }: { bugId: string; target
     if (!body.trim()) return setError("Write a reply first.");
     const data = new FormData();
     data.set("body", body);
-    if ("bidId" in target) data.set("bidId", target.bidId);
-    else data.set("confirmationId", target.confirmationId);
+    for (const [key, value] of Object.entries(target)) data.set(key, value);
     startTransition(async () => {
       const result = await addCommentAction(bugId, data);
       if (result.error) {
