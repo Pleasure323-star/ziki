@@ -1312,6 +1312,7 @@ export async function addCommentAction(
     body: formData.get("body"),
     parentId: formData.get("parentId") || undefined,
     confirmationId: formData.get("confirmationId") || undefined,
+    bidId: formData.get("bidId") || undefined,
     type: formData.get("type") || undefined,
     metadata,
   });
@@ -1351,6 +1352,20 @@ export async function addCommentAction(
     if (parentId) return { error: "Reply to the confirmation itself" };
     if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a confirmation is a plain comment" };
     parentAuthorId = entry.onBehalfOfUserId;
+  }
+
+  // #issue-bids: a reply to a bid is a plain comment under it, too.
+  const bidId = parsed.data.bidId ?? null;
+  if (bidId) {
+    if (confirmationId) return { error: "Reply to one entry at a time" };
+    const bid = await prisma.issueBid.findFirst({
+      where: { id: bidId, bugId },
+      select: { beneficiaryUserId: true },
+    });
+    if (!bid) return { error: "That bid is not on this issue" };
+    if (parentId) return { error: "Reply to the bid itself" };
+    if ((parsed.data.type ?? "comment") !== "comment") return { error: "A reply to a bid is a plain comment" };
+    parentAuthorId = bid.beneficiaryUserId;
   }
 
   if (parentId) {
@@ -1395,6 +1410,7 @@ export async function addCommentAction(
         body: normalizedBody,
         parentId: parentId ?? null,
         confirmationId,
+        bidId,
         type: parsed.data.type ?? "comment",
         metadata: parsed.data.metadata ? (parsed.data.metadata as Prisma.InputJsonValue) : undefined,
       },

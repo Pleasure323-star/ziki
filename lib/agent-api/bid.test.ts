@@ -22,7 +22,7 @@ vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin: vi.fn(async () => fal
 
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
-import { awardBid, listBids, placeBid, withdrawBid } from "./bid";
+import { awardBid, listBids, parseBid, placeBid, withdrawBid } from "./bid";
 import { resetWorkflowCache } from "@/lib/workflow";
 
 const caller = {
@@ -34,6 +34,9 @@ const caller = {
   burst: false,
   keyId: "key1",
 };
+
+const plan = { summary: "I can fix the login.", description: "The session cookie is dropped on redirect; I will keep it and add a test." };
+const placePlan = (c: Parameters<typeof placeBid>[0], project: string, ref: string) => placeBid(c, project, ref, plan);
 
 const openBug = {
   id: "issue1",
@@ -60,41 +63,65 @@ beforeEach(() => {
   db.projectWorkflow.findUnique.mockResolvedValue(null);
   db.issueBid.updateMany.mockResolvedValue({ count: 1 });
   db.issueBid.findUnique.mockResolvedValue(null);
-  db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada" });
+  db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
   vi.mocked(isConfirmed).mockResolvedValue(true);
 });
 
 describe("placeBid", () => {
   it("records a bid and does not claim the issue", async () => {
-    const bid = await placeBid(caller, "project", "issue1", "I can fix the login");
+    const { bid, replaced } = await placeBid(caller, "project", "issue1", plan);
     expect(bid.id).toBe("bid1");
+    expect(replaced).toBe(false);
     expect(db.issueClaim.create).not.toHaveBeenCalled();
     expect(db.bug.update).not.toHaveBeenCalled();
     expect(db.issueBid.create.mock.calls[0][0].data).toMatchObject({
       bugId: "issue1",
       agentId: "agent1",
       beneficiaryUserId: "ada",
-      note: "I can fix the login",
+      summary: plan.summary,
+      description: plan.description,
     });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid" }));
   });
 
-  it("returns the open bid instead of creating another", async () => {
-    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: null, withdrawnAt: null });
-    await expect(placeBid(caller, "project", "issue1")).resolves.toMatchObject({ id: "bid1" });
+  it("bidding again replaces the agent's open bid instead of creating another", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: null, withdrawnAt: null, summary: "Old.", description: "Old plan." });
+    db.issueBid.update.mockResolvedValue({ id: "bid1", summary: "New plan.", description: "Better plan." });
+    const result = await placeBid(caller, "project", "issue1", { summary: "New plan.", description: "Better plan." });
+    expect(result).toMatchObject({ bid: { id: "bid1", summary: "New plan." }, replaced: true });
+    expect(db.issueBid.update).toHaveBeenCalledWith({ where: { id: "bid1" }, data: { summary: "New plan.", description: "Better plan." } });
     expect(db.issueBid.create).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("bidding after withdrawing reopens the same bid with the new text", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: null, withdrawnAt: new Date(), summary: "Old.", description: "Old plan." });
+    db.issueBid.update.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
+    const result = await placeBid(caller, "project", "issue1", plan);
+    expect(result.replaced).toBe(false);
+    expect(db.issueBid.update).toHaveBeenCalledWith({
+      where: { id: "bid1" },
+      data: { ...plan, withdrawnAt: null, beneficiaryUserId: "ada" },
+    });
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid" }));
+  });
+
+  it("refuses to replace a bid that was already awarded", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: new Date(), withdrawnAt: null });
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
+    expect(db.issueBid.update).not.toHaveBeenCalled();
   });
 
   it("allows bidding even when the agent's owner holds active claims", async () => {
     db.projectWorkflow.findUnique.mockResolvedValue({ maxActiveClaims: 1 });
     db.issueClaim.count.mockResolvedValue(5);
-    await expect(placeBid(caller, "project", "issue1")).resolves.toMatchObject({ id: "bid1" });
+    await expect(placePlan(caller, "project", "issue1")).resolves.toMatchObject({ bid: { id: "bid1" } });
     expect(db.issueBid.create).toHaveBeenCalled();
   });
 
   it("refuses an issue that is not confirmed yet", async () => {
     vi.mocked(isConfirmed).mockResolvedValue(false);
-    await expect(placeBid(caller, "project", "issue1")).rejects.toMatchObject({
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({
       status: 409,
       message: expect.stringContaining("not ready yet"),
     });
@@ -103,12 +130,12 @@ describe("placeBid", () => {
 
   it("refuses an issue that is not confirmed or is already being worked", async () => {
     vi.mocked(isConfirmed).mockResolvedValue(false);
-    await expect(placeBid(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
     vi.mocked(isConfirmed).mockResolvedValue(true);
     db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { tenantId: "tenant", projectId: "project" } });
-    await expect(placeBid(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
     db.issueClaim.findFirst.mockResolvedValue({ id: "offer", status: "offered", offeredAt: new Date(), bug: { tenantId: "tenant", projectId: "project" } });
-    await expect(placeBid(caller, "project", "issue1")).rejects.toMatchObject({
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({
       status: 409,
       message: expect.stringContaining("pending offer"),
     });
@@ -120,12 +147,50 @@ describe("listBids area preference (#609)", () => {
   it("ranks matching-area volunteers first without hiding other bids", async () => {
     db.bug.findFirst.mockResolvedValue({ id: "issue1", areaId: "area-web" });
     db.issueBid.findMany.mockResolvedValue([
-      { id: "bid-other", createdAt: new Date("2026-10-19T10:00:00Z"), agent: { name: "Other", areaPreferences: [] } },
-      { id: "bid-match", createdAt: new Date("2026-10-19T11:00:00Z"), agent: { name: "Match", areaPreferences: [{ projectAreaId: "area-web" }] } },
+      { id: "bid-other", createdAt: new Date("2026-10-19T10:00:00Z"), beneficiary: { name: "Owner" }, replies: [], agent: { name: "Other", areaPreferences: [] } },
+      { id: "bid-match", createdAt: new Date("2026-10-19T11:00:00Z"), beneficiary: { name: "Owner" }, replies: [], agent: { name: "Match", areaPreferences: [{ projectAreaId: "area-web" }] } },
     ]);
     const bids = await listBids(caller, "project", "issue1");
     expect(bids.map((bid) => bid.id)).toEqual(["bid-match", "bid-other"]);
     expect(bids.map((bid) => bid.areaMatch)).toEqual([true, false]);
+  });
+
+  it("carries each bid's summary, description, owner and replies, open bids from live agents only", async () => {
+    db.bug.findFirst.mockResolvedValue({ id: "issue1", areaId: null });
+    db.issueBid.findMany.mockResolvedValue([{
+      id: "bid1", agentId: "agent1", beneficiaryUserId: "ada", summary: "S.", description: "D.",
+      createdAt: new Date("2026-10-19T10:00:00Z"), updatedAt: new Date("2026-10-19T10:00:00Z"),
+      beneficiary: { name: "Ada" }, agent: { name: "Ada's Claude", areaPreferences: [] },
+      replies: [{ id: "c1", body: "Go.", authorId: "rep", agentId: null, createdAt: new Date(), editedAt: null, author: { name: "Rita" }, agent: null }],
+    }]);
+    const [bid] = await listBids(caller, "project", "issue1");
+    expect(bid).toMatchObject({ agentName: "Ada's Claude", by: "Ada", summary: "S.", description: "D.", replies: [{ id: "c1", authorName: "Rita", agentName: null }] });
+    expect(db.issueBid.findMany.mock.calls[0][0].where).toEqual({ bugId: "issue1", withdrawnAt: null, awardedAt: null, agent: { revokedAt: null } });
+  });
+});
+
+describe("parseBid (#issue-bids)", () => {
+  it("takes a summary and a description", () => {
+    expect(parseBid({ summary: " I will fix it. ", description: " Plan. ", projectId: "p" })).toEqual({ summary: "I will fix it.", description: "Plan.", projectId: "p" });
+  });
+
+  it.each([
+    [{}, "summary"],
+    [{ summary: "I will fix it." }, "description"],
+    [{ description: "Plan." }, "summary"],
+    [{ summary: "", description: "Plan." }, "summary"],
+    [{ summary: "One. Two. Three.", description: "Plan." }, "summary"],
+    [{ summary: "x".repeat(301), description: "Plan." }, "summary"],
+    [{ summary: "S.", description: "x".repeat(10_001) }, "description"],
+  ])("refuses a bare or oversized bid %j with a 400 naming %s", (body, field) => {
+    expect(() => parseBid(body)).toThrow(expect.objectContaining({ status: 400, body: expect.objectContaining({ field }) }));
+  });
+
+  it("tells an old client that note was replaced", () => {
+    expect(() => parseBid({ note: "I can fix it" })).toThrow(expect.objectContaining({
+      status: 400,
+      body: expect.objectContaining({ field: "note", message: expect.stringContaining("summary") }),
+    }));
   });
 });
 
@@ -218,7 +283,7 @@ describe("readable bid references (#587)", () => {
       where: { number: 587, tenantId: "tenant", projectId: "project", isDeleted: false },
     }));
     expect(db.issueBid.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { bugId: canonicalId, withdrawnAt: null, awardedAt: null },
+      where: { bugId: canonicalId, withdrawnAt: null, awardedAt: null, agent: { revokedAt: null } },
     }));
   });
 
@@ -226,7 +291,7 @@ describe("readable bid references (#587)", () => {
     db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
     db.$queryRaw.mockResolvedValue([{ id: canonicalId }]);
 
-    await placeBid(caller, "project", reference, "I can fix it");
+    await placeBid(caller, "project", reference, plan);
 
     expect(db.bug.findFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
       where: { number: 587, tenantId: "tenant", projectId: "project", isDeleted: false },
@@ -242,7 +307,7 @@ describe("readable bid references (#587)", () => {
       where: { bugId_agentId: { bugId: canonicalId, agentId: "agent1" } },
     });
     expect(db.issueBid.create).toHaveBeenCalledWith({ data: {
-      bugId: canonicalId, agentId: "agent1", beneficiaryUserId: "ada", note: "I can fix it",
+      bugId: canonicalId, agentId: "agent1", beneficiaryUserId: "ada", ...plan,
     } });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
       bugId: canonicalId,
@@ -253,7 +318,7 @@ describe("readable bid references (#587)", () => {
   it("keeps canonical references working without a numeric lookup", async () => {
     db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
     db.$queryRaw.mockResolvedValue([{ id: canonicalId }]);
-    await placeBid(caller, "project", canonicalId);
+    await placePlan(caller, "project", canonicalId);
     expect(db.bug.findFirst).toHaveBeenCalledTimes(1);
     expect(db.bug.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: canonicalId, tenantId: "tenant", projectId: "project", isDeleted: false },
@@ -261,7 +326,7 @@ describe("readable bid references (#587)", () => {
     expect(db.$queryRaw.mock.calls[0].slice(1)).toEqual([canonicalId, "tenant", "project"]);
   });
 
-  it.each([listBids, placeBid])("does not access bids for a missing, deleted, or differently scoped numeric issue", async (operation) => {
+  it.each([listBids, placePlan])("does not access bids for a missing, deleted, or differently scoped numeric issue", async (operation) => {
     db.bug.findFirst.mockResolvedValue(null);
     await expect(operation(caller, "project", "587")).rejects.toMatchObject({ status: 404 });
     expect(db.bug.findFirst).toHaveBeenCalledWith(expect.objectContaining({
@@ -276,12 +341,12 @@ describe("readable bid references (#587)", () => {
   it("rechecks scoped issue existence after taking the lock", async () => {
     db.bug.findFirst.mockResolvedValueOnce({ id: canonicalId }).mockResolvedValueOnce(null);
     db.$queryRaw.mockResolvedValue([{ id: canonicalId }]);
-    await expect(placeBid(caller, "project", "587")).rejects.toMatchObject({ status: 404 });
+    await expect(placePlan(caller, "project", "587")).rejects.toMatchObject({ status: 404 });
     expect(db.issueBid.create).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it.each([listBids, placeBid])("rejects another project before resolving a numeric issue for a project-scoped key", async (operation) => {
+  it.each([listBids, placePlan])("rejects another project before resolving a numeric issue for a project-scoped key", async (operation) => {
     await expect(operation({ ...caller, projectId: "key-project" }, "project", "587")).rejects.toThrow();
     expect(db.bug.findFirst).not.toHaveBeenCalled();
     expect(db.$queryRaw).not.toHaveBeenCalled();

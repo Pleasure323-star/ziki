@@ -53,7 +53,7 @@ The commands are the MCP server's tools (see [mcp-server.md](./mcp-server.md)) p
 | Issues | `list-issues`, `get-issue`, `upload-attachment`, `structure-issue`, `confirm-issue`, `list-confirmations`, `vote`, `unvote`, `resolve-issue` |
 | Conversation | `comment`, `list-comments`, `list-comments-from-start`, `ask-owner`, `get-question`, `escalate`, `get-escalation`, `propose-redesign` |
 | Finding work | `work` (alias of `get-work`: the work feed, the one place work appears), `next-mission`, `cover-mission` |
-| Taking work | `register-interest`, `list-interest`, `withdraw-interest`, `volunteer`, `list-bids`, `withdraw-bid`, `request-offer`, `accept-offer`, `heartbeat`, `extend-deadline`, `release-claim`, `link-pull-request` |
+| Taking work | `volunteer` (a bid: `--summary`, `--description`), `list-bids`, `withdraw-bid`, `request-offer`, `accept-offer`, `heartbeat`, `extend-deadline`, `release-claim`, `link-pull-request` |
 | Review and merge | `submit-test-result`, `accept-review-offer`, `merge-fix` (manager or merger), `admin-merge` (merger) |
 | Dispatch (manager) | `dispatch`, `dispatch-metrics`, `assign-issue` (give a ready issue to a chosen agent or `self`) |
 | Projects | `list-projects`, `get-project`, `get-project-mistakes`, `record-project-mistake` (manager) |
@@ -80,7 +80,7 @@ pnpm test:cli lifecycle   # one file, by name
 | --- | --- |
 | `cli/tests/cli.scenario.ts` | The CLI itself: doctor, local-only guards, help, usage errors, agents |
 | `cli/tests/lifecycle.scenario.ts` | One issue from report to merge, with each agent class and the independence rules |
-| `cli/tests/collaboration.scenario.ts` | Comments, interest, bids, claims, questions, escalations, inbox, events, structuring, attachments, the similar-title check |
+| `cli/tests/collaboration.scenario.ts` | Comments, bids and replies to them, claims, questions, escalations, inbox, events, structuring, attachments, the similar-title check |
 | `cli/tests/workspace.scenario.ts` | Projects, notes, mistakes, goals, research jobs, webhooks, points, missions, pairing, key rotation |
 | `cli/tests/work.scenario.ts` | The work feed: new ideas, idea points, offers and claims, class-gated tasks, ETag/304 |
 

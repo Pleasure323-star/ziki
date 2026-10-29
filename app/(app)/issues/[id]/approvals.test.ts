@@ -100,7 +100,6 @@ const mockDb = vi.hoisted(() => ({
   bug: { findUnique: vi.fn(), findFirst: vi.fn(async () => ({ id: "bug-1", number: 1 })) },
   redesignProposal: { findMany: vi.fn().mockResolvedValue([]) },
   issueBid: { findMany: vi.fn().mockResolvedValue([]) },
-  issueInterest: { count: vi.fn().mockResolvedValue(0) },
   issueApproval: { findFirst: vi.fn() },
   agentQuestion: { findMany: vi.fn().mockResolvedValue([]) },
   user: { findMany: vi.fn().mockResolvedValue([]) },

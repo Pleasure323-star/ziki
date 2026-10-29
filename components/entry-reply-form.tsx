@@ -3,8 +3,14 @@
 import { useId, useState, useTransition } from "react";
 import { addCommentAction } from "@/app/actions/issues";
 
-/** A plain reply to one confirmation entry (#issue-confirmations). */
-export function ConfirmationReplyForm({ bugId, confirmationId }: { bugId: string; confirmationId: string }) {
+/** Which stage entry a reply is under: a confirmation or a bid. */
+export type ReplyTarget = { confirmationId: string } | { bidId: string };
+
+/**
+ * A plain reply to one stage entry: a confirmation (#issue-confirmations) or
+ * a bid (#issue-bids). Replies carry no type or verdict.
+ */
+export function EntryReplyForm({ bugId, target, label }: { bugId: string; target: ReplyTarget; label: string }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -29,7 +35,8 @@ export function ConfirmationReplyForm({ bugId, confirmationId }: { bugId: string
     if (!body.trim()) return setError("Write a reply first.");
     const data = new FormData();
     data.set("body", body);
-    data.set("confirmationId", confirmationId);
+    if ("bidId" in target) data.set("bidId", target.bidId);
+    else data.set("confirmationId", target.confirmationId);
     startTransition(async () => {
       const result = await addCommentAction(bugId, data);
       if (result.error) {
@@ -42,7 +49,7 @@ export function ConfirmationReplyForm({ bugId, confirmationId }: { bugId: string
   };
 
   return (
-    <form onSubmit={onSubmit} aria-label="Reply to this confirmation" className="mt-2 flex flex-col gap-1.5 print:hidden">
+    <form onSubmit={onSubmit} aria-label={label} className="mt-2 flex flex-col gap-1.5 print:hidden">
       <label htmlFor={`${id}-reply`} className="sr-only">
         Reply
       </label>

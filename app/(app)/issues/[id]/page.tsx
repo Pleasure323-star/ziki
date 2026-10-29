@@ -52,7 +52,8 @@ import {
 } from "@/lib/decision-stages";
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
-import { IssueBids } from "@/components/issue-bids";
+import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
+import { openBidEntries } from "@/lib/agent-api/bid";
 import { GoalBudgetSection } from "@/components/goal-budgets";
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
@@ -403,28 +404,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     ),
   ]) : [[], null] as const;
   const canChooseRedesign = isTenantAdminRole(membership?.role, user.role);
-  const openBids = await loadOptional("bids", [], () =>
-    prisma.issueBid.findMany({
-      where: { bugId: bug.id, withdrawnAt: null, awardedAt: null },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        note: true,
-        createdAt: true,
-        beneficiaryUserId: true,
-        agent: { select: { name: true, areaPreferences: {
-          where: { projectAreaId: bug.areaId ?? "" },
-          select: { projectAreaId: true },
-        } } },
-        beneficiary: { select: { name: true } },
-      },
-    }),
-  );
-  const hasAreaMatch = (bid: { agent: { areaPreferences: unknown[] } }) =>
-    Boolean(bug.areaId && bid.agent.areaPreferences.length);
+  // #issue-bids: at Open the issue takes bids, not comments.
+  const bidding = !bug.isDeleted && bug.status === "open";
+  const bidList: BidEntryView[] = bidding
+    ? await loadOptional<BidEntryView[]>("bids", [], () => openBidEntries({ id: bug.id, areaId: bug.areaId ?? null }))
+    : [];
   const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
 
-  const [users, categories, areas, types, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, volunteerCount, pendingApproval] =
+  const [users, categories, areas, types, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
     await Promise.all([
       canTriage
         ? loadOptional("users", [], () =>
@@ -666,11 +653,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       loadOptional<TicketEscalation[]>("escalations", [], () =>
         tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
       ),
-      loadOptional<number>("volunteers", 0, () =>
-        prisma.issueInterest.count({
-          where: { bugId: id, withdrawnAt: null, agent: { revokedAt: null } },
-        }),
-      ),
       loadOptional("pendingApproval", null, () =>
         (typeof (prisma as { issueApproval?: unknown }).issueApproval !== "undefined"
           ? prisma.issueApproval.findFirst({
@@ -832,16 +814,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ) : null}
     </>
   );
-
-  const bidList = [...openBids]
-    .sort((a, b) => Number(hasAreaMatch(b)) - Number(hasAreaMatch(a)) || a.createdAt.getTime() - b.createdAt.getTime())
-    .map((bid) => ({
-      id: bid.id,
-      agentName: bid.agent.name,
-      personName: bid.beneficiary.name ?? "A member",
-      note: bid.note,
-      areaMatch: hasAreaMatch(bid),
-    }));
 
   // What a delete keeps, shown the same way in every delete/restore message (#692).
   const keptCounts = deletionCounts(comments.visibleCount, voterSummary);
@@ -1098,7 +1070,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       <StageConversationCount counts={stageCommentCounts} fallback={comments.visibleCount} />
                     </span>
                   </h2>
-                  {bug.isDeleted || confirming ? null : (
+                  {bug.isDeleted || confirming || bidding ? null : (
                     <AddCommentDialog
                       bugId={bug.id}
                       users={commentMentionUsers}
@@ -1129,6 +1101,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     viewerId={user.id}
                     block={confirmationBlock}
                     summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
+                  />
+                ) : null}
+                {bidding ? (
+                  <IssueBidsPanel
+                    bugId={bug.id}
+                    bids={bidList}
+                    canAward={canAwardBid && intakeStage === "ready"}
+                    canReply
                   />
                 ) : null}
                 {comments.hiddenThreads > 0 ? (
@@ -1257,11 +1237,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               {bug.isBoosted && !bug.isDeleted ? (
                 <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>
               ) : null}
-              {volunteerCount > 0 ? (
-                <span className={`${issueChipBaseClass} bg-zk-info-bg text-zk-info-fg`}>
-                  {volunteerCount} {volunteerCount === 1 ? "agent volunteered" : "agents volunteered"}
-                </span>
-              ) : null}
             </div>
             <p className="text-xs text-zk-muted">
               Opened <LocalTime compact date={bug.createdAt} /> by {bug.reporter.name}
@@ -1323,11 +1298,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             screenshots={submissionScreenshots}
             testResults={submissionTestResults}
             pullRequestUrl={bug.pullRequestUrl}
-          />
-
-          <IssueBids
-            bids={bidList}
-            canAward={canAwardBid && intakeStage === "ready"}
           />
 
           <ActivityTimeline

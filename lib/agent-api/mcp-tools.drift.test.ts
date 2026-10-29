@@ -10,7 +10,6 @@ import { missionCoverageSchema, nextMissionSchema } from "@/lib/missions";
 import { bidSchema } from "./bid";
 import { claimSchema } from "./claim";
 import { extendSchema } from "./deadline";
-import { interestSchema } from "./interest";
 import { releaseSchema } from "./offer";
 import { structureInputSchema } from "./structure";
 import { testVerdictBodySchema } from "./test-verdict";
@@ -39,7 +38,6 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_claim_issue: claimSchema,
   ziki_release_claim: releaseSchema,
   ziki_structure_issue: structureInputSchema,
-  ziki_register_interest: interestSchema,
   ziki_create_goal: createGoalSchema,
   ziki_update_goal: updateGoalStatusSchema,
   ziki_split_goal: splitGoalPoolSchema,

@@ -4,8 +4,6 @@ import { awardBid } from "@/lib/agent-api/bid";
 import { confirmedIssueIds } from "@/lib/issue-stage";
 import { isOfferExpired } from "@/lib/agent-api/offer";
 import { workflowFor } from "@/lib/workflow";
-import { commentedSummary } from "@/lib/activity-log";
-import { publish } from "@/lib/agent-api/events";
 import { logger } from "@/lib/logger";
 
 export type BidSweepResult = {
@@ -13,17 +11,6 @@ export type BidSweepResult = {
   assigned: number;
   lapsed: number;
   errors: Array<{ issueId: string; error: string }>;
-};
-
-type GoAheadMetadata = {
-  action?: string;
-  bidId?: string;
-  agentId?: string;
-  beneficiaryUserId?: string;
-  agentName?: string;
-  selectedAt?: string;
-  resolved?: boolean;
-  lapsed?: boolean;
 };
 
 /**
@@ -37,7 +24,9 @@ type GoAheadMetadata = {
  *     - Prioritizes bidders with fewest total historical tasks in the project.
  *     - Uses earliest bid creation time as tie-breaker (FIFO).
  * 3. Immediately awards the bid and assigns the task to the selected bidder.
- * 4. Resolves any legacy pending go-ahead comments and posts an assignment notification.
+ *
+ * The award records itself (the bid, the claim, the assignee and status
+ * activity, and `issue.bid_awarded`), so the sweep posts no comment.
  */
 export async function sweepPendingBids(options?: {
   now?: Date;
@@ -166,7 +155,6 @@ export async function sweepPendingBids(options?: {
       });
 
       const selected = candidateBidders[0].bid;
-      const agentName = selected.agent.name;
       const authorId = issue.reporterId ?? selected.beneficiaryUserId ?? "system";
 
       // Directly award the bid to the fair winner!
@@ -174,70 +162,6 @@ export async function sweepPendingBids(options?: {
         { id: authorId, role: "super_admin" },
         selected.id,
       );
-
-      // Clean up / resolve any existing legacy go-ahead comments on this issue
-      try {
-        const legacyGoAheadComments = await prisma.comment.findMany({
-          where: {
-            bugId: issue.id,
-            deletedAt: null,
-          },
-          take: 10,
-          orderBy: { createdAt: "desc" },
-        });
-
-        for (const comment of legacyGoAheadComments) {
-          const meta = comment.metadata as GoAheadMetadata | null;
-          if (meta?.action === "bid_go_ahead" && !meta.resolved) {
-            await prisma.comment.update({
-              where: { id: comment.id },
-              data: {
-                metadata: {
-                  ...meta,
-                  resolved: true,
-                  assignedAt: now.toISOString(),
-                },
-              },
-            });
-          }
-        }
-      } catch (cleanupErr) {
-        logger.warn(`[cron] Could not resolve legacy go-ahead comment on issue ${issue.id}:`, cleanupErr);
-      }
-
-      // Post confirmation assignment comment
-      const confirmText = `Confirmed! Issue assigned to @[${agentName}](${agentName}) via bid sweep.`;
-      const confirmComment = await prisma.comment.create({
-        data: {
-          bugId: issue.id,
-          authorId,
-          body: confirmText,
-          type: "comment",
-          metadata: {
-            action: "bid_assigned",
-            bidId: selected.id,
-            agentId: selected.agentId,
-            beneficiaryUserId: selected.beneficiaryUserId,
-          },
-        },
-      });
-
-      await prisma.bugActivity.create({
-        data: {
-          bugId: issue.id,
-          actorId: authorId,
-          type: "commented",
-          summary: commentedSummary(confirmText),
-          metadata: { commentId: confirmComment.id, action: "bid_assigned" },
-        },
-      });
-
-      await publish(prisma, {
-        tenantId: issue.tenantId,
-        type: "comment.created",
-        bugId: issue.id,
-        payload: { commentId: confirmComment.id, issueId: issue.id, authorId },
-      });
 
       result.assigned++;
     } catch (error) {

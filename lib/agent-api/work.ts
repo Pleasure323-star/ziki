@@ -517,7 +517,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       issue: issueRef(issue),
       actions: [
         { name: "request_offer", minimumRole: "working", method: "POST", path: apiPath(issue.id, "offer", pid), cli: `request-offer --id ${issue.id}` },
-        { name: "volunteer", minimumRole: "working", method: "POST", path: apiPath(issue.id, "bid", pid), cli: `volunteer --id ${issue.id} --note <why you>` },
+        { name: "volunteer", minimumRole: "working", method: "POST", path: apiPath(issue.id, "bid", pid), cli: `volunteer --id ${issue.id} --summary <what you will do> --description <how and why>` },
       ],
     });
   }

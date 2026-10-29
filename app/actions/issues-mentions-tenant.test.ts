@@ -54,6 +54,7 @@ vi.mock("@/lib/prisma", () => {
     prisma: {
       bug: { findUnique: vi.fn(), create: vi.fn() },
       comment: { findUnique: vi.fn(), findMany: vi.fn(async () => []) },
+      issueBid: { findFirst: vi.fn() },
       user: {
         findUnique: vi.fn(async () => ({ name: "Alice" })),
         // Bob is in Zedu, the issue's tenant; Dave is only in Acme.
@@ -81,6 +82,7 @@ import { addCommentAction, createBugAction } from "./issues";
 const db = prisma as unknown as {
   bug: { findUnique: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> };
   user: { findMany: ReturnType<typeof vi.fn> };
+  issueBid: { findFirst: ReturnType<typeof vi.fn> };
   __tx: { comment: { create: ReturnType<typeof vi.fn> } };
 };
 const notifyMock = vi.mocked(notifyLater);
@@ -143,5 +145,23 @@ describe("createBugAction (#502)", () => {
       `Filters reset when I go back to the list. cc @Dave Acme @[Bob](${bob})`,
     );
     expect(db.user.findMany.mock.calls[0][0].where.memberships).toEqual({ some: { tenantId: "tenant-zedu" } });
+  });
+});
+
+describe("addCommentAction replies to a bid (#issue-bids)", () => {
+  it("files a plain comment under the bid and notifies its owner", async () => {
+    db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: bob });
+    const result = await addCommentAction("bug-1", form({ body: "Please add a test.", bidId: "bid-1" }));
+    expect(result).toEqual({ ok: true, commentId: "comment-new" });
+    expect(db.issueBid.findFirst).toHaveBeenCalledWith({ where: { id: "bid-1", bugId: "bug-1" }, select: { beneficiaryUserId: true } });
+    expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ bidId: "bid-1", parentId: null, confirmationId: null, type: "comment" });
+  });
+
+  it("refuses a bid on another issue, and a typed or nested reply", async () => {
+    db.issueBid.findFirst.mockResolvedValue(null);
+    expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-x" }))).toEqual({ error: "That bid is not on this issue" });
+    db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: bob });
+    expect(await addCommentAction("bug-1", form({ body: "Hi.", bidId: "bid-1", type: "review" }))).toEqual({ error: "A reply to a bid is a plain comment" });
+    expect(db.__tx.comment.create).not.toHaveBeenCalled();
   });
 });

@@ -25,7 +25,6 @@ function txWith(claims: { id: string; bugId: string; status: "offered" | "active
       findFirst: vi.fn(async () => ({ id: "bug-1", projectId: "project-1", title: "Example", status: "open", assigneeId: null })),
     },
     issueBid: { updateMany: vi.fn(async () => ({ count: 2 })) },
-    issueInterest: { updateMany: vi.fn(async () => ({ count: 1 })) },
     agentAuditEvent: { create: vi.fn(async () => ({})) },
   };
 }
@@ -44,7 +43,7 @@ describe("revoking an agent hands its work back (#523)", () => {
 
     const result = await releaseWorkOfRevokedAgent(tx as never, input);
 
-    expect(result).toEqual({ releasedClaims: 1, withdrawnBids: 2, withdrawnInterests: 1, offers: [] });
+    expect(result).toEqual({ releasedClaims: 1, withdrawnBids: 2, offers: [] });
     expect(tx.issueClaim.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { agentId: "agent-dead", releasedAt: null, status: { in: ["offered", "active"] } } }),
     );
@@ -121,13 +120,13 @@ describe("revoking an agent hands its work back (#523)", () => {
     });
   });
 
-  it("withdraws active volunteer interest when agent is revoked (#510)", async () => {
+  it("withdraws its open bids, the one way to volunteer (#510, #issue-bids)", async () => {
     const tx = txWith([]);
     const result = await releaseWorkOfRevokedAgent(tx as never, input);
-    expect(tx.issueInterest.updateMany).toHaveBeenCalledWith({
-      where: { agentId: "agent-dead", withdrawnAt: null },
+    expect(tx.issueBid.updateMany).toHaveBeenCalledWith({
+      where: { agentId: "agent-dead", withdrawnAt: null, awardedAt: null },
       data: { withdrawnAt: now },
     });
-    expect(result.withdrawnInterests).toBe(1);
+    expect(result.withdrawnBids).toBe(2);
   });
 });

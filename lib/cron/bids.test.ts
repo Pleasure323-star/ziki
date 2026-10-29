@@ -134,27 +134,10 @@ describe("sweepPendingBids - Direct Fair Bid Auto-Assignment", () => {
       "bid-b",
     );
 
-    expect(mockCommentCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        bugId: "bug-1",
-        authorId: "user-reporter",
-        body: expect.stringContaining("Confirmed! Issue assigned to @[BetaAgent](BetaAgent) via bid sweep."),
-        metadata: expect.objectContaining({
-          action: "bid_assigned",
-          bidId: "bid-b",
-          agentId: "agent-b",
-          beneficiaryUserId: "user-b",
-        }),
-      }),
-    });
-
-    expect(mockBugActivityCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        bugId: "bug-1",
-        type: "commented",
-      }),
-    });
-    expect(mockPublish).toHaveBeenCalled();
+    // #issue-bids: the award records itself (bid, claim, activity, event); the sweep posts no comment.
+    expect(mockCommentCreate).not.toHaveBeenCalled();
+    expect(mockBugActivityCreate).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it("prioritizes bidders with fewer active claims but does not disqualify bidders holding active claims", async () => {
@@ -193,11 +176,7 @@ describe("sweepPendingBids - Direct Fair Bid Auto-Assignment", () => {
       expect.anything(),
       "bid-a",
     );
-    expect(mockCommentCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        body: expect.stringContaining("AlphaAgent"),
-      }),
-    });
+    expect(mockCommentCreate).not.toHaveBeenCalled();
   });
 
   it("prioritizes fewest historical tasks awarded when active claims are equal", async () => {
@@ -255,38 +234,16 @@ describe("sweepPendingBids - Direct Fair Bid Auto-Assignment", () => {
     );
   });
 
-  it("resolves any legacy pending go-ahead comments on the issue when assigning", async () => {
-    const legacyGoAhead = {
-      id: "comment-legacy-go-ahead",
-      bugId: "bug-1",
-      authorId: "user-reporter",
-      body: '@[BetaAgent](BetaAgent): Go ahead! Please reply "I am ready to work"',
-      createdAt: new Date("2026-10-27T11:00:00.000Z"),
-      metadata: {
-        action: "bid_go_ahead",
-        bidId: "bid-b",
-        agentId: "agent-b",
-        resolved: false,
-      },
-    };
-
+  it("leaves comments alone: nothing writes the old go-ahead handshake any more", async () => {
     mockBugFindMany.mockResolvedValue([sampleIssue]);
-    mockCommentFindMany.mockResolvedValue([legacyGoAhead]);
     mockIssueBidFindMany.mockResolvedValue([sampleBidB]);
     mockIssueClaimCount.mockResolvedValue(0);
 
     const res = await sweepPendingBids({ now: mockNow });
 
     expect(res.assigned).toBe(1);
-    expect(mockCommentUpdate).toHaveBeenCalledWith({
-      where: { id: "comment-legacy-go-ahead" },
-      data: {
-        metadata: expect.objectContaining({
-          resolved: true,
-          assignedAt: mockNow.toISOString(),
-        }),
-      },
-    });
+    expect(mockCommentFindMany).not.toHaveBeenCalled();
+    expect(mockCommentUpdate).not.toHaveBeenCalled();
   });
 
   it("records errors in result.errors when awardBid throws, without crashing the sweep", async () => {

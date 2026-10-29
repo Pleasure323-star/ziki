@@ -165,6 +165,13 @@ export const commentSchema = z.object({
     .max(191)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
+  /** A reply to a bid (#issue-bids) names it here. */
+  bidId: z
+    .string()
+    .trim()
+    .max(191)
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
   type: commentTypeSchema.optional().default("comment"),
   metadata: z.object({
     confidence: z.number().int().min(0).max(100).optional(),

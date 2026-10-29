@@ -17,6 +17,7 @@ type Row = {
   deletedAt: Date | null;
   body: string;
   confirmationId?: string | null;
+  bidId?: string | null;
 };
 
 /** Just enough of Prisma's `comment` delegate for the loader, over an array. */
@@ -130,6 +131,15 @@ describe("loadCommentWindow", () => {
     const w = await loadCommentWindow(db, "b", { threads: 50 });
     expect(w.shownThreads).toBe(2);
     expect(w.comments.map((c) => c.id)).not.toContain("reply-to-entry");
+  });
+
+  it("leaves replies to a bid out of the threads too: they show under the bid (#issue-bids)", async () => {
+    const rows = issueWith(2);
+    rows.push({ id: "reply-to-bid", bugId: "b", parentId: null, createdAt: new Date("2030-01-01T00:00:00Z"), deletedAt: null, body: "Add a test.", bidId: "bid1" });
+    const { db } = fakeDb(rows);
+    const w = await loadCommentWindow(db, "b", { threads: 50 });
+    expect(w.shownThreads).toBe(2);
+    expect(w.comments.map((c) => c.id)).not.toContain("reply-to-bid");
   });
 
   it("loads only the newest threads, whole, in chronological order", async () => {

@@ -7,6 +7,8 @@ const db = vi.hoisted(() => ({
   project: { findFirst: vi.fn() },
   bug: { findFirst: vi.fn(), update: vi.fn() },
   comment: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+  issueBid: { findFirst: vi.fn() },
+  issueConfirmation: { findFirst: vi.fn() },
   bugActivity: { create: vi.fn() },
   issueWatch: { upsert: vi.fn() },
   agentEvent: { create: vi.fn() },
@@ -151,5 +153,38 @@ describe("Structured Comments API (#747)", () => {
         }),
       }),
     );
+  });
+});
+
+describe("replies to a bid (#issue-bids)", () => {
+  const params = { params: Promise.resolve({ id: "bug-1" }) };
+
+  it("files a plain comment under the bid", async () => {
+    db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
+    const res = await POST(postRequest({ body: "Please add a test.", bidId: "bid-1" }), params);
+    expect(res.status).toBe(201);
+    expect(db.issueBid.findFirst).toHaveBeenCalledWith({ where: { id: "bid-1", bugId: "bug-1" }, select: { beneficiaryUserId: true } });
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bidId: "bid-1", parentId: null, confirmationId: null, type: "comment" }),
+    }));
+  });
+
+  it("refuses a bid that is not on this issue", async () => {
+    db.issueBid.findFirst.mockResolvedValue(null);
+    const res = await POST(postRequest({ body: "Hello.", bidId: "bid-elsewhere" }), params);
+    expect(res.status).toBe(422);
+    expect(db.comment.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ parentId: "cmabcdefghijklmnopqrstuvw" }, "parentId"],
+    [{ type: "delivery" }, "type"],
+    [{ confirmationId: "conf-1" }, "confirmationId"],
+  ])("refuses a reply to a bid that also sends %j (%s)", async (extra, field) => {
+    db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
+    db.issueConfirmation.findFirst.mockResolvedValue({ onBehalfOfUserId: "someone" });
+    const res = await POST(postRequest({ body: "Hello.", bidId: "bid-1", ...extra }), params);
+    expect(res.status, field).toBe(422);
+    expect(db.comment.create).not.toHaveBeenCalled();
   });
 });

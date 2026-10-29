@@ -248,7 +248,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, type: true, metadata: true, createdAt: true, editedAt: true },
+      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, type: true, metadata: true, createdAt: true, editedAt: true },
     }, attachments: {
       // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -256,6 +256,11 @@ export async function readAgentIssue(scope: Scope, id: string) {
     }, confirmations: {
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select: confirmationSelect,
+    }, bids: {
+      // #issue-bids: the open bids (GET /issues/{id}/bid has their replies).
+      where: { withdrawnAt: null, awardedAt: null, agent: { revokedAt: null } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, agentId: true, beneficiaryUserId: true, summary: true, description: true, createdAt: true, updatedAt: true },
     }, _count: { select: { comments: { where: { deletedAt: null } } } } },
   });
   if (!issue) throw new IssueApiError(404, "Issue not found.");
@@ -269,7 +274,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, type: true, metadata: true, createdAt: true, editedAt: true,
+  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, type: true, metadata: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
 } satisfies Prisma.CommentSelect;
@@ -362,6 +367,15 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a confirmation is a plain comment.");
       parentAuthorId = entry.onBehalfOfUserId;
     }
+    // #issue-bids: a reply to a bid is a plain comment under it, too.
+    if (input.bidId) {
+      if (input.confirmationId) throw new IssueApiError(422, "Reply to one entry: send confirmationId or bidId, not both.");
+      const bid = await tx.issueBid.findFirst({ where: { id: input.bidId, bugId }, select: { beneficiaryUserId: true } });
+      if (!bid) throw new IssueApiError(422, "Bid not found on this issue.");
+      if (input.parentId) throw new IssueApiError(422, "Reply to the bid itself: send bidId without parentId.");
+      if ((input.type ?? "comment") !== "comment") throw new IssueApiError(422, "A reply to a bid is a plain comment.");
+      parentAuthorId = bid.beneficiaryUserId;
+    }
     if (input.parentId) {
       const parent = await tx.comment.findFirst({ where: { id: input.parentId, bugId, deletedAt: null }, select: { id: true, authorId: true } });
       if (!parent) throw new IssueApiError(422, "Parent comment not found on this issue.");
@@ -380,6 +394,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         body,
         parentId: input.parentId ?? null,
         confirmationId: input.confirmationId ?? null,
+        bidId: input.bidId ?? null,
         type: input.type ?? "comment",
         metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : undefined,
       },
@@ -391,6 +406,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         body: true,
         parentId: true,
         confirmationId: true,
+        bidId: true,
         type: true,
         metadata: true,
         createdAt: true,

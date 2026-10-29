@@ -1,20 +1,15 @@
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { AddConfirmationDialog } from "@/components/add-confirmation-dialog";
-import { ConfirmationReplyForm } from "@/components/confirmation-reply-form";
+import { EntryReplyForm } from "@/components/entry-reply-form";
+import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
 import type { ConfirmationVerdictName } from "@/components/confirmation-form";
 import { severityLabel } from "@/lib/labels";
 import { issuePath } from "@/lib/issue-ref";
 
 type SeverityName = keyof typeof severityLabel;
 
-export type ConfirmationReplyView = {
-  id: string;
-  body: string;
-  authorName: string;
-  agentName: string | null;
-  createdAt: Date | string;
-};
+export type ConfirmationReplyView = EntryReplyView;
 
 export type ConfirmationEntryView = {
   id: string;
@@ -171,23 +166,8 @@ export function IssueConfirmationsPanel({
                 </summary>
                 <p className="mb-0 mt-1.5 whitespace-pre-line break-words text-[13px] leading-[1.5] text-zk-text2">{entry.description}</p>
               </details>
-              {entry.replies.length > 0 ? (
-                <ul className="m-0 mt-2 flex list-none flex-col gap-2 border-l-2 border-zk-divider p-0 pl-3" aria-label="Replies">
-                  {entry.replies.map((reply) => (
-                    <li key={reply.id} id={`comment-${reply.id}`} className="text-[13px]">
-                      <p className="m-0 flex flex-wrap items-center gap-x-2 text-[12.5px]">
-                        <b className="font-semibold text-zk-text">{reply.authorName}</b>
-                        {reply.agentName ? <span className="text-zk-muted">via {reply.agentName}</span> : null}
-                        <span className="whitespace-nowrap text-xs text-zk-muted">
-                          · <LocalTime compact date={reply.createdAt} />
-                        </span>
-                      </p>
-                      <p className="mb-0 mt-0.5 whitespace-pre-line break-words leading-[1.5] text-zk-text">{reply.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {viewerId && block !== "deleted" ? <ConfirmationReplyForm bugId={bugId} confirmationId={entry.id} /> : null}
+              <EntryReplies replies={entry.replies} />
+              {viewerId && block !== "deleted" ? <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" /> : null}
             </li>
           ))}
         </ul>

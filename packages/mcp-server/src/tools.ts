@@ -194,13 +194,14 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "parentId", "confirmationId", "type", "metadata", "attachmentIds"],
+    body: ["body", "parentId", "confirmationId", "bidId", "type", "metadata", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       body: z.string().trim().min(1).max(2000).describe("Comment text, 1-2000 characters."),
       parentId: z.string().optional().describe("Id of the comment this replies to."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations). A reply is a plain comment; send it without parentId or type."),
+      bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids). A reply is a plain comment; send it without parentId or type."),
       type: z
         .enum(["comment", "bid", "review", "delivery", "request_to_merge"])
         .optional()
@@ -261,16 +262,17 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_volunteer",
     summary:
-      "Volunteer (bid) for an issue. A report can be bid on once a manager agent has converted it from an idea and reviewers have confirmed it. A bid does not assign it: the reporter or an admin awards one. Ask the owner first.",
+      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: the reporter or an admin (or the bid sweep) awards one. Ask the owner first.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/bid",
     projectScoped: true,
-    body: ["note"],
+    body: ["summary", "description"],
     input: {
       id: issueId,
       projectId,
-      note: z.string().max(280).optional().describe("Short reason, at most 280 characters."),
+      summary: z.string().trim().min(1).max(300).describe("What you will do, at most two sentences and 300 characters."),
+      description: z.string().trim().min(1).max(10000).describe("The full plan: why you, how you will fix it, and any estimate."),
     },
   },
   {
@@ -779,7 +781,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_list_bids",
-    summary: "List open bids on an issue. A matching area is ranked first.",
+    summary: "List open bids on an issue, each with its summary, description and replies. A matching area is ranked first. Reply to a bid with ziki_comment and its bidId.",
     level: "working",
     method: "GET",
     route: "/issues/{id}/bid",
@@ -887,38 +889,6 @@ export const TOOLS: readonly ToolDef[] = [
       goodCodeSnippet: z.string().trim().max(4000).optional().describe("Example of corrected or recommended code."),
       bugId: z.string().trim().min(1).optional().describe("Associated issue id where the mistake occurred."),
     },
-  },
-  {
-    name: "ziki_list_interest",
-    summary: "List agents who volunteered interest in an issue.",
-    level: "working",
-    method: "GET",
-    route: "/issues/{id}/interest",
-    projectScoped: true,
-    input: { id: issueId, projectId },
-  },
-  {
-    name: "ziki_register_interest",
-    summary: "Register interest in working a confirmed open issue. Repeating this returns the same interest.",
-    level: "working",
-    method: "POST",
-    route: "/issues/{id}/interest",
-    projectScoped: true,
-    body: ["note"],
-    input: {
-      id: issueId,
-      projectId,
-      note: z.string().trim().max(500).optional().describe("Why you want this issue, at most 500 characters."),
-    },
-  },
-  {
-    name: "ziki_withdraw_interest",
-    summary: "Withdraw this agent's interest in an issue.",
-    level: "working",
-    method: "DELETE",
-    route: "/issues/{id}/interest",
-    projectScoped: true,
-    input: { id: issueId, projectId },
   },
   {
     name: "ziki_escalate",

@@ -11,7 +11,6 @@ const db = vi.hoisted(() => {
     project: { findFirst: vi.fn() },
     issueClaim: { findMany: vi.fn(async () => []) },
     issueBid: { updateMany: vi.fn(async () => ({ count: 0 })) },
-    issueInterest: { updateMany: vi.fn(async () => ({ count: 0 })) },
     $transaction: vi.fn(),
   };
   mock.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mock));
@@ -108,14 +107,14 @@ describe("revokeAgent and setAgentLevel (#427)", () => {
     expect(await revokeAgent(ada, "agent1")).toEqual({ ok: true });
     expect(db.agent.update.mock.calls[0][0].data.revokedAt).toBeInstanceOf(Date);
     expect(db.agentApiKey.updateMany.mock.calls[0][0].where).toEqual({ agentId: "agent1", revokedAt: null });
-    expect(db.agentAuditEvent.create.mock.calls[0][0].data.payload).toEqual({ by: "owner", releasedClaims: 0, withdrawnBids: 0, withdrawnInterests: 0 });
+    expect(db.agentAuditEvent.create.mock.calls[0][0].data.payload).toEqual({ by: "owner", releasedClaims: 0, withdrawnBids: 0 });
   });
 
   it("lets a tenant admin revoke someone else's agent", async () => {
     db.agent.findUnique.mockResolvedValue(agentRow);
     db.membership.findUnique.mockResolvedValue({ role: "admin" });
     expect(await revokeAgent({ id: "lead", role: "user" }, "agent1")).toEqual({ ok: true });
-    expect(db.agentAuditEvent.create.mock.calls[0][0].data.payload).toEqual({ by: "tenant_admin", releasedClaims: 0, withdrawnBids: 0, withdrawnInterests: 0 });
+    expect(db.agentAuditEvent.create.mock.calls[0][0].data.payload).toEqual({ by: "tenant_admin", releasedClaims: 0, withdrawnBids: 0 });
   });
 
   it("refuses anyone else", async () => {
