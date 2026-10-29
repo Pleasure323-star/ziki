@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof FeedInputError) {
-      return withAgentBudgetHeaders(NextResponse.json({ error: error.message }, { status: 400 }), quota);
+      return withAgentBudgetHeaders(NextResponse.json({ error: error.message }, { status: error.status }), quota);
     }
     return withAgentBudgetHeaders(agentErrorResponse(error), quota);
   }

@@ -10,25 +10,29 @@ export const FEED_PAGE_SIZE = 50;
 /** Documented ceiling; a larger `limit` is clamped to this rather than rejected. */
 export const FEED_MAX_PAGE_SIZE = 100;
 
-export class FeedInputError extends Error {}
+export class FeedInputError extends Error {
+  constructor(message: string, public status = 400) { super(message); }
+}
 
 const timestampSchema = z.iso.datetime({ offset: true });
 
 /**
  * `limit` was documented for /feed but ignored (#469). A missing value keeps
  * the old page size, a number is clamped to 1..100, and anything that is not a
- * whole number is a caller error rather than a silent fallback.
+ * whole number of at least 1 is a caller error rather than a silent fallback.
  */
 export function parseFeedLimit(params: URLSearchParams): number {
   const raw = params.get("limit");
   if (raw === null) return FEED_PAGE_SIZE;
   const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) {
+  const n = /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : 0;
+  if (n < 1) {
     throw new FeedInputError(
       `limit must be a whole number between 1 and ${FEED_MAX_PAGE_SIZE}; the default is ${FEED_PAGE_SIZE}.`,
+      422,
     );
   }
-  return Math.min(Math.max(Number(trimmed), 1), FEED_MAX_PAGE_SIZE);
+  return Math.min(n, FEED_MAX_PAGE_SIZE);
 }
 
 export function parseFeedCursor(params: URLSearchParams): FeedCursor | null {

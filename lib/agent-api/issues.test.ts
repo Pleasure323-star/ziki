@@ -222,6 +222,21 @@ describe("agent issue reads", () => {
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 
+  it("rejects an unusable limit with 422 on issues and comments (#454)", async () => {
+    for (const raw of ["0", "-5", "abc", "1.5"]) {
+      const response = await list(request("GET", undefined, `?projectId=project-a&limit=${raw}`));
+      expect(response.status, raw).toBe(422);
+      await expect(response.json(), raw).resolves.toMatchObject({ error: expect.stringContaining("limit") });
+    }
+    for (const raw of ["0", "-5", "abc", "1.5"]) {
+      const response = await comments(request("GET", undefined, `?projectId=project-a&limit=${raw}`), context);
+      expect(response.status, raw).toBe(422);
+      await expect(response.json(), raw).resolves.toMatchObject({ error: expect.stringContaining("limit") });
+    }
+    expect(db.bug.findMany).not.toHaveBeenCalled();
+    expect(db.comment.findMany).not.toHaveBeenCalled();
+  });
+
   it("filters by a case-insensitive text search on title and description (#460)", async () => {
     const cursor = encodeCursor({ id: "previous", createdAt: issue.createdAt });
     await list(request("GET", undefined, `?projectId=project-a&q=%20Login%25&cursor=${cursor}`));

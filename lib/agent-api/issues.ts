@@ -197,7 +197,7 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const cursor = decodeCursor(cursorRaw);
   if (cursorRaw !== null && !cursor) throw new IssueApiError(400, "Invalid cursor.");
   const limit = pageSize(params.get("limit"));
-  if (limit === null) throw new IssueApiError(400, LIMIT_RANGE_ERROR);
+  if (limit === null) throw new IssueApiError(422, LIMIT_RANGE_ERROR);
   const q = params.get("q")?.trim();
   // #460: same escaped, bounded title/description match the app list uses. AND keeps it apart from the cursor's OR.
   const search: Prisma.BugWhereInput = q
@@ -294,7 +294,7 @@ export async function listAgentIssueComments(scope: Scope, id: string, params: U
   const cursor = decodeCursor(cursorRaw);
   if (cursorRaw !== null && !cursor) throw new IssueApiError(400, "Invalid cursor.");
   const limit = pageSize(params.get("limit"));
-  if (limit === null) throw new IssueApiError(400, LIMIT_RANGE_ERROR);
+  if (limit === null) throw new IssueApiError(422, LIMIT_RANGE_ERROR);
   const typeParam = params.get("type");
   const validTypes = ["comment", "bid", "review", "delivery", "request_to_merge"];
   if (typeParam && !validTypes.includes(typeParam)) {

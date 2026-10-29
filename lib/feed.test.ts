@@ -98,14 +98,20 @@ describe("feed limit parameter (#469)", () => {
     expect(parseFeedLimit(new URLSearchParams(`limit=${FEED_MAX_PAGE_SIZE}`))).toBe(FEED_MAX_PAGE_SIZE);
   });
 
-  it("clamps out-of-range numbers to the documented bounds", () => {
-    expect(parseFeedLimit(new URLSearchParams("limit=0"))).toBe(1);
+  it("clamps values above the maximum to the documented bound", () => {
     expect(parseFeedLimit(new URLSearchParams("limit=200"))).toBe(FEED_MAX_PAGE_SIZE);
   });
 
-  it("rejects values that are not whole numbers instead of guessing", () => {
-    for (const raw of ["", "abc", "-1", "1.5", "1e3", "3px"]) {
+  it("rejects values that are not whole numbers of at least 1 instead of guessing", () => {
+    for (const raw of ["", "0", "abc", "-1", "1.5", "1e3", "3px"]) {
       expect(() => parseFeedLimit(new URLSearchParams({ limit: raw })), raw).toThrow(FeedInputError);
     }
+    let thrown: unknown;
+    try {
+      parseFeedLimit(new URLSearchParams("limit=0"));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ status: 422, message: expect.stringContaining("limit") });
   });
 });

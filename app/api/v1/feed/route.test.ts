@@ -49,13 +49,16 @@ describe("feed authentication and scope", () => {
     expect(mocks.read).toHaveBeenLastCalledWith("tenant", "project", null, null, 3);
   });
 
-  it("clamps an oversized limit and rejects a non-numeric one (#469)", async () => {
+  it("clamps an oversized limit and rejects an unusable one with 422 (#454)", async () => {
     expect((await GET(request("?projectId=project&limit=500", true))).status).toBe(200);
     expect(mocks.read).toHaveBeenLastCalledWith("tenant", "project", null, null, 100);
 
-    const response = await GET(request("?projectId=project&limit=abc", true));
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("limit") });
+    for (const raw of ["0", "-5", "abc", "1.5"]) {
+      const response = await GET(request(`?projectId=project&limit=${raw}`, true));
+      expect(response.status, raw).toBe(422);
+      await expect(response.json(), raw).resolves.toMatchObject({ error: expect.stringContaining("limit") });
+    }
+    expect(mocks.read).toHaveBeenCalledTimes(1);
   });
   it("does not fall back to a session for an invalid key", async () => {
     mocks.requireAgent.mockRejectedValue(new AgentAuthError("invalid_key"));
