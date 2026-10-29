@@ -231,8 +231,15 @@ export default async function ProjectsPage({
                             <p>
                               Only works when the project has no issues. Otherwise archive it.
                             </p>
+                            <label
+                              htmlFor={`confirm-delete-${project.id}`}
+                              className="block text-xs text-zk-text2"
+                            >
+                              Type {project.name} to confirm deleting it
+                            </label>
                             <div className="flex flex-wrap items-center gap-2">
                               <input
+                                id={`confirm-delete-${project.id}`}
                                 name="confirmName"
                                 placeholder={`Type ${project.name}`}
                                 autoComplete="off"
@@ -298,14 +305,16 @@ export default async function ProjectsPage({
                   <form action={deleteProjectAction} className="flex flex-wrap items-center gap-2">
                     <input type="hidden" name="projectId" value={project.id} />
                     <input
+                      id={`confirm-delete-archived-${project.id}`}
                       name="confirmName"
+                      aria-label={`Type ${project.name} to confirm deleting it`}
                       placeholder={`Type ${project.name}`}
                       autoComplete="off"
                       required
                       className="rounded-xl border border-zk-border px-2 py-1 text-sm text-zk-text"
                     />
                     <Button type="submit" variant="danger-secondary">
-                      Delete
+                      Delete {project.name}
                     </Button>
                   </form>
                 </div>
