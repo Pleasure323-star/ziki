@@ -50,7 +50,7 @@ test("an issue at Requires confirmation takes confirmations, and replies under t
   await expect(panel.getByText(reply)).toBeVisible();
 });
 
-test("an Open issue says it is not awarded and takes comments and replies; in progress it keeps them but takes no more", async ({ page, uniq }) => {
+test("an Open issue says it is waiting for bids and takes comments and replies; in progress it keeps them but takes no more", async ({ page, uniq }) => {
   const url = await fileIssue(page, uniq("Open comments check"));
   const number = Number(new URL(url).pathname.split("/").pop());
   const setStatus = async (status: "open" | "in_progress") => {
@@ -64,8 +64,9 @@ test("an Open issue says it is not awarded and takes comments and replies; in pr
   await setStatus("open");
   await page.reload();
 
-  await expect(page.getByTestId("award-box").getByRole("heading", { name: "Open: not awarded yet" })).toBeVisible();
-  await expect(page.getByTestId("bids")).toBeVisible();
+  // Nobody has it: the bids panel says so, and there is no award box.
+  await expect(page.getByTestId("bids").getByTestId("bids-waiting")).toHaveText("Open: waiting for bids");
+  await expect(page.getByTestId("award-box")).toHaveCount(0);
 
   const comments = page.getByTestId("issue-comments");
   const body = `Same here on Firefox ${Date.now()}`;
