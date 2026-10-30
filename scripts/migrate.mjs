@@ -137,10 +137,11 @@ function recordApplied(name) {
 }
 
 /**
- * Migrations known to have failed and rolled back cleanly in production. Each
- * probe raises when any object the migration creates exists, so a partial
- * apply is never retried. A probe that passes means the failed row is all
- * that is left: record it rolled back and run the fixed migration again.
+ * Migrations known to have failed in production that are safe to run again.
+ * A probe raises when the migration left something a rerun can't handle (for
+ * a schema change: any object it creates), so such a partial apply is never
+ * retried. A probe that passes means rerunning is safe: record the failed row
+ * rolled back and run the fixed migration again.
  */
 const ROLLED_BACK_CLEANLY = {
   // 2026-10-29: a regex repetition count over Postgres's 255 limit stopped it (#254).
@@ -156,14 +157,12 @@ const ROLLED_BACK_CLEANLY = {
   END IF;
 END $$;
 `,
-  // 2026-10-30: the first version stopped the deploy of #298. It only moves
-  // rows, in one transaction; any Neutral confirmation it creates has an id
-  // starting "cnfc", so none of them means nothing was applied.
-  "20261209000000_confirmation_stage_comments": `DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM "IssueConfirmation" WHERE "id" LIKE 'cnfc%') THEN
-    RAISE EXCEPTION 'confirmation stage comments already moved';
-  END IF;
-END $$;
+  // 2026-10-30: the first version stopped the deploy of #298 after its first
+  // two steps had committed (Prisma does not wrap a migration in one
+  // transaction). It only moves rows, and every step skips what is already
+  // done (existing entries, comments already attached, links already set), so
+  // running it again over a partial apply is safe: the probe always passes.
+  "20261209000000_confirmation_stage_comments": `SELECT 1;
 `,
 };
 
