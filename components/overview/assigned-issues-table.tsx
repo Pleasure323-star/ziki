@@ -3,7 +3,7 @@ import type { Severity, Status } from "@prisma/client";
 import { OverviewVote } from "@/components/overview/overview-vote";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { issuePath } from "@/lib/issue-ref";
-import { formatShortAge } from "@/lib/format";
+import { formatTimeAgo } from "@/lib/format";
 import { issueStageLabels, type IssueStage } from "@/lib/issue-stage";
 import { severityLabel, statusLabels } from "@/lib/labels";
 
@@ -233,7 +233,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
                       )}
                     </span>
                     <span className="w-[84px] shrink-0 text-[13px] text-zk-text2">
-                      {formatShortAge(issue.createdAt)}
+                      {formatTimeAgo(issue.createdAt)}
                     </span>
                   </li>
                 );

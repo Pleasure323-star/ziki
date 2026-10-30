@@ -275,7 +275,7 @@ export async function countAgentIssues(scope: Scope) {
   ]);
   const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
   for (const row of issueRows) issues[row.status] = row._count._all;
-  const ideas = { open: 0, converted: 0, closed: 0 };
+  const ideas = { open: 0, converted: 0, rejected: 0 };
   for (const row of ideaRows) ideas[row.status] = row._count._all;
   return {
     projectId: scope.projectId,

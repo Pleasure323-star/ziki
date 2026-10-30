@@ -34,7 +34,8 @@ export function CommentComposer({ bugId }: { bugId: string }) {
       <label htmlFor={`${id}-comment`} className="sr-only">
         Comment
       </label>
-      <textarea
+      <div className="flex items-end gap-2">
+        <textarea
         id={`${id}-comment`}
         name="body"
         rows={3}
@@ -42,22 +43,21 @@ export function CommentComposer({ bugId }: { bugId: string }) {
         value={body}
         placeholder="Add a comment"
         onChange={(event) => setBody(event.target.value)}
-        className="w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"
+        className="min-w-0 flex-1 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"
       />
+        <button
+          type="submit"
+          disabled={pending}
+          className="inline-flex h-9 shrink-0 items-center rounded-full bg-zk-chip px-4 text-[13px] font-bold text-zk-text2 transition hover:bg-zk-border hover:text-zk-text disabled:opacity-50"
+        >
+          {pending ? "Posting…" : "Comment"}
+        </button>
+      </div>
       {error ? (
         <p role="alert" className="m-0 text-xs font-medium text-red-700">
           {error}
         </p>
       ) : null}
-      <div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-[13px] font-bold text-white transition hover:opacity-90 disabled:opacity-50"
-        >
-          {pending ? "Posting…" : "Comment"}
-        </button>
-      </div>
     </form>
   );
 }

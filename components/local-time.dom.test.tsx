@@ -28,7 +28,8 @@ describe("LocalTime", () => {
     expect(html).not.toContain("suppresshydrationwarning");
   });
 
-  it("updates to client timezone upon mounting in DOM", () => {
+  it("shows the humanized time, with the full stamp in the client's timezone as its tooltip", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-15T20:30:00Z"), toFake: ["Date"] });
     const spy = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
       timeZone: "America/New_York",
       locale: "en-US",
@@ -40,13 +41,14 @@ describe("LocalTime", () => {
       const { container } = render(<LocalTime date={sampleUtc} />);
       const timeEl = container.querySelector("time");
       expect(timeEl).not.toBeNull();
-      // In America/New_York (UTC-4 in Oct), 18:30 UTC is 2:30 PM
-      expect(timeEl?.textContent).toBe("Oct 15, 2026, 2:30 PM");
+      expect(timeEl?.textContent).toBe("2 hours ago");
       expect(timeEl?.getAttribute("datetime")).toBe("2026-10-15T18:30:00.000Z");
+      // In America/New_York (UTC-4 in Oct), 18:30 UTC is 2:30 PM
       expect(timeEl?.getAttribute("title")).toBe("Oct 15, 2026, 2:30 PM (America/New_York)");
       expect(timeEl?.getAttribute("suppresshydrationwarning")).toBeNull();
     } finally {
       spy.mockRestore();
+      vi.useRealTimers();
     }
   });
 

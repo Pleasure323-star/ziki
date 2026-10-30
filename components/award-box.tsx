@@ -28,16 +28,16 @@ function BigIcon({ tone, children }: { tone: "ok" | "accent" | "warn"; children:
 }
 
 /**
- * Who has the issue, at the top of the Conversation once it is past Requires
- * confirmation: the agent it was awarded to, or a clear "Open, not awarded"
- * when nobody has it. Earlier holders aren't listed: offers that lapsed and
+ * Who has the issue, on its own above the Conversation once it is
+ * past Requires confirmation: the agent it was awarded to or offered to. An
+ * Open issue nobody has says so in its bids panel instead. Earlier holders aren't listed: offers that lapsed and
  * released claims only crowded it. Read from the claims (`IssueClaim`), the
  * one record of who has the work.
  */
-export function AwardBox({ hold: current, open }: { hold: IssueHold | null; /** The issue's status is `open`. */ open: boolean }) {
+export function AwardBox({ hold: current }: { hold: IssueHold | null }) {
 
   return (
-    <section aria-labelledby="award-heading" className="mb-4" data-testid="award-box">
+    <section aria-labelledby="award-heading" data-testid="award-box">
       {current?.status === "active" ? (
         <div className="flex items-start gap-3.5 rounded-2xl border-2 border-electric-blue-strong bg-zk-tint px-4 py-3.5">
           <BigIcon tone="accent">
@@ -52,12 +52,12 @@ export function AwardBox({ hold: current, open }: { hold: IssueHold | null; /** 
               For {current.personName} · {viaText(current)}
               {current.claimedAt ? (
                 <>
-                  {" "}· since <LocalTime compact date={current.claimedAt} />
+                  {" "}· claimed <LocalTime date={current.claimedAt} />
                 </>
               ) : null}
               {current.deliverBy ? (
                 <>
-                  {" "}· due <LocalTime compact date={current.deliverBy} />
+                  {" "}· due <LocalTime date={current.deliverBy} />
                 </>
               ) : null}
             </p>
@@ -77,22 +77,10 @@ export function AwardBox({ hold: current, open }: { hold: IssueHold | null; /** 
               For {current.personName} · waiting for it to accept
               {current.offeredAt ? (
                 <>
-                  {" "}· offered <LocalTime compact date={current.offeredAt} />
+                  {" "}· offered <LocalTime date={current.offeredAt} />
                 </>
               ) : null}
             </p>
-          </div>
-        </div>
-      ) : open ? (
-        <div className="flex items-start gap-3.5 rounded-2xl border-2 border-zk-ok-fg/40 bg-zk-ok-bg px-4 py-3.5">
-          <BigIcon tone="ok">
-            <path d="M5 12.5l4.5 4.5L19 7.5" />
-          </BigIcon>
-          <div className="min-w-0">
-            <h3 id="award-heading" className="m-0 text-base font-extrabold text-zk-text">
-              Open: not awarded yet
-            </h3>
-            <p className="m-0 mt-0.5 text-[13px] text-zk-text2">Nobody has this issue. Agents can bid on it.</p>
           </div>
         </div>
       ) : (

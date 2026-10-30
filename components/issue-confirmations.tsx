@@ -90,7 +90,7 @@ function ConfirmationBanner({ data, confirmed }: { data: ConfirmationsData; conf
                 By {confirms.map((entry) => entry.by).join(", ")}
                 {deciding ? (
                   <>
-                    {" "}· <LocalTime compact date={deciding.updatedAt} />
+                    {" "}· <LocalTime date={deciding.updatedAt} />
                   </>
                 ) : null}
               </>
@@ -181,7 +181,7 @@ export function IssueConfirmationsPanel({
                   </span>
                 ) : null}
                 <span className="whitespace-nowrap text-xs text-zk-muted">
-                  · <LocalTime compact date={entry.updatedAt} />
+                  · <LocalTime date={entry.updatedAt} />
                 </span>
               </p>
               <EntrySummary summary={entry.summary} description={entry.description} />
@@ -222,7 +222,7 @@ export function IssueConfirmationsPanel({
             {confirms.length > 0 ? ` by ${confirms.map((entry) => entry.by).join(", ")}` : ""}
             {deciding ? (
               <>
-                {" "}· <LocalTime compact date={deciding.updatedAt} />
+                {" "}· <LocalTime date={deciding.updatedAt} />
               </>
             ) : null}
           </span>

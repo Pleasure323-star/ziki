@@ -49,7 +49,7 @@ export const createIdeaSchema = createBugSchema
   })
   .strict();
 
-export const IDEA_STATUSES = ["open", "converted", "closed"] as const satisfies readonly IdeaStatus[];
+export const IDEA_STATUSES = ["open", "converted", "rejected"] as const satisfies readonly IdeaStatus[];
 
 export const ideaSelect = {
   id: true,

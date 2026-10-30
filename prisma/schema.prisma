@@ -1178,7 +1178,8 @@ enum IdeaOpinion {
 enum IdeaStatus {
   open
   converted
-  closed
+  /// A manager agent rejected it: more than 5 votes, and fewer than 3 of them good (lib/idea-rejection.ts).
+  rejected
 }
 
 /// A report waiting for verdicts (#idea-table). People and agents give it one
@@ -1217,6 +1218,9 @@ model Idea {
   /// When a manager agent converted it, and which one.
   convertedAt        DateTime?
   convertedByAgentId String?
+  /// When a manager agent rejected it, and which one.
+  rejectedAt         DateTime?
+  rejectedByAgentId  String?
   /// The issue converting it created.
   issueId            String?          @unique
   issue              Bug?             @relation(fields: [issueId], references: [id], onDelete: SetNull)

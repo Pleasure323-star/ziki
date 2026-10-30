@@ -42,6 +42,15 @@ function HammeringIcon() {
 }
 const BidIcon = () => <Svg><path d="m14 13-7.5 7.5a2.1 2.1 0 0 1-3-3L11 10M16 16l6-6M8 8l6-6M9 7l8 8M21 11l-8-8" /></Svg>;
 
+/** "2 bids", under an Open issue's status. */
+function BidCount({ bids }: { bids: number }) {
+  return (
+    <span className="pl-4 text-[10.5px] tabular-nums text-zk-muted" data-testid="row-bid-count">
+      {bids} bid{bids === 1 ? "" : "s"}
+    </span>
+  );
+}
+
 export type IssueRowWork = {
   /** The person the work is for (the agent's owner), or the assignee. */
   person: string | null;
@@ -60,11 +69,17 @@ export function IssueRowStatus({
   botConfirmations,
   work,
   mergePath,
+  bids,
+  offeredTo = null,
 }: {
   status: string;
   stage: IssueStage | undefined;
   botConfirmations: number;
   work: IssueRowWork | null;
+  /** Open issues: how many open bids it has. */
+  bids?: number;
+  /** Open issues: whom a pending offer is for, until it is accepted. */
+  offeredTo?: string | null;
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
@@ -118,10 +133,23 @@ export function IssueRowStatus({
       </span>
     );
   }
+  if (status === "open" && offeredTo) {
+    return (
+      <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5">
+        <span className="inline-flex items-center gap-1 font-medium text-zk-warn-fg">
+          <ClockIcon /> <span className="max-w-[10rem] truncate">Offered to {offeredTo}</span>
+        </span>
+        {bids !== undefined ? <BidCount bids={bids} /> : null}
+      </span>
+    );
+  }
   if (stage === "ready") {
     return (
-      <span className="issue-row-status inline-flex items-center gap-1 text-zk-ok-fg">
-        <BidIcon /> Ready for bids
+      <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5">
+        <span className="inline-flex items-center gap-1 text-zk-ok-fg">
+          <BidIcon /> Ready for bids
+        </span>
+        {bids !== undefined ? <BidCount bids={bids} /> : null}
       </span>
     );
   }
@@ -142,17 +170,31 @@ export function IssueRowStatus({
   return <span className="issue-row-status inline-flex items-center gap-1 text-zk-text2">Open</span>;
 }
 
-/** An idea's row status (#idea-table): its score, and "Ready to convert" once it reaches the threshold. */
-export function IdeaRowStatus({ score, threshold }: { score: number; threshold: number | null }) {
+/**
+ * An idea's row status (#idea-table): its score; "Idea accepted" once it
+ * reaches the threshold (a manager agent converts it); "Idea rejected" once a
+ * manager agent rejected it (#idea-rejected).
+ */
+export function IdeaRowStatus({ score, threshold, rejected = false }: { score: number; threshold: number | null; rejected?: boolean }) {
   const text = threshold === null ? `${score}` : `${score}/${threshold}`;
+  if (rejected) {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg" title={`Score ${score}: a manager agent rejected it`}>
+        <Svg><path d="M18 6 6 18M6 6l12 12" /></Svg> Idea rejected{" "}
+        <span className="tabular-nums font-normal">
+          ({text})<span className="sr-only"> score</span>
+        </span>
+      </span>
+    );
+  }
   // At the threshold a manager agent can convert it: say so plainly, in green.
   if (threshold !== null && score >= threshold) {
     return (
       <span
         className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-ok-fg"
-        title={`Score ${score} of ${threshold}: a manager agent can convert it to an issue`}
+        title={`Score ${score} of ${threshold}: accepted, a manager agent converts it to an issue`}
       >
-        <CheckCircleIcon /> Ready to convert{" "}
+        <CheckCircleIcon /> Idea accepted{" "}
         <span className="tabular-nums font-normal">
           ({text})<span className="sr-only"> score</span>
         </span>

@@ -2,7 +2,6 @@ import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { AwardBidButton } from "@/components/award-bid-button";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
-import { EntryReplyForm } from "@/components/entry-reply-form";
 
 export type BidEntryView = {
   id: string;
@@ -38,18 +37,17 @@ const stateChipClass: Record<BidState, string> = {
  * which gives that agent the task.
  */
 export function IssueBidsPanel({
-  bugId,
   bids,
   canAward,
-  canReply,
   collapsed = false,
+  waiting = false,
 }: {
-  bugId: string;
   bids: BidEntryView[];
   canAward: boolean;
-  canReply: boolean;
   /** Past Open: one compact card with a summary, the bids behind it. */
   collapsed?: boolean;
+  /** Open and nobody has it: the panel says it is waiting for bids. */
+  waiting?: boolean;
 }) {
   const openCount = bids.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length;
   if (collapsed) {
@@ -69,7 +67,7 @@ export function IssueBidsPanel({
           </span>
         </summary>
         <div className="px-3 pb-3">
-          <BidList bugId={bugId} bids={bids} canAward={false} canReply={canReply} />
+          <BidList bids={bids} canAward={false} />
         </div>
       </details>
     );
@@ -83,17 +81,19 @@ export function IssueBidsPanel({
           <span className="font-normal normal-case tracking-normal">· {openCount} open</span>
         ) : null}
       </h3>
-      <p className="mb-3 mt-0 text-[13px] text-zk-text2" data-testid="bids-people-note">
-        Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
-        or reply to a bid. {canAward ? "Award an open bid to give its agent the task." : "The reporter or an admin awards one."}
-      </p>
-      <BidList bugId={bugId} bids={bids} canAward={canAward} canReply={canReply} />
+      {waiting ? (
+        <p className="mb-3 mt-0 inline-flex items-center gap-1.5 rounded-full bg-zk-ok-bg px-2.5 py-1 text-xs font-bold text-zk-ok-fg" data-testid="bids-waiting">
+          <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+          Open: waiting for bids
+        </p>
+      ) : null}
+      <BidList bids={bids} canAward={canAward} />
     </section>
   );
 }
 
 /** Each bid on its own card: its state, who it is for, summary, description and replies. */
-function BidList({ bugId, bids, canAward, canReply }: { bugId: string; bids: BidEntryView[]; canAward: boolean; canReply: boolean }) {
+function BidList({ bids, canAward }: { bids: BidEntryView[]; canAward: boolean }) {
   return (
     <>
       {bids.length === 0 ? (
@@ -103,11 +103,11 @@ function BidList({ bugId, bids, canAward, canReply }: { bugId: string; bids: Bid
           {bids.map((bid) => {
             const state: BidState = bid.awardedAt ? "awarded" : bid.withdrawnAt ? "withdrawn" : "open";
             return (
-              // A light blue sets bids apart from comments, as beige does confirmations.
+              // A white card with a blue edge: the blue chip and Award button stay legible on it.
               <li
                 key={bid.id}
                 id={`bid-${bid.id}`}
-                className="relative flex items-start gap-3 rounded-xl border border-zk-info-fg/20 bg-zk-info-bg/50 px-3 py-2.5"
+                className="relative flex items-start gap-3 rounded-xl border border-zk-border border-l-4 border-l-zk-info-fg/50 bg-zk-surface px-3 py-2.5"
               >
                 <span
                   data-testid="bid-state"
@@ -116,21 +116,25 @@ function BidList({ bugId, bids, canAward, canReply }: { bugId: string; bids: Bid
                   {STATE_LABEL[state]}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[13px]">
+                  <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
                     <b className="font-semibold text-zk-text">{bid.agentName}</b>
                     <span className="text-zk-muted">for {bid.by}</span>
                     {bid.areaMatch ? (
                       <span className="rounded-full bg-zk-warn-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-warn-fg">Area match</span>
                     ) : null}
                     <span className="whitespace-nowrap text-xs text-zk-muted">
-                      · <LocalTime compact date={bid.updatedAt} />
+                      · <LocalTime date={bid.updatedAt} />
                     </span>
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
-                  {canAward && state === "open" ? <AwardBidButton bidId={bid.id} /> : null}
-                  {canReply ? <EntryReplyForm bugId={bugId} target={{ bidId: bid.id }} label="Reply to this bid" icon /> : null}
                 </div>
+                {/* Awarding sits on the right of the card, at its foot. */}
+                {canAward && state === "open" ? (
+                  <div className="shrink-0 self-end">
+                    <AwardBidButton bidId={bid.id} />
+                  </div>
+                ) : null}
               </li>
             );
           })}

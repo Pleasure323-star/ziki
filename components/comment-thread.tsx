@@ -178,7 +178,7 @@ function CommentItem({
               </div>
               <span className="inline-flex items-center gap-1.5">
                 <a href={`#comment-${comment.id}`} className="hover:text-zk-text hover:underline">
-                  <LocalTime compact date={comment.createdAt} />
+                  <LocalTime date={comment.createdAt} />
                 </a>
                 <CopyLinkButton url={`${issueUrl}#comment-${comment.id}`} label="comment" compact />
                 {comment.editedAt ? <span title="This comment was edited">· edited</span> : null}

@@ -15,10 +15,12 @@ export type IdeaListRow = {
   reporterName: string | null;
   platform: string | null;
   verdicts: number;
+  /** A manager agent rejected it (#idea-rejected). */
+  rejected?: boolean;
 };
 
 /**
- * The Ideas tab's New ideas and Drafted lists (#idea-table). Ideas are not issues: they
+ * The Ideas tab's New ideas, Drafted and Rejected ideas lists (#idea-table, #idea-rejected). Ideas are not issues: they
  * have their own numbers and pages, take verdicts instead of votes, and
  * leave this list once a manager agent converts them.
  */
@@ -68,12 +70,12 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                     {idea.platform ? <span>{idea.platform}</span> : null}
                     <LocalTime date={idea.createdAt} />
                     <span className="inline-flex min-w-0 md:sr-only">
-                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} />
+                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} />
                     </span>
                   </span>
                 </Link>
                 <span className="issues-status-cell" aria-hidden="true">
-                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} />
+                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} />
                 </span>
               </li>
             ))}

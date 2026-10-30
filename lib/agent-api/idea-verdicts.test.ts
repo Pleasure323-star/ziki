@@ -17,7 +17,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/agents/audit", () => ({ audit }));
 
-import { convertIdea, giveIdeaVerdict, ideaVerdictSchema, maxVotesFor, sentenceCount, verdictScore } from "./idea-verdicts";
+import { convertIdea, giveIdeaVerdict, ideaVerdictSchema, maxVotesFor, rejectIdea, sentenceCount, verdictScore } from "./idea-verdicts";
 
 /** The locked idea row (#idea-table): ideas have their own table, numbers and status. */
 const idea = (overrides: Record<string, unknown> = {}) => ({
@@ -138,8 +138,8 @@ describe("giveIdeaVerdict", () => {
     await expect(giveIdeaVerdict({ ...person, userId: "ada" }, "p1", "i1", input)).rejects.toMatchObject({ status: 403, body: { error: "own_idea" } });
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
     await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
-    db.$queryRaw.mockResolvedValue([idea({ status: "closed" })]);
-    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_closed" } });
+    db.$queryRaw.mockResolvedValue([idea({ status: "rejected" })]);
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_rejected" } });
     db.$queryRaw.mockResolvedValue([]);
     await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 404 });
     expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
@@ -193,6 +193,55 @@ describe("convertIdea", () => {
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
     await expect(convertIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     expect(db.bug.create).not.toHaveBeenCalled();
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("rejectIdea (#idea-rejected)", () => {
+  const manager = (level: AgentContext["level"], ownerId = "dana"): AgentContext => ({
+    agentId: `agent-${ownerId}`, name: ownerId, ownerId, tenantId: "t1", level, burst: false, keyId: "k1",
+  });
+  const verdicts = (good: number, bad: number) => [
+    ...Array.from({ length: good }, () => ({ opinion: "good", votes: 1 })),
+    ...Array.from({ length: bad }, () => ({ opinion: "bad", votes: 1 })),
+  ];
+
+  it("rejects an idea with more than 5 votes and fewer than 3 good, and says so", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(2, 4));
+    const result = await rejectIdea(manager("manager"), "p1", "7");
+    expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, status: "rejected", totalVotes: 6, goodVotes: 2 });
+    expect(db.idea.update).toHaveBeenCalledWith({
+      where: { id: "i1" },
+      data: { status: "rejected", rejectedAt: expect.any(Date), rejectedByAgentId: "agent-dana" },
+    });
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "idea.rejected",
+      projectId: "p1",
+      payload: expect.objectContaining({ ideaId: "i1", ideaNumber: 7, totalVotes: 6, goodVotes: 2 }),
+    }));
+    expect(audit).toHaveBeenCalledWith(expect.anything(), "idea.rejected", "idea:i1", { totalVotes: 6, goodVotes: 2 });
+  });
+
+  it("needs a manager agent", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 6));
+    await expect(rejectIdea(manager("working"), "p1", "i1")).rejects.toMatchObject({ name: "AgentLevelError" });
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an idea without enough votes, or with 3 good, as not_rejectable", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 5));
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 5, goodVotes: 0 } });
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(3, 4));
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 7, goodVotes: 3 } });
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an idea that is no longer open", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 6));
+    db.$queryRaw.mockResolvedValue([idea({ status: "rejected" })]);
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_rejected" } });
+    db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     expect(db.idea.update).not.toHaveBeenCalled();
   });
 });

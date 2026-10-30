@@ -201,8 +201,9 @@ export function stageState(stage: DecisionStage, currentStage: DecisionStage, se
   return index < currentIndex ? "done" : index > currentIndex ? "todo" : setback ? "warn" : "now";
 }
 
-export function plural(n: number, word: string) {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
+/** "1 bid", "3 bids", "0 confirmations": the count in the stage's own word. */
+function entryCount(n: number, [one, many]: readonly [string, string]) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 /** The progress header's status chip, as in the design: "Done · tested". */
@@ -269,7 +270,7 @@ export function IssueProgressReport({
         <div className="pg-track" aria-hidden="true">
           <span className="pg-fill" style={{ width: `${(currentIndex * 100) / (steps.length - 1)}%` }} />
         </div>
-        <ol className="pg" aria-label="Progress report: pick a stage to see its logs">
+        <ol className="pg" aria-label="Progress report: pick a stage to see its entries">
           {steps.map((stage, index) => {
             const state = stageState(stage, currentStage, setback);
             const tally = tallies[stage];
@@ -291,7 +292,7 @@ export function IssueProgressReport({
                     <StageIcon name={icon} />
                   </span>
                   <span className="pgl">{decisionStageInfo[stage].label}</span>
-                  <span className="pgn">{logs ? plural(logs, "log") : index > currentIndex ? "not yet" : "0 logs"}</span>
+                  <span className="pgn">{index > currentIndex && !logs ? null : entryCount(logs, decisionStageInfo[stage].entry)}</span>
                   <span className="sr-only">
                     {decisionStageInfo[stage].label}: {tally.positive} positive, {tally.negative} negative
                   </span>

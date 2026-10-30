@@ -324,7 +324,7 @@ export function AgentControls({
             "High-volume expired; standard budget: 600 reads an hour."
           ) : savedUntil ? (
             <>
-              High-volume until <LocalTime date={savedUntil} /> (4000 reads an hour).
+              High-volume (4000 reads an hour), ends <LocalTime date={savedUntil} />.
             </>
           ) : (
             "High-volume active with no expiry (4000 reads an hour)."

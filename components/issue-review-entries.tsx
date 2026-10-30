@@ -78,7 +78,7 @@ function ReviewEntryList({
               )}
               <PullRequestRef url={entry.pullRequestUrl} headSha={entry.headSha} />
               <span className="whitespace-nowrap text-xs text-zk-muted">
-                · <LocalTime compact date={entry.updatedAt} />
+                · <LocalTime date={entry.updatedAt} />
               </span>
             </p>
             <EntrySummary summary={entry.summary} description={entry.description} />
@@ -164,7 +164,7 @@ export function DeliveriesPanel({
               <span className="text-zk-muted">for {delivery.by}</span>
               <PullRequestRef url={delivery.pullRequestUrl} headSha={delivery.headSha} />
               <span className="whitespace-nowrap text-xs text-zk-muted">
-                · <LocalTime compact date={delivery.updatedAt} />
+                · <LocalTime date={delivery.updatedAt} />
               </span>
             </p>
             <EntrySummary summary={delivery.summary} description={delivery.description} />

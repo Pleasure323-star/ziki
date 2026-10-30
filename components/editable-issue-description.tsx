@@ -79,7 +79,7 @@ export function EditableIssueDescription({
   const mentionUsers = users.map((u) => ({ id: u.id, name: u.name }));
 
   return (
-    <section className="flex flex-col gap-3.5 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6" aria-label="Description">
+    <section className="flex flex-col gap-1.5 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6" aria-label="Description">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
@@ -191,6 +191,7 @@ export function EditableIssueDescription({
         <div className="max-w-3xl text-[15px] leading-relaxed text-zk-text2">
           <ExpandableText maxLines={6} expandText="View more" collapseText="View less">
             <RichText
+              className="mt-0!"
               content={initialDescription}
               renderMentions={(text) => <MentionText text={text} users={users} />}
             />
