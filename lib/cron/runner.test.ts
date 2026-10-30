@@ -7,6 +7,7 @@ const mockSweepOrphans = vi.hoisted(() => vi.fn());
 const mockDispatch = vi.hoisted(() => vi.fn());
 const mockPruneAgent = vi.hoisted(() => vi.fn());
 const mockSweepAttachments = vi.hoisted(() => vi.fn());
+const mockSweepDraftStructuring = vi.hoisted(() => vi.fn());
 const mockLogger = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("@/lib/orphaned-issues", () => ({ sweepOrphanedIssues: mockSweepOrphans 
 vi.mock("@/lib/webhooks/deliver", () => ({ dispatchDueDeliveries: mockDispatch }));
 vi.mock("@/lib/agent-retention", () => ({ pruneAgentRows: mockPruneAgent }));
 vi.mock("@/lib/attachment-retention", () => ({ sweepOrphanedAttachments: mockSweepAttachments }));
+vi.mock("@/lib/cron/draft-structuring", () => ({ sweepUndraftedIdeas: mockSweepDraftStructuring }));
 
 import {
   runPlatformSweeps,
@@ -41,6 +43,7 @@ describe("runPlatformSweeps (#647)", () => {
     mockSweepJobReviewOffers.mockResolvedValue({ expired: 1, offered: 3 });
     mockSweepClaims.mockResolvedValue({ released: 1 });
     mockSweepOrphans.mockResolvedValue({ reopened: 2 });
+    mockSweepDraftStructuring.mockResolvedValue({ structured: 3, flagged: 1, skipped: 0, failed: 0, errors: [] });
     mockDispatch.mockResolvedValue(4);
     mockPruneAgent.mockResolvedValue({
       pairings: 1,
@@ -67,6 +70,13 @@ describe("runPlatformSweeps (#647)", () => {
       expect(result.sweeps.orphanedIssues).toEqual({ status: "ok", reopened: 2 });
       // Bids are awarded only by manager agents: there is no bid sweep (#bids-only-offers).
       expect(result.sweeps).not.toHaveProperty("bids");
+      expect(result.sweeps.draftStructuring).toEqual({
+        status: "ok",
+        structured: 3,
+        flagged: 1,
+        skipped: 0,
+        failed: 0,
+      });
       expect(result.sweeps).not.toHaveProperty("promotions");
       expect(result.sweeps.deliveries).toEqual({ status: "ok", processed: 4 });
       expect(result.sweeps.retention).toEqual({

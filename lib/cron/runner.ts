@@ -7,6 +7,7 @@ import { dispatchDueDeliveries } from "@/lib/webhooks/deliver";
 import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention";
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
+import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
 const consecutiveFailures = new Map<string, number>();
@@ -45,6 +46,14 @@ export type PlatformSweepsResult = {
     jobReviewOffers: { status: "ok" | "error"; expired?: number; offered?: number; error?: string };
     claims: { status: "ok" | "error"; released?: number; error?: string };
     orphanedIssues: { status: "ok" | "error"; reopened?: number; error?: string };
+    draftStructuring: {
+      status: "ok" | "error";
+      structured?: number;
+      flagged?: number;
+      skipped?: number;
+      failed?: number;
+      error?: string;
+    };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
     retention: {
       status: "ok" | "error";
@@ -82,6 +91,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         jobReviewOffers: { status: "ok" },
         claims: { status: "ok" },
         orphanedIssues: { status: "ok" },
+        draftStructuring: { status: "ok" },
         deliveries: { status: "ok" },
         retention: { status: "ok" },
       },
@@ -130,6 +140,25 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       result.sweeps.orphanedIssues = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
+    // 2c. Draft Idea Auto-Structuring (#682, #685)
+    try {
+      const res = await sweepUndraftedIdeas();
+      recordSweepSuccess("draftStructuring");
+      result.sweeps.draftStructuring = {
+        status: "ok",
+        structured: res.structured,
+        flagged: res.flagged,
+        skipped: res.skipped,
+        failed: res.failed,
+      };
+    } catch (err) {
+      recordSweepFailure("draftStructuring", err);
+      result.sweeps.draftStructuring = {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
     // 4. Webhook Deliveries
     try {
       const processed = await dispatchDueDeliveries();
@@ -163,6 +192,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       jobReviewOffers: result.sweeps.jobReviewOffers,
       claims: result.sweeps.claims,
       orphanedIssues: result.sweeps.orphanedIssues,
+      draftStructuring: result.sweeps.draftStructuring,
       deliveries: result.sweeps.deliveries,
       retention: result.sweeps.retention,
     });
