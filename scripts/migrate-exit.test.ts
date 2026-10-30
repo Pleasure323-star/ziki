@@ -221,7 +221,7 @@ exit 1
 }
 
 /** First deploy: the idea verdicts migration is recorded as failed. `db execute` is the rollback probe. */
-function rolledBackStub(probeExit: number) {
+function rolledBackStub(probeExit: number, name = "20261130000000_idea_verdicts") {
   if (isWindows) {
     return `import { appendFileSync, readFileSync } from "node:fs";
 import { argv, exit } from "node:process";
@@ -234,7 +234,7 @@ if (/migrate\\ deploy/.test(args)) {
   const n = (readFileSync(callsLog, "utf8").match(/migrate deploy/g) || []).length;
   if (n === 1) {
     console.error("Error: P3009");
-    console.error("The \`20261130000000_idea_verdicts\` migration started at 2026-10-29 13:00:33.229929 UTC failed");
+    console.error("The \`${name}\` migration started at 2026-10-29 13:00:33.229929 UTC failed");
     exit(1);
   }
   exit(0);
@@ -251,7 +251,7 @@ case "$*" in
     n=$(grep -c "migrate deploy" "__CALLS__" || true)
     if [ "$n" -eq 1 ]; then
       echo "Error: P3009" >&2
-      echo 'The \`20261130000000_idea_verdicts\` migration started at 2026-10-29 13:00:33.229929 UTC failed' >&2
+      echo 'The \`${name}\` migration started at 2026-10-29 13:00:33.229929 UTC failed' >&2
       exit 1
     fi
     exit 0
@@ -343,6 +343,14 @@ describe("scripts/migrate.mjs exit code (#580)", () => {
     expect(calls).not.toContain("migrate resolve --applied 20261130000000_idea_verdicts");
     expect((calls.match(/migrate deploy/g) ?? []).length).toBe(2);
     expect(output).toContain("rolled back cleanly");
+  });
+
+  it("reruns the confirmation-stage comments migration once nothing of it is left (#298)", () => {
+    const name = "20261209000000_confirmation_stage_comments";
+    const { status, calls } = runStub(rolledBackStub(0, name), { NODE_ENV: "production", DATABASE_URL: DB });
+    expect(status).toBe(0);
+    expect(calls).toContain(`migrate resolve --rolled-back ${name}`);
+    expect(calls).not.toContain(`migrate resolve --applied ${name}`);
   });
 
   it("does not rerun it when its objects are already there", () => {

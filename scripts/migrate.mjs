@@ -156,6 +156,15 @@ const ROLLED_BACK_CLEANLY = {
   END IF;
 END $$;
 `,
+  // 2026-10-30: the first version stopped the deploy of #298. It only moves
+  // rows, in one transaction; any Neutral confirmation it creates has an id
+  // starting "cnfc", so none of them means nothing was applied.
+  "20261209000000_confirmation_stage_comments": `DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM "IssueConfirmation" WHERE "id" LIKE 'cnfc%') THEN
+    RAISE EXCEPTION 'confirmation stage comments already moved';
+  END IF;
+END $$;
+`,
 };
 
 /** True when `name` has a probe and the probe finds none of its objects. */
