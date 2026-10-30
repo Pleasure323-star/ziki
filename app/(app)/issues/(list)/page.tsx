@@ -99,10 +99,12 @@ export const metadata = { title: "Issues" };
 const ALL_STATUS = "all";
 /** The Ideas tab, the page with no `?status=`. Ideas are not issues: they read the Idea table (#idea-table). */
 const IDEAS_STATUS = "ideas";
+/** Ideas a manager agent rejected (#idea-rejected), the second list under Ideas. */
+const REJECTED_IDEAS_STATUS = "rejected_ideas";
 
 /** The filters under the Ideas tab: new ideas (no `?ideas=`), or `?ideas=drafts`. */
 const IDEAS_PARAM = "ideas";
-type IdeasView = "new" | "drafts";
+type IdeasView = "new" | "drafts" | "rejected";
 /** Most ideas a list shows, highest score first. */
 const IDEAS_LIMIT = 100;
 
@@ -121,21 +123,22 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
  * left of the panel when it is picked. Ideas (the Idea table) comes first.
  */
 const STAGE_GROUPS = [
-  { label: "Ideas", statuses: [IDEAS_STATUS, "requires_confirmation"] },
-  { label: "Working", statuses: ["open", "in_progress", "closed"] },
+  // Ideas holds only ideas; Requires confirmation is an issue's first status, so it opens Working.
+  { label: "Ideas", statuses: [IDEAS_STATUS, REJECTED_IDEAS_STATUS] },
+  { label: "Working", statuses: ["requires_confirmation", "open", "in_progress", "closed"] },
   { label: "Delivered", statuses: ["delivered", "done", "ready_to_merge", "resolved"] },
 ] as const;
 
-/** New issue as a 32px + button; the name is kept for screen readers and the tooltip. */
+/** "+ Add Idea": every report starts as an idea (#idea-table). */
 function NewIssueButton({ className = "" }: { className?: string }) {
   return (
     <Link
       href={newIssueHref("/issues")}
-      title="New issue"
-      className={`issues-new inline-flex w-8 items-center justify-center rounded-lg border border-zk-border bg-zk-surface text-zk-text hover:bg-zk-chip ${className}`}
+      title="Add Idea"
+      className={`issues-new inline-flex items-center justify-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] font-semibold text-zk-text hover:bg-zk-chip ${className}`}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-      <span className="sr-only">New issue</span>
+      Add Idea
     </Link>
   );
 }
@@ -316,7 +319,15 @@ export default async function BugsPage({
   if (statusWhere !== undefined) where.status = statusWhere;
   // The Ideas tab lists ideas from their own table: no issue row matches it.
   const ideasView: IdeasView | null =
-    statusParam !== IDEAS_STATUS || isDeletedView ? null : toSingleQueryParam(params[IDEAS_PARAM]) === "drafts" ? "drafts" : "new";
+    isDeletedView
+      ? null
+      : statusParam === REJECTED_IDEAS_STATUS
+        ? "rejected"
+        : statusParam !== IDEAS_STATUS
+          ? null
+          : toSingleQueryParam(params[IDEAS_PARAM]) === "drafts"
+            ? "drafts"
+            : "new";
   const isIdeasView = ideasView !== null;
   if (isIdeasView) where.id = { in: [] };
   if (statusParam === REJECTED_STATUS && !isDeletedView) {
@@ -532,10 +543,12 @@ export default async function BugsPage({
         reporter: { select: { name: true, role: true, image: true } },
         assignee: { select: { name: true, role: true, image: true } },
         // Who is working on it and since when, for the status column.
+        // The claim working on it, or an offer waiting to be accepted.
         claims: {
-          where: { status: "active", releasedAt: null },
-          select: { claimedAt: true, createdAt: true, beneficiary: { select: { name: true } } },
-          take: 1,
+          where: { status: { in: ["active", "offered"] }, releasedAt: null },
+          select: { status: true, claimedAt: true, createdAt: true, beneficiary: { select: { name: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 2,
         },
         category: { select: { id: true, name: true } },
         area: { select: { id: true, name: true } },
@@ -546,6 +559,8 @@ export default async function BugsPage({
           select: {
             comments: true,
             attachments: true,
+            // Open bids, shown on Open issues.
+            bids: { where: { withdrawnAt: null } },
           },
         },
       },
@@ -579,9 +594,12 @@ export default async function BugsPage({
         }
       : {}),
   };
-  // The Ideas tab's count shows on every tab; drafts only while Ideas is open.
-  const [ideasCount, draftIds] = await Promise.all([
+  // Rejected ideas (#idea-rejected), with the same scope and search as new ones.
+  const rejectedIdeaWhere: Prisma.IdeaWhereInput = { ...ideaWhere, status: "rejected" };
+  // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
+  const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
     tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
+    tenantId && !isDeletedView ? loadOrEmpty("rejected ideas tab", () => prisma.idea.count({ where: rejectedIdeaWhere }), 0) : 0,
     tenantId && isIdeasView
       ? loadOrEmpty(
           "drafted ideas",
@@ -596,7 +614,7 @@ export default async function BugsPage({
   const ideaRows: IdeaListRow[] = isIdeasView && tenantId
     ? await loadOrEmpty("ideas list", async () => {
         const rows = await prisma.idea.findMany({
-          where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideaWhere,
+          where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideasView === "rejected" ? rejectedIdeaWhere : ideaWhere,
           orderBy: [{ score: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: IDEAS_LIMIT,
           select: {
@@ -620,6 +638,7 @@ export default async function BugsPage({
           reporterName: row.reporter.name,
           platform: row.category?.name ?? null,
           verdicts: row._count.verdicts,
+          rejected: ideasView === "rejected",
         }));
       }, [] as IdeaListRow[])
     : [];
@@ -773,9 +792,10 @@ export default async function BugsPage({
     !stageView;
 
   // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
-  const currentStatus = isIdeasView ? IDEAS_STATUS : statusParam;
+  const currentStatus = ideasView === "rejected" ? REJECTED_IDEAS_STATUS : isIdeasView ? IDEAS_STATUS : statusParam;
   const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
-  const statusCount = (value: string) => (value === IDEAS_STATUS ? ideasCount : countForStatus(value));
+  const statusCount = (value: string) =>
+    value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
   const headerContent = (
@@ -872,7 +892,16 @@ export default async function BugsPage({
         ) : null}
 
         {isIdeasView ? (
-          <IdeasList ideas={ideaRows} empty={ideasView === "drafts" ? "No unstructured draft ideas are waiting to be structured." : undefined} />
+          <IdeasList
+            ideas={ideaRows}
+            empty={
+              ideasView === "drafts"
+                ? "No unstructured draft ideas are waiting to be structured."
+                : ideasView === "rejected"
+                  ? "No rejected ideas. A manager agent rejects an idea with more than 5 votes and fewer than 3 good ones."
+                  : undefined
+            }
+          />
         ) : isFirstRun ? (
           <FirstRunWelcome isAdmin={canDelete} hasTenant={Boolean(tenantId)} />
         ) : bugs.length === 0 ? (
@@ -938,13 +967,16 @@ export default async function BugsPage({
                     const typeName = bug.type?.name ?? "—";
                     const isSecurity = /security/i.test(typeName);
                     const isFeature = !isSecurity && /feature|improve|enhance|request|idea/i.test(typeName);
-                    const claim = bug.claims?.[0];
+                    const claim = bug.claims?.find((c) => c.status === "active");
+                    const offer = bug.claims?.find((c) => c.status === "offered");
                     // Someone is on it: an active claim, or the issue was moved to in progress.
                     const work = claim || bug.status === "in_progress"
                       ? { person: claim?.beneficiary?.name ?? bug.assignee?.name ?? null, since: claim ? (claim.claimedAt ?? claim.createdAt) : null }
                       : null;
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
+                        bids={bug.status === "open" ? bug._count.bids : undefined}
+                        offeredTo={bug.status === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}
                         mergePath={bug.status === "resolved" && bug.pullRequestUrl ? mergePathOf(bug) : null} />
                     );
 
@@ -1116,7 +1148,7 @@ export default async function BugsPage({
         {stageIndex >= 0 ? (
           <StageSidebar
             steps={STAGE_GROUPS[stageIndex].statuses.map((value) => ({
-              label: value === IDEAS_STATUS ? "Ideas" : statusFilterLabel(value),
+              label: value === IDEAS_STATUS ? "New ideas" : value === REJECTED_IDEAS_STATUS ? "Rejected ideas" : statusFilterLabel(value),
               count: statusCount(value),
               href: statusLink(value),
               selected: value === currentStatus,

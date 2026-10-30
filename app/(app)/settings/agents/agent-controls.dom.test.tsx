@@ -77,7 +77,7 @@ describe("AgentControls high-volume budget (#596)", () => {
     expect(enabled).toBe(true);
     expect(typeof until).toBe("string");
     expect(new Date(until as string).getTime()).toBeGreaterThan(Date.now());
-    expect(await screen.findByText(/High-volume until/)).toBeTruthy();
+    expect(await screen.findByText(/High-volume \(4000 reads an hour\), ends/)).toBeTruthy();
   });
 
   it("shows an expired grant as back on the standard budget", () => {

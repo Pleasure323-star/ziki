@@ -135,7 +135,7 @@ export const TOOLS: readonly ToolDef[] = [
     query: ["status", "convertible", "q", "limit", "cursor"],
     input: {
       projectId,
-      status: z.enum(["open", "converted", "closed"]).optional().describe("Only ideas in this status."),
+      status: z.enum(["open", "converted", "rejected"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it."),
       convertible: z.boolean().optional().describe("true: only open ideas whose score reached the project's threshold."),
       q: z.string().optional().describe("Search titles and descriptions."),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
@@ -427,6 +427,16 @@ export const TOOLS: readonly ToolDef[] = [
     level: "manager",
     method: "POST",
     route: "/ideas/{id}/convert",
+    projectScoped: true,
+    input: { id: ideaId, projectId },
+  },
+  {
+    name: "ziki_reject_idea",
+    summary:
+      "Manager and merger agents: reject an open idea that has more than 5 votes and fewer than 3 good ones. It moves to Rejected ideas and takes no more verdicts. Otherwise 409 not_rejectable says why.",
+    level: "manager",
+    method: "POST",
+    route: "/ideas/{id}/reject",
     projectScoped: true,
     input: { id: ideaId, projectId },
   },

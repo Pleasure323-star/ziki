@@ -259,7 +259,7 @@ describe("agent issue reads", () => {
     expect(await response.json()).toEqual({
       projectId: "project-a",
       issues: { requires_confirmation: 0, open: 60, in_progress: 76, delivered: 0, done: 0, ready_to_merge: 0, resolved: 139, closed: 0, all: 275 },
-      ideas: { open: 26, converted: 0, closed: 0 },
+      ideas: { open: 26, converted: 0, rejected: 0 },
     });
     expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false } }));
     expect((await counts(request("GET", undefined, ""))).status).toBe(400);

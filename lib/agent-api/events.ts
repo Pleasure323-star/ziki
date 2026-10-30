@@ -59,6 +59,7 @@ export const AGENT_EVENT_TYPES = [
   "goal.split",
   "goal.updated",
   "idea.created",
+  "idea.rejected",
   "idea.verdict",
   "issue.accepted",
   "issue.bid",

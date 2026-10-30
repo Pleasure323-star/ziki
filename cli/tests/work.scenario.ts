@@ -26,7 +26,7 @@ describe("the work feed", () => {
     const statuses = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"];
     expect(Object.keys(counts.issues).sort()).toEqual([...statuses, "all"].sort());
     expect(counts.issues.all).toBe(statuses.reduce((sum, status) => sum + counts.issues[status], 0));
-    expect(Object.keys(counts.ideas).sort()).toEqual(["closed", "converted", "open"]);
+    expect(Object.keys(counts.ideas).sort()).toEqual(["converted", "open", "rejected"]);
     // The same issues the list returns for that status.
     const open = await ok("bob", "list-issues", { status: "open", limit: 100 });
     expect(open.items.length).toBe(Math.min(counts.issues.open, 100));

@@ -28,7 +28,7 @@ export type IdeaVerdictBlock = "own" | "closed" | "deleted" | null;
 
 const BLOCK_REASON: Record<Exclude<IdeaVerdictBlock, null>, string> = {
   own: "This is your idea, so you can't give it a verdict.",
-  closed: "This idea is closed, so it takes no more verdicts.",
+  closed: "This idea is no longer open (converted or rejected), so it takes no more verdicts.",
   deleted: "This idea is deleted.",
 };
 
@@ -161,7 +161,7 @@ export function IdeaVerdictsPanel({
                 {verdict.agentName ? <span className="text-zk-muted">via {verdict.agentName}</span> : null}
                 {verdict.votes > 1 ? <span className="text-zk-muted">· {plural(verdict.votes, "vote")}</span> : null}
                 <span className="whitespace-nowrap text-xs text-zk-muted">
-                  · <LocalTime compact date={verdict.updatedAt} />
+                  · <LocalTime date={verdict.updatedAt} />
                 </span>
               </p>
               <EntrySummary summary={verdict.summary} description={verdict.description} />
@@ -179,7 +179,7 @@ export function IdeaVerdictsPanel({
  */
 export function IdeaScoreBadge({ score, threshold = null }: { score: number; threshold?: number | null }) {
   const passed = threshold !== null && score >= threshold;
-  const label = threshold === null ? `Idea score ${score}` : `Idea score ${score} of ${threshold}${passed ? ", ready to convert" : ""}`;
+  const label = threshold === null ? `Idea score ${score}` : `Idea score ${score} of ${threshold}${passed ? ", idea accepted" : ""}`;
   return (
     <span
       data-testid="idea-score-badge"

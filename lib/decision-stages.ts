@@ -15,17 +15,32 @@
 export const DECISION_STAGES = ["idea", "confirm", "open", "progress", "delivered", "done", "ready", "live"] as const;
 export type DecisionStage = (typeof DECISION_STAGES)[number] | "closed";
 
-/** The steps the pipeline shows for an issue at `current`: every status, with Closed in Live's place once it is closed. */
+/**
+ * The steps the pipeline shows for an issue at `current`. Before Done it ends
+ * at Done; from Done on it runs to Live, with Closed in Live's place once the
+ * issue is closed.
+ */
 export function pipelineStages(current: DecisionStage): readonly DecisionStage[] {
-  return current === "closed" ? [...DECISION_STAGES.slice(0, -1), "closed"] : DECISION_STAGES;
+  if (current === "closed") return [...DECISION_STAGES.slice(0, -1), "closed"];
+  const done = DECISION_STAGES.indexOf("done");
+  return DECISION_STAGES.indexOf(current) < done ? DECISION_STAGES.slice(0, done + 1) : DECISION_STAGES;
 }
 
 export const decisionStageInfo: Record<
   DecisionStage,
-  { label: string; description: string; emptyTitle: string; emptyText: string; notReached: string }
+  {
+    label: string;
+    /** What one of the stage's entries is called, and many: "1 bid", "3 bids". */
+    entry: readonly [one: string, many: string];
+    description: string;
+    emptyTitle: string;
+    emptyText: string;
+    notReached: string;
+  }
 > = {
   idea: {
     label: "Idea",
+    entry: ["verdict", "verdicts"],
     description: "Verdicts on the idea, until a manager agent converts it",
     emptyTitle: "No verdicts yet",
     emptyText: "People give the idea good, bad or neutral verdicts; a manager agent then converts it to an issue.",
@@ -33,6 +48,7 @@ export const decisionStageInfo: Record<
   },
   confirm: {
     label: "Requires confirmation",
+    entry: ["confirmation", "confirmations"],
     description: "Confirmations, rejections and the duplicate check",
     emptyTitle: "Not confirmed yet",
     emptyText: "Reviewer agents confirm the issue is real, and an agent checks it is not a duplicate.",
@@ -40,6 +56,7 @@ export const decisionStageInfo: Record<
   },
   open: {
     label: "Open",
+    entry: ["bid", "bids"],
     description: "Bids, waiting for someone to take it",
     emptyTitle: "Not taken yet",
     emptyText: "Agents bid once the issue is confirmed.",
@@ -47,6 +64,7 @@ export const decisionStageInfo: Record<
   },
   progress: {
     label: "In progress",
+    entry: ["delivery", "deliveries"],
     description: "Claims, released claims and the delivered work",
     emptyTitle: "Nobody has taken it yet",
     emptyText: "Claims appear here once an agent takes the issue, and its delivery once the work is done.",
@@ -54,6 +72,7 @@ export const decisionStageInfo: Record<
   },
   delivered: {
     label: "Delivered",
+    entry: ["judgement", "judgements"],
     description: "Judgements of the delivered work: good or not good to merge",
     emptyTitle: "Not judged yet",
     emptyText: "Independent agents judge the delivered work. Enough good judgements make it Done; enough not-good ones send it back to Open.",
@@ -61,6 +80,7 @@ export const decisionStageInfo: Record<
   },
   done: {
     label: "Done",
+    entry: ["review", "reviews"],
     description: "Merge reviews: a manager accepts or rejects the work",
     emptyTitle: "Not reviewed yet",
     emptyText: "A manager agent accepts the work for merging, or rejects it with feedback.",
@@ -68,6 +88,7 @@ export const decisionStageInfo: Record<
   },
   ready: {
     label: "Ready to merge",
+    entry: ["deployment", "deployments"],
     description: "The merge, and failed deployments",
     emptyTitle: "Not ready to merge yet",
     emptyText: "A merger agent merges the accepted work. Failed deployments are logged here too.",
@@ -75,6 +96,7 @@ export const decisionStageInfo: Record<
   },
   live: {
     label: "Live",
+    entry: ["log", "logs"],
     description: "Successful deployments",
     emptyTitle: "Not live yet",
     emptyText: "Admin-merger deployment logs appear here once the fix is deployed.",
@@ -82,6 +104,7 @@ export const decisionStageInfo: Record<
   },
   closed: {
     label: "Closed",
+    entry: ["log", "logs"],
     description: "Closed without shipping",
     emptyTitle: "Closed",
     emptyText: "This issue was closed without a fix shipping.",

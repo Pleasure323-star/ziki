@@ -174,10 +174,10 @@ describe("IdeaScoreBadge", () => {
     expect(badge).toHaveAttribute("aria-label", "Idea score -2 of 3");
   });
 
-  it("turns green and says so once the idea is ready to convert", () => {
+  it("turns green and says so once the idea is accepted", () => {
     render(<IdeaScoreBadge score={6} threshold={3} />);
     const badge = screen.getByTestId("idea-score-badge");
-    expect(badge).toHaveAttribute("aria-label", "Idea score 6 of 3, ready to convert");
+    expect(badge).toHaveAttribute("aria-label", "Idea score 6 of 3, idea accepted");
     expect(badge.className).toContain("bg-zk-ok-bg");
   });
 });

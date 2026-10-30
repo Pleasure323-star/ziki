@@ -1,6 +1,6 @@
 "use client";
 
-import { formatRelativeTime } from "@/lib/format";
+import { formatTimeAgo } from "@/lib/format";
 
 type RelativeTimeProps = {
   date: Date | string;
@@ -8,7 +8,7 @@ type RelativeTimeProps = {
 };
 
 export function RelativeTime({ date, className }: RelativeTimeProps) {
-  const formatted = formatRelativeTime(date);
+  const formatted = formatTimeAgo(date);
   const iso =
     date instanceof Date
       ? date.toISOString()

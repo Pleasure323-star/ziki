@@ -20,7 +20,7 @@ export function EntryReplies({ replies }: { replies: EntryReplyView[] }) {
             <b className="font-semibold text-zk-text">{reply.authorName}</b>
             {reply.agentName ? <span className="text-zk-muted">via {reply.agentName}</span> : null}
             <span className="whitespace-nowrap text-xs text-zk-muted">
-              · <LocalTime compact date={reply.createdAt} />
+              · <LocalTime date={reply.createdAt} />
             </span>
           </p>
           <EntryText body={reply.body} />

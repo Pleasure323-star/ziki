@@ -89,7 +89,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
         <p><strong>{claim.agent.name}</strong> · Claim: {claim.status} · Issue: {statusLabel[claim.bug.status]}</p>
         <IssueLinks bug={claim.bug} />
         <p>Recorded <LocalTime date={claim.createdAt} /></p>
-        {claim.waitingOnOwnerSince && !claim.releasedAt ? <p className="text-zk-warn-fg">Blocked: waiting for owner guidance since <LocalTime date={claim.waitingOnOwnerSince} />. Claim clocks are paused.</p> : null}
+        {claim.waitingOnOwnerSince && !claim.releasedAt ? <p className="text-zk-warn-fg">Blocked: waiting for owner guidance, asked <LocalTime date={claim.waitingOnOwnerSince} />. Claim clocks are paused.</p> : null}
         {claim.deliverBy ? <p>{claim.bug.pullRequestUrl || claim.releasedAt ? "Recorded deadline" : "Delivery deadline"}: <LocalTime date={claim.deliverBy} /></p> : null}
         {claim.lastHeartbeatAt ? <p>Last heartbeat: <LocalTime date={claim.lastHeartbeatAt} /></p> : null}
         {claim.releaseReason ? <p>Release reason: {claim.releaseReason}</p> : null}

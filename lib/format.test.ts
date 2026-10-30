@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompactDate, formatDate, formatRelativeTime, formatShortAge } from "./format";
+import { formatDate, formatTimeAgo } from "./format";
 
 describe("formatDate", () => {
   it("formats dates with custom timezone", () => {
@@ -23,64 +23,37 @@ describe("formatDate", () => {
   });
 });
 
-describe("formatCompactDate", () => {
-  const now = new Date("2026-10-20T12:00:00Z");
-
-  it("drops the year for dates in the current year", () => {
-    expect(formatCompactDate("2026-10-15T18:30:00Z", "Africa/Lagos", now)).toBe("Oct 15, 7:30 PM");
-  });
-
-  it("drops the time for dates in an earlier year", () => {
-    expect(formatCompactDate("2025-03-02T09:00:00Z", "UTC", now)).toBe("Mar 2, 2025");
-  });
-});
-
-describe("formatRelativeTime", () => {
-  const base = new Date("2026-10-20T12:00:00Z");
-
-  it("formats seconds as just now", () => {
-    const date = new Date("2026-10-20T11:59:45Z");
-    expect(formatRelativeTime(date, base)).toBe("just now");
-  });
-
-  it("formats minutes ago", () => {
-    const date = new Date("2026-10-20T11:57:00Z");
-    expect(formatRelativeTime(date, base)).toBe("3 min ago");
-  });
-
-  it("formats hours ago", () => {
-    const date = new Date("2026-10-20T10:00:00Z");
-    expect(formatRelativeTime(date, base)).toBe("2 hrs ago");
-    const oneHour = new Date("2026-10-20T11:00:00Z");
-    expect(formatRelativeTime(oneHour, base)).toBe("1 hr ago");
-  });
-
-  it("formats days ago", () => {
-    const date = new Date("2026-10-17T12:00:00Z");
-    expect(formatRelativeTime(date, base)).toBe("3 days ago");
-    const oneDay = new Date("2026-10-19T12:00:00Z");
-    expect(formatRelativeTime(oneDay, base)).toBe("1 day ago");
-  });
-});
-
-describe("formatShortAge (#1061)", () => {
+describe("formatTimeAgo: the one humanized time", () => {
   const now = new Date("2026-10-21T12:00:00Z");
   it.each([
     ["2026-10-21T11:59:30Z", "just now"],
     ["2026-10-21T11:59:00Z", "1 min ago"],
-    ["2026-10-21T11:28:00Z", "32 mins ago"],
+    ["2026-10-21T11:30:00Z", "30 mins ago"],
     ["2026-10-21T11:00:00Z", "1 hour ago"],
     ["2026-10-21T09:00:00Z", "3 hours ago"],
-    ["2026-10-20T12:00:00Z", "1 day ago"],
+    ["2026-10-20T12:00:00Z", "yesterday"],
     ["2026-10-19T12:00:00Z", "2 days ago"],
     ["2026-10-14T13:00:00Z", "6 days ago"],
-    ["2026-10-12T12:00:00Z", "Oct 12"],
+    ["2026-10-14T12:00:00Z", "1 week ago"],
+    ["2026-09-30T12:00:00Z", "3 weeks ago"],
+    ["2026-09-12T12:00:00Z", "Sep 12"],
     ["2025-12-30T12:00:00Z", "Dec 30, 2025"],
   ])("%s → %s", (when, expected) => {
-    expect(formatShortAge(new Date(when), now, "UTC")).toBe(expected);
+    expect(formatTimeAgo(new Date(when), now, "UTC")).toBe(expected);
   });
 
-  it("never shows a negative age for a clock a little ahead", () => {
-    expect(formatShortAge(new Date("2026-10-21T12:00:30Z"), now, "UTC")).toBe("just now");
+  it.each([
+    ["2026-10-21T12:00:30Z", "just now"],
+    ["2026-10-21T12:30:00Z", "in 30 mins"],
+    ["2026-10-21T15:00:00Z", "in 3 hours"],
+    ["2026-10-22T12:00:00Z", "tomorrow"],
+    ["2026-10-24T12:00:00Z", "in 3 days"],
+    ["2026-11-04T12:00:00Z", "in 2 weeks"],
+  ])("a future %s reads ahead: %s", (when, expected) => {
+    expect(formatTimeAgo(new Date(when), now, "UTC")).toBe(expected);
+  });
+
+  it("takes a string date", () => {
+    expect(formatTimeAgo("2026-10-21T09:00:00Z", now, "UTC")).toBe("3 hours ago");
   });
 });

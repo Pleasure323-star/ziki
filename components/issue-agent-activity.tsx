@@ -340,7 +340,7 @@ export function IssueAgentActivity({
                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${visual.chip}`}>
                     {visual.label}
                   </span>
-                  <LocalTime compact className="text-xs text-zk-muted" date={decision.at} />
+                  <LocalTime className="text-xs text-zk-muted" date={decision.at} />
                 </div>
                 <p className="mt-1.5 text-sm leading-snug text-zk-text2">{decisionSentence(decision)}</p>
                 {(decision.kind === "rejected" || decision.kind === "merge_rejected") && decision.notes ? (

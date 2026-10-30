@@ -41,10 +41,11 @@ describe("IssueProgressReport (#1446)", () => {
     expect(screen.queryByText(/\d+ comments?$/)).not.toBeInTheDocument();
   });
 
-  it("shows each stage's log count and keeps ✓/✕ for screen readers", () => {
+  it("counts each stage's entries in its own word and keeps ✓/✕ for screen readers", () => {
     renderReport(decisions, "done");
-    expect(stageButton(/^Requires confirmation/)).toHaveTextContent("2 logs");
-    expect(stageButton(/^Idea/)).toHaveTextContent("0 logs");
+    expect(stageButton(/^Requires confirmation/)).toHaveTextContent("2 confirmations");
+    expect(stageButton(/^Idea/)).toHaveTextContent("0 verdicts");
+    expect(stageButton(/^Delivered/)).toHaveTextContent("2 judgements");
     expect(screen.getByText("Requires confirmation: 1 positive, 1 negative")).toBeInTheDocument();
   });
 
@@ -55,8 +56,18 @@ describe("IssueProgressReport (#1446)", () => {
     expect(screen.queryByRole("button", { name: /^All/ })).not.toBeInTheDocument();
   });
 
-  it("says not yet for a stage that hasn't started", () => {
+  it("shows no count for a stage that hasn't started", () => {
     renderReport([], "idea");
-    expect(stageButton(/^Live/)).toHaveTextContent("not yet");
+    expect(stageButton(/^Done/)).not.toHaveTextContent(/\d+ reviews?/);
+    expect(stageButton(/^Done/)).not.toHaveTextContent("not yet");
+  });
+
+  it("ends at Done before Done, and runs to Live from Done on", () => {
+    renderReport([], "progress");
+    expect(screen.queryByRole("button", { name: /^Ready to merge/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Live/ })).toBeNull();
+    cleanup();
+    renderReport([], "done");
+    expect(stageButton(/^Live/)).toBeInTheDocument();
   });
 });

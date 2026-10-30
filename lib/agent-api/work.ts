@@ -12,6 +12,7 @@ import { REVIEW_OFFER_TTL_MS } from "@/lib/agent-api/review-offer";
 import { MAX_IDEA_VOTES } from "@/lib/agent-api/idea-verdicts";
 import { listJobs } from "@/lib/jobs/create";
 import { workflowFor } from "@/lib/workflow";
+import { canRejectIdea, ideaVotes } from "@/lib/idea-rejection";
 import { IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
 import { absoluteUrl } from "@/lib/site-url";
 import { ideaPath, issuePath } from "@/lib/issue-ref";
@@ -49,6 +50,7 @@ export type WorkKind =
   | "dispatch"
   | "research_job"
   | "convert_idea"
+  | "reject_idea"
   | "accept_fix"
   | "merge_fix";
 
@@ -101,6 +103,7 @@ export type WorkFeed = {
 /** How each kind of class-gated work reads in a sentence, for one item and for several. */
 const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
   convert_idea: ["idea to convert to an issue", "ideas to convert to issues"],
+  reject_idea: ["idea to reject", "ideas to reject"],
   accept_fix: ["tested fix to accept or reject", "tested fixes to accept or reject"],
   dispatch: ["dispatch to hand out ready issues", "dispatches to hand out ready issues"],
   merge_fix: ["accepted fix to merge", "accepted fixes to merge"],
@@ -130,6 +133,8 @@ export type ProjectWork = {
   ideas: (IssueRef & { score: number })[];
   /** Open ideas at or past the project's threshold, waiting for a manager agent to convert them. */
   toConvert: (IssueRef & { score: number })[];
+  /** Open ideas a manager agent may reject: more than 5 votes, fewer than 3 good (lib/idea-rejection.ts). */
+  toReject: (IssueRef & { totalVotes: number; goodVotes: number })[];
   /** Converted issues still being confirmed. */
   toConfirm: (IssueRef & { confirmations: number; needed: number })[];
   ideaThreshold: number;
@@ -212,13 +217,17 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
   });
 
-  const toConvert = await convertibleIdeas(tenantId, project.id, workflow.ideaThreshold);
+  const [toConvert, toReject] = await Promise.all([
+    convertibleIdeas(tenantId, project.id, workflow.ideaThreshold),
+    rejectableIdeas(tenantId, project.id),
+  ]);
   const ids = new Set([...toConfirm.map((i) => i.id), ...tests.map((t) => t.id), ...toAccept.map((t) => t.id), ...toMerge.map((t) => t.id)]);
   return {
     tenantId,
     project,
     ideas,
     toConvert,
+    toReject,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -249,6 +258,36 @@ async function convertibleIdeas(tenantId: string, projectId: string, threshold: 
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
     take: CONVERT_LIMIT,
     select: { id: true, number: true, title: true, score: true },
+  });
+}
+
+/** Open ideas a manager agent may reject, the most voted first. */
+async function rejectableIdeas(tenantId: string, projectId: string): Promise<ProjectWork["toReject"]> {
+  const sums = await prisma.ideaVerdict.groupBy({
+    by: ["ideaId", "opinion"],
+    where: { idea: { tenantId, projectId, isDeleted: false, status: "open" } },
+    _sum: { votes: true },
+  });
+  const votesByIdea = new Map<string, { opinion: string; votes: number }[]>();
+  for (const row of sums) {
+    const list = votesByIdea.get(row.ideaId) ?? [];
+    list.push({ opinion: row.opinion, votes: row._sum.votes ?? 0 });
+    votesByIdea.set(row.ideaId, list);
+  }
+  const rejectable = [...votesByIdea]
+    .map(([id, rows]) => ({ id, votes: ideaVotes(rows) }))
+    .filter(({ votes }) => canRejectIdea(votes))
+    .sort((a, b) => b.votes.total - a.votes.total)
+    .slice(0, CONVERT_LIMIT);
+  if (!rejectable.length) return [];
+  const ideas = await prisma.idea.findMany({
+    where: { id: { in: rejectable.map((idea) => idea.id) } },
+    select: { id: true, number: true, title: true },
+  });
+  const byId = new Map(ideas.map((idea) => [idea.id, idea]));
+  return rejectable.flatMap(({ id, votes }) => {
+    const idea = byId.get(id);
+    return idea ? [{ ...idea, totalVotes: votes.total, goodVotes: votes.good }] : [];
   });
 }
 
@@ -555,6 +594,21 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       actions: [
         { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
         { name: "convert_idea", minimumRole: "manager", method: "POST", path: ideaApiPath(idea.id, "convert", pid), cli: `convert-idea --id ${idea.id}` },
+      ],
+    });
+  }
+  for (const idea of work.toReject) {
+    items.push({
+      kind: "reject_idea",
+      key: `reject_idea:${idea.id}`,
+      title: `Reject idea #${idea.number}?`,
+      detail: `It has ${idea.totalVotes} votes and only ${idea.goodVotes} good ones. Read the verdicts; if it should not go ahead, reject it so it moves to Rejected ideas.`,
+      minimumRole: "manager",
+      ...roleGate("manager"),
+      idea: ideaRef(idea),
+      actions: [
+        { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
+        { name: "reject_idea", minimumRole: "manager", method: "POST", path: ideaApiPath(idea.id, "reject", pid), cli: `reject-idea --id ${idea.id}` },
       ],
     });
   }

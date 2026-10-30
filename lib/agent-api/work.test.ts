@@ -46,6 +46,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     project: { id: "p1", slug: "ziki", name: "Ziki" },
     ideas: [],
     toConvert: [],
+    toReject: [],
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],

@@ -6,6 +6,8 @@ test("deletes an issue, finds it among deleted ones, and restores it", async ({ 
   const title = uniq("Delete and restore check");
   const url = await fileIssue(page, title);
 
+  // Delete sits in the actions menu at the top right.
+  await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("button", { name: "Delete issue" }).first().click();
   const confirm = page.getByRole("dialog");
   await expect(confirm).toContainText(title);
@@ -33,6 +35,8 @@ test.describe("as a normal user", () => {
   test.use({ as: "user" });
   test("there is no delete control", async ({ page, uniq }) => {
     await fileIssue(page, uniq("No delete for users"));
+    const menu = page.getByRole("button", { name: "More actions" });
+    if (await menu.count()) await menu.click();
     await expect(page.getByRole("button", { name: "Delete issue" })).toHaveCount(0);
   });
 });

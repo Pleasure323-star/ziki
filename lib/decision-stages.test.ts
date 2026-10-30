@@ -99,7 +99,11 @@ describe("currentDecisionStage", () => {
   it("puts every status on the pipeline, with Closed in Live's place", () => {
     for (const status of statuses) expect(pipelineStages(currentDecisionStage({ status }))).toContain(currentDecisionStage({ status }));
     expect(pipelineStages("closed")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done", "ready", "closed"]);
-    expect(pipelineStages("open")).toEqual(DECISION_STAGES);
+    // Before Done the pipeline ends at Done; from Done on it runs to Live.
+    expect(pipelineStages("open")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done"]);
+    expect(pipelineStages("delivered")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done"]);
+    expect(pipelineStages("done")).toEqual(DECISION_STAGES);
+    expect(pipelineStages("live")).toEqual(DECISION_STAGES);
   });
   it("is a setback only when a manager sent the fix back to In progress", () => {
     expect(stageSetback("progress", true)).toBe(true);

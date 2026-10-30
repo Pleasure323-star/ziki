@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ addComment: vi.fn(), award: vi.fn() }));
-vi.mock("@/app/actions/issues", () => ({ addCommentAction: mocks.addComment }));
+const mocks = vi.hoisted(() => ({ award: vi.fn() }));
 vi.mock("@/app/actions/issue-bids", () => ({ awardIssueBidAction: mocks.award }));
 
 import { IssueBidsPanel, type BidEntryView } from "./issue-bids";
@@ -26,7 +25,7 @@ afterEach(() => cleanup());
 
 describe("IssueBidsPanel (#issue-bids)", () => {
   it("shows each bid like a confirmation, without expanding: its state, agent, owner, summary, description and replies", () => {
-    render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
+    render(<IssueBidsPanel bids={[bid]} canAward={false} />);
     const section = screen.getByTestId("bids");
     expect(section.tagName).toBe("SECTION");
     expect(screen.getByRole("heading", { name: /Bids/ })).toBeVisible();
@@ -37,7 +36,7 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.getByText(bid.summary)).toBeInTheDocument();
     expect(screen.getByText(bid.description)).toBeInTheDocument();
     expect(screen.getByText("Please add a regression test.")).toBeInTheDocument();
-    expect(screen.getByTestId("bids-people-note")).toHaveTextContent("Only agents bid");
+    expect(screen.queryByText(/Only agents bid/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
   });
 
@@ -45,10 +44,9 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     const user = userEvent.setup({ delay: null });
     render(
       <IssueBidsPanel
-        bugId="bug1"
+       
         bids={[{ ...bid, awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid2", agentName: "Bob's agent" }]}
         canAward
-        canReply
         collapsed
       />,
     );
@@ -65,10 +63,9 @@ describe("IssueBidsPanel (#issue-bids)", () => {
   it("offers Award bid only on an open bid", () => {
     render(
       <IssueBidsPanel
-        bugId="bug1"
+       
         bids={[bid, { ...bid, id: "bid2", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
         canAward
-        canReply
       />,
     );
     expect(screen.getAllByRole("button", { name: "Award bid" })).toHaveLength(1);
@@ -77,10 +74,9 @@ describe("IssueBidsPanel (#issue-bids)", () => {
   it("lists awarded and withdrawn bids with the open ones, and counts the open ones", () => {
     render(
       <IssueBidsPanel
-        bugId="bug1"
+       
         bids={[bid, { ...bid, id: "bid2", awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid3", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
         canAward={false}
-        canReply={false}
       />,
     );
     expect(screen.getByText("Awarded")).toBeInTheDocument();
@@ -90,22 +86,17 @@ describe("IssueBidsPanel (#issue-bids)", () => {
   });
 
   it("says when there are no bids yet", () => {
-    render(<IssueBidsPanel bugId="bug1" bids={[]} canAward={false} canReply />);
+    render(<IssueBidsPanel bids={[]} canAward={false} />);
     expect(screen.getByText("No bids yet.")).toBeInTheDocument();
   });
 
-  it("replies to a bid with its bidId, as a plain comment", async () => {
-    const user = userEvent.setup({ delay: null });
-    mocks.addComment.mockResolvedValue({});
-    render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
-    await user.click(screen.getByRole("button", { name: "Reply" }));
-    await user.type(screen.getByRole("textbox"), "Go ahead.");
-    await user.click(screen.getByRole("button", { name: "Reply" }));
-    await waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));
-    const [bugId, data] = mocks.addComment.mock.calls[0] as [string, FormData];
-    expect(bugId).toBe("bug1");
-    expect(data.get("bidId")).toBe("bid1");
-    expect(data.get("confirmationId")).toBeNull();
-    expect(data.get("body")).toBe("Go ahead.");
+  it("takes no replies: a bid card has no Reply button", () => {
+    render(<IssueBidsPanel bids={[bid]} canAward={false} />);
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+  });
+
+  it("says an Open issue nobody has is waiting for bids", () => {
+    render(<IssueBidsPanel bids={[]} canAward={false} waiting />);
+    expect(screen.getByTestId("bids-waiting")).toHaveTextContent("Open: waiting for bids");
   });
 });
