@@ -109,7 +109,8 @@ const isUnitTest = (file) =>
 /* ------------------------------------------------------------------ */
 
 function phaseCommand(name, runDir, { lintFiles, testFiles } = {}) {
-  if (name === "lint") return scriptCommand(ROOT, "lint", lintFiles ?? []);
+  // Named files can include ones the ESLint config ignores (packages/*): skip those quietly.
+  if (name === "lint") return scriptCommand(ROOT, "lint", lintFiles?.length ? ["--no-warn-ignored", ...lintFiles] : []);
   if (name === "typecheck") return scriptCommand(ROOT, "typecheck");
   const [command, prefix] = toolCommand(ROOT, "vitest");
   return {

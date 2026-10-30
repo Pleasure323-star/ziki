@@ -11,7 +11,7 @@ import { commentSchema, statusSchema, severitySchema } from "@/lib/validations/i
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
-import { issueStage, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
+import { currentHold } from "@/lib/issue-holders";
 import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { cursorOrderBy, cursorWhere, decodeCursor, LIMIT_RANGE_ERROR, pageSize, toPage, type IssueCursor } from "@/lib/agent-api/create-policy";
@@ -31,8 +31,6 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 export { IssueApiError };
 
 const idSchema = z.string().trim().min(1).max(191);
-// Ideas are not issues and have no stage here (#idea-table): see /api/v1/ideas.
-const stageSchema = z.enum(["confirming", "ready"]);
 
 /** #406: name the bad query parameter instead of returning a pathless Zod dump. */
 function enumFilter<T extends string>(name: string, raw: string | null, allowed: readonly T[]): T | null {
@@ -170,7 +168,6 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const status = enumFilter("status", params.get("status"), statusSchema.options);
   const severity = enumFilter("severity", params.get("severity"), severitySchema.options);
   const assignee = params.get("assignee");
-  const stage: IssueStage | null = parseIssueStageView(enumFilter("stage", params.get("stage"), stageSchema.options));
   let assigneeId: string | null | undefined;
   if (assignee) {
     if (assignee === "none") assigneeId = null;
@@ -209,13 +206,6 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
     ...platformFilterWhere(requireKnownFilter("platform", params.get("platform"), parsePlatformFilter(params.get("platform"), platforms))),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
   };
-  if (stage) {
-    // #requires-confirmation: a stage is a status now. `confirming` is
-    // Requires confirmation and `ready` is Open; with another status, empty.
-    const stageStatus = stage === "confirming" ? "requires_confirmation" : "open";
-    if (filtered.status && filtered.status !== stageStatus) return { items: [], nextCursor: null };
-    filtered.status = stageStatus;
-  }
   const where: Prisma.BugWhereInput = { ...filtered, ...cursorWhere(cursor) };
   const rows = await prisma.bug.findMany({ where, orderBy: cursorOrderBy(), take: limit + 1, select: issueSelect });
   return toPage(rows.map(withImportance), limit);
@@ -268,7 +258,29 @@ export async function readAgentIssue(scope: Scope, id: string) {
   return {
     ...withImportance(issue),
     confirmed,
-    stage: issueStage({ status: issue.status }),
+    // Who has the issue now (its claim), or null: the agent and the person it works for.
+    holder: await currentHold(issue.id),
+  };
+}
+
+/**
+ * How many issues sit in each status, and ideas in each idea status, in one
+ * project: the numbers the issue tabs show. Deleted ones are not counted.
+ * `all` is every issue.
+ */
+export async function countAgentIssues(scope: Scope) {
+  const [issueRows, ideaRows] = await Promise.all([
+    prisma.bug.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+    prisma.idea.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+  ]);
+  const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
+  for (const row of issueRows) issues[row.status] = row._count._all;
+  const ideas = { open: 0, converted: 0, closed: 0 };
+  for (const row of ideaRows) ideas[row.status] = row._count._all;
+  return {
+    projectId: scope.projectId,
+    issues: { ...issues, all: Object.values(issues).reduce((sum, n) => sum + n, 0) },
+    ideas,
   };
 }
 

@@ -56,7 +56,6 @@ describe("working on issues together", () => {
     expect(reply.comment).toMatchObject({ bidId: bid.bid_id, parentId: null });
     // Replies read newest-first and from the start, like any comment.
     expect(JSON.stringify(await ok("ada", "list-comments", { id }))).toContain("Please include a regression test.");
-    expect(JSON.stringify(await ok("ada", "list-comments-from-start", { id }))).toContain("Please include a regression test.");
     const listed = JSON.stringify(await ok("cara", "list-bids", { id }));
     expect(listed).toContain(bid.bid_id);
     expect(listed).toContain("I can fix this within the hour.");

@@ -769,6 +769,11 @@ export default async function BugsPage({
     else next.delete("status");
     return `/issues${next.size ? `?${next}` : ""}`;
   };
+  // Only a status tab is picked (no search or other filter): an empty list then
+  // just means that tab is empty, so the empty state names the tab.
+  const onlyStatusTab =
+    Boolean(statusParam && (statuses as readonly string[]).includes(statusParam)) &&
+    !qParam && !severityParam && !tagsParam && !selectedPlatform && !selectedMilestone && !mineFilter;
   const emptyPlatform =
     Boolean(selectedPlatform) &&
     !isWatchingView &&
@@ -965,18 +970,17 @@ export default async function BugsPage({
                 ? "You're not watching any issues."
                 : emptyPlatform
                   ? "No issues on this platform"
-                  : "No issues match these filters."}
+                  : onlyStatusTab
+                    ? `No issues in ${statusFilterLabel(statusParam!)}.`
+                    : "No issues match these filters."}
             </p>
-            <p className="mt-1.5 text-sm text-zk-muted">
-              {isWatchingView
-                ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
-                : emptyPlatform
-                  ? "Issues tagged for this platform will show up here."
-                  : "Try clearing filters, or report it with New issue."}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-              <Link href="/issues" className="text-sm font-bold text-zk-accent hover:underline">Clear filters</Link>
-            </div>
+            {isWatchingView || emptyPlatform ? (
+              <p className="mt-1.5 text-sm text-zk-muted">
+                {isWatchingView
+                  ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
+                  : "Issues tagged for this platform will show up here."}
+              </p>
+            ) : null}
           </div>
         ) : (
           <section className="issues-results flex flex-col gap-3.5">

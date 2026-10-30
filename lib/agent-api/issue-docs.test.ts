@@ -27,7 +27,7 @@ function exampleAfter(heading: string, marker = ""): Record<string, unknown> {
 }
 
 /** Added by `readAgentIssue` on top of `issueSelect`. */
-const READ_EXTRAS = ["comments", "attachments", "confirmations", "_count", "confirmed", "stage"];
+const READ_EXTRAS = ["comments", "attachments", "confirmations", "_count", "confirmed", "holder"];
 /** What the create answers with (#idea-table): `ideaJson` swaps `issue` for its id and number, and adds the gate. */
 const IDEA_FIELDS = [
   ...Object.keys(ideaSelect).filter((key) => key !== "issue"),

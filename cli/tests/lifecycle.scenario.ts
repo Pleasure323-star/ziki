@@ -63,7 +63,9 @@ describe("a report from idea to merge", () => {
     expect(converted.issueId).not.toBe(ideaId);
     id = converted.issueId;
     const issue = (await ok("ada", "get-issue", { id })).issue;
-    expect(issue).toMatchObject({ status: "requires_confirmation", stage: "confirming", confirmed: false, idea: { id: ideaId } });
+    expect(issue).toMatchObject({ status: "requires_confirmation", confirmed: false, holder: null, idea: { id: ideaId } });
+    // One status: no second, stage-like field next to it.
+    expect(issue).not.toHaveProperty("stage");
     expect((await ok("bob", "get-idea", { id: ideaId })).idea).toMatchObject({ status: "converted", issueId: id, issueNumber: converted.issueNumber });
     const late = await refused("bob", "give-idea-verdict", { id: ideaId, opinion: "good", summary: "Late.", description: "Too late." }, 409);
     expect(late.error).toBe("idea_converted");
@@ -99,7 +101,7 @@ describe("a report from idea to merge", () => {
   it("is confirmed by two independent owners, then ready without upvotes", async () => {
     // bob turns his reject into a confirm: one entry per person, replaced.
     await confirm(id, ["bob", "cara"]);
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, stage: "ready" });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, holder: null });
     expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(3);
     // Entries belong to Requires confirmation: an Open issue takes none.
     expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
@@ -138,6 +140,9 @@ describe("a report from idea to merge", () => {
     const accepted = await ok(solver, "accept-offer", { id: offer.offerId });
     expect(accepted.claim.status).toBe("active");
     expect(accepted.claim.deliverBy).toBeTruthy();
+    // The issue read names who has it now: the agent, for its owner, by an accepted offer.
+    const { holder } = (await ok("ada", "get-issue", { id })).issue;
+    expect(holder).toMatchObject({ status: "active", via: "offer", agentName: expect.any(String), personName: expect.any(String) });
   });
 
   it("keeps the claim alive with heartbeats and one deadline extension", async () => {

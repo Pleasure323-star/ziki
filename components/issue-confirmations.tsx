@@ -64,11 +64,16 @@ export function confirmationsText(confirmations: number, needed: number): string
  * decides (an issue past Requires confirmation was confirmed); the people are
  * the confirms that count, the date the one that confirmed it.
  */
-function ConfirmationBanner({ data, confirmed }: { data: ConfirmationsData; confirmed: boolean }) {
+/** The confirms that count, oldest first, and the one that confirmed the issue. */
+function countedConfirms(data: ConfirmationsData) {
   const confirms = data.entries
     .filter((entry) => entry.verdict === "confirm" && entry.counted && !entry.undone)
     .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
-  const deciding = confirms[Math.min(data.confirmationsNeeded, confirms.length) - 1] ?? null;
+  return { confirms, deciding: confirms[Math.min(data.confirmationsNeeded, confirms.length) - 1] ?? null };
+}
+
+function ConfirmationBanner({ data, confirmed }: { data: ConfirmationsData; confirmed: boolean }) {
+  const { confirms, deciding } = countedConfirms(data);
   if (confirmed) {
     return (
       <div data-testid="confirmation-banner" data-confirmed="true" className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-zk-ok-fg/40 bg-zk-ok-bg px-4 py-3">
@@ -141,40 +146,8 @@ export function IssueConfirmationsPanel({
 }) {
   const mine = viewerId ? data.entries.find((entry) => entry.onBehalfOfUserId === viewerId) ?? null : null;
 
-  return (
-    <section id="confirmations" aria-labelledby="confirmations-heading" className="mb-4 scroll-mt-24">
-      <ConfirmationBanner data={data} confirmed={confirmed} />
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h3 id="confirmations-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
-          Confirmations
-          <span className="font-mono font-normal normal-case tracking-normal">{data.entries.length}</span>
-        </h3>
-        <div className="flex items-center gap-2">
-          {history || block || !viewerId ? null : (
-            <AddConfirmationDialog
-              bugId={bugId}
-              summaryMaxChars={summaryMaxChars}
-              mine={
-                mine
-                  ? {
-                      verdict: mine.verdict,
-                      summary: mine.summary,
-                      description: mine.description,
-                      severity: mine.severity,
-                      duplicateOfNumber: mine.duplicateOf?.number ?? null,
-                    }
-                  : null
-              }
-            />
-          )}
-        </div>
-      </div>
-      {block && !history ? (
-        <p className="mb-3 text-[13px] text-zk-muted" data-testid="confirmation-blocked">
-          {BLOCK_REASON[block]}
-        </p>
-      ) : null}
-
+  const list = (
+    <>
       {data.entries.length === 0 ? (
         <p className="m-0 text-[13px] text-zk-muted">No confirmations yet.</p>
       ) : (
@@ -228,6 +201,72 @@ export function IssueConfirmationsPanel({
           ))}
         </ul>
       )}
+    </>
+  );
+
+  if (history) {
+    // Past Requires confirmation: one compact card, the full entries behind it.
+    const { confirms, deciding } = countedConfirms(data);
+    return (
+      <details id="confirmations" className="group/conf mb-4 scroll-mt-24 rounded-xl border border-zk-divider bg-zk-surface" data-testid="confirmations-collapsed">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="inline-block text-zk-muted transition-transform group-open/conf:rotate-90">
+            ›
+          </span>
+          <span id="confirmations-heading" className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+            Confirmations
+          </span>
+          <span className="font-mono text-xs text-zk-muted">{data.entries.length}</span>
+          <span>
+            · {confirmed ? "Confirmed" : "Not confirmed"}
+            {confirms.length > 0 ? ` by ${confirms.map((entry) => entry.by).join(", ")}` : ""}
+            {deciding ? (
+              <>
+                {" "}· <LocalTime compact date={deciding.updatedAt} />
+              </>
+            ) : null}
+          </span>
+        </summary>
+        <div className="px-3 pb-3">{list}</div>
+      </details>
+    );
+  }
+
+  return (
+    <section id="confirmations" aria-labelledby="confirmations-heading" className="mb-4 scroll-mt-24">
+      <ConfirmationBanner data={data} confirmed={confirmed} />
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h3 id="confirmations-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+          Confirmations
+          <span className="font-mono font-normal normal-case tracking-normal">{data.entries.length}</span>
+        </h3>
+        <div className="flex items-center gap-2">
+          {history || block || !viewerId ? null : (
+            <AddConfirmationDialog
+              bugId={bugId}
+              summaryMaxChars={summaryMaxChars}
+              mine={
+                mine
+                  ? {
+                      verdict: mine.verdict,
+                      summary: mine.summary,
+                      description: mine.description,
+                      severity: mine.severity,
+                      duplicateOfNumber: mine.duplicateOf?.number ?? null,
+                    }
+                  : null
+              }
+            />
+          )}
+        </div>
+      </div>
+      {block && !history ? (
+        <p className="mb-3 text-[13px] text-zk-muted" data-testid="confirmation-blocked">
+          {BLOCK_REASON[block]}
+        </p>
+      ) : null}
+
+      {list}
     </section>
   );
 }

@@ -21,6 +21,17 @@ describe("the work feed", () => {
       .filter((entry) => entry.role === "idea" && entry.idea?.id === ideaId)
       .reduce((sum, entry) => sum + entry.points, 0);
 
+  it("counts issues per status and ideas per idea status, the numbers the tabs show", async () => {
+    const counts = await ok("bob", "count-issues");
+    const statuses = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"];
+    expect(Object.keys(counts.issues).sort()).toEqual([...statuses, "all"].sort());
+    expect(counts.issues.all).toBe(statuses.reduce((sum, status) => sum + counts.issues[status], 0));
+    expect(Object.keys(counts.ideas).sort()).toEqual(["closed", "converted", "open"]);
+    // The same issues the list returns for that status.
+    const open = await ok("bob", "list-issues", { status: "open", limit: 100 });
+    expect(open.items.length).toBe(Math.min(counts.issues.open, 100));
+  });
+
   it("is what a connecting agent is told to watch", async () => {
     const me = await ok("bob", "whoami");
     expect(me.work_url).toMatch(new RegExp(`/${slug}/work$`));

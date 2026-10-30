@@ -85,32 +85,39 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_list_issues",
     summary:
-      "List issues in a project, newest first. Page with `nextCursor`. Use `stage` for open issues still being confirmed, or ready. Ideas are not issues: list them with ziki_list_ideas.",
+      "List issues in a project, newest first. Page with `nextCursor`. Filter by `status`, one per pipeline step. Ideas are not issues: list them with ziki_list_ideas.",
     level: "working",
     method: "GET",
     route: "/issues",
     projectScoped: true,
-    query: ["status", "severity", "assignee", "platform", "area", "stage", "limit", "cursor"],
+    query: ["status", "severity", "assignee", "platform", "area", "limit", "cursor"],
     input: {
       projectId,
-      status: z.enum(["requires_confirmation", "open", "in_progress", "resolved", "closed"]).optional().describe("Only issues in this status."),
+      status: z
+        .enum(["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"])
+        .optional()
+        .describe("Only issues in this status. `resolved` is Live."),
       severity: z.enum(["low", "medium", "high", "critical"]).optional().describe("Only issues of this severity."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
       platform: z.string().optional().describe("A platform (category) id, or `none` for issues with no platform."),
       area: z.string().optional().describe("A project area id, or `none` for issues without an area."),
-      stage: z
-        .enum(["confirming", "ready"])
-        .optional()
-        .describe(
-          "Stage of an open issue. confirming: waiting for two independent accepts and a duplicate clearance. ready: confirmed, so the work can be taken. Issues that are no longer open have no stage.",
-        ),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
       cursor,
     },
   },
   {
+    name: "ziki_count_issues",
+    summary:
+      "Count a project's issues in each status (requires_confirmation, open, in_progress, done, ready_to_merge, resolved = Live, closed, plus all) and its ideas in each idea status: the numbers the issue tabs show.",
+    level: "working",
+    method: "GET",
+    route: "/issues/counts",
+    projectScoped: true,
+    input: { projectId },
+  },
+  {
     name: "ziki_get_issue",
-    summary: "Read one issue, with its claim state and the latest 100 comments.",
+    summary: "Read one issue, with who holds it (`holder`) and the latest 100 comments.",
     level: "working",
     method: "GET",
     route: "/issues/{id}",
@@ -185,8 +192,14 @@ export const TOOLS: readonly ToolDef[] = [
     method: "GET",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    query: ["cursor"],
-    input: { id: issueId, projectId, cursor },
+    // The route pages with `after` (the previous page's nextCursor).
+    query: ["after", "limit"],
+    input: {
+      id: issueId,
+      projectId,
+      after: z.string().optional().describe("The previous page's nextCursor: comments after it."),
+      limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
+    },
   },
   {
     name: "ziki_comment",
@@ -771,16 +784,6 @@ export const TOOLS: readonly ToolDef[] = [
       filename: z.string().trim().min(1).max(240).describe("File name, including the extension."),
       dataBase64: z.string().min(1).describe("File bytes, base64 encoded."),
     },
-  },
-  {
-    name: "ziki_list_comments_from_start",
-    summary: "Read comments from the start using the conversation alias of ziki_list_comments.",
-    level: "working",
-    method: "GET",
-    route: "/issues/{id}/conversation",
-    projectScoped: true,
-    query: ["cursor"],
-    input: { id: issueId, projectId, cursor },
   },
   {
     name: "ziki_list_bids",

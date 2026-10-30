@@ -176,6 +176,16 @@ describe("issue list layout", () => {
     expect(firstRunCount?.[0].where.projectId).toBeUndefined();
   });
 
+  it("names the tab when only a status tab is picked and it is empty, with no Clear filters link", async () => {
+    count.mockImplementation(async (args: { where?: { status?: unknown } }) => (args?.where?.status === "requires_confirmation" ? 0 : 3));
+    findMany.mockResolvedValue([]);
+    const html = await renderList({ status: "requires_confirmation" });
+    expect(html).toContain("No issues in Requires confirmation.");
+    expect(html).not.toContain("No issues match these filters.");
+    expect(html).not.toContain("Clear filters");
+    expect(html).not.toContain("Try clearing filters");
+  });
+
   it("says no issues match when the project has issues but the filters hide them", async () => {
     count.mockImplementation(async (args: { where?: { severity?: unknown } }) => (args?.where?.severity ? 0 : 3));
     findMany.mockResolvedValue([]);

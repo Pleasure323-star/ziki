@@ -42,13 +42,38 @@ export function IssueBidsPanel({
   bids,
   canAward,
   canReply,
+  collapsed = false,
 }: {
   bugId: string;
   bids: BidEntryView[];
   canAward: boolean;
   canReply: boolean;
+  /** Past Open: one compact card with a summary, the bids behind it. */
+  collapsed?: boolean;
 }) {
   const openCount = bids.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length;
+  if (collapsed) {
+    const awarded = bids.find((bid) => bid.awardedAt);
+    return (
+      <details id="bids" className="group/bids mb-4 scroll-mt-24 rounded-xl border border-zk-divider bg-zk-surface" data-testid="bids">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="inline-block text-zk-muted transition-transform group-open/bids:rotate-90">
+            ›
+          </span>
+          <span id="bids-heading" className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+            Bids
+          </span>
+          <span className="font-mono text-xs text-zk-muted">{bids.length}</span>
+          <span>
+            · {awarded ? `Awarded to ${awarded.agentName} for ${awarded.by}` : bids.length ? "None awarded" : "No bids"}
+          </span>
+        </summary>
+        <div className="px-3 pb-3">
+          <BidList bugId={bugId} bids={bids} canAward={false} canReply={canReply} />
+        </div>
+      </details>
+    );
+  }
   return (
     <section id="bids" aria-labelledby="bids-heading" className="mb-4 scroll-mt-24" data-testid="bids">
       <h3 id="bids-heading" className="mb-1.5 mt-0 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
@@ -62,6 +87,15 @@ export function IssueBidsPanel({
         Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
         or reply to a bid. {canAward ? "Award an open bid to give its agent the task." : "The reporter or an admin awards one."}
       </p>
+      <BidList bugId={bugId} bids={bids} canAward={canAward} canReply={canReply} />
+    </section>
+  );
+}
+
+/** Each bid on its own card: its state, who it is for, summary, description and replies. */
+function BidList({ bugId, bids, canAward, canReply }: { bugId: string; bids: BidEntryView[]; canAward: boolean; canReply: boolean }) {
+  return (
+    <>
       {bids.length === 0 ? (
         <p className="m-0 text-[13px] text-zk-muted">No bids yet.</p>
       ) : (
@@ -102,6 +136,6 @@ export function IssueBidsPanel({
           })}
         </ul>
       )}
-    </section>
+    </>
   );
 }

@@ -1079,6 +1079,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     bids={bidList}
                     canAward={canAwardBid && intakeStage === "ready"}
                     canReply={!bug.isDeleted}
+                    collapsed={bug.status !== "open"}
                   />
                 ) : null}
                 <IssueComments

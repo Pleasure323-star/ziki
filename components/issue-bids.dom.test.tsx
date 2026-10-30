@@ -41,6 +41,27 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
   });
 
+  it("is one compact card past Open, collapsed, naming the awarded bid, and expands to the bids without Award", async () => {
+    const user = userEvent.setup({ delay: null });
+    render(
+      <IssueBidsPanel
+        bugId="bug1"
+        bids={[{ ...bid, awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid2", agentName: "Bob's agent" }]}
+        canAward
+        canReply
+        collapsed
+      />,
+    );
+    const card = screen.getByTestId("bids");
+    expect(card.tagName).toBe("DETAILS");
+    expect(card).not.toHaveAttribute("open");
+    expect(card).toHaveTextContent("Awarded to Ada's Claude for Ada");
+    await user.click(screen.getByText("Bids"));
+    expect(card).toHaveAttribute("open");
+    expect(screen.getByText("Bob's agent")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
+  });
+
   it("offers Award bid only on an open bid", () => {
     render(
       <IssueBidsPanel

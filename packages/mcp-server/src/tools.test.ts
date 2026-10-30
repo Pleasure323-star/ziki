@@ -82,8 +82,8 @@ describe("buildRequest", () => {
   });
 
   it("sends only provided query and body fields", () => {
-    const list = buildRequest(tool("ziki_list_issues"), { status: "open", stage: "ready", limit: 5 }, { projectId: null });
-    expect(list.query).toEqual({ status: "open", stage: "ready", limit: 5 });
+    const list = buildRequest(tool("ziki_list_issues"), { status: "open", limit: 5 }, { projectId: null });
+    expect(list.query).toEqual({ status: "open", limit: 5 });
     const comment = buildRequest(tool("ziki_comment"), { id: "i", body: "hi" }, { projectId: "p" });
     expect(comment.body).toEqual({ body: "hi" });
   });
