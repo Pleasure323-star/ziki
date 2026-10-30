@@ -18,13 +18,33 @@ export type ReplyTarget =
  * A plain reply to one stage entry: a confirmation (#issue-confirmations),
  * a bid (#issue-bids), a test verdict or a merge review (#review-entries), or
  * to a comment on an Open issue. Replies carry no type or verdict.
+ *
+ * `icon` shows the closed form as a reply icon in the entry's top-right
+ * corner (the entry must be `relative`) instead of a "Reply" link.
  */
-export function EntryReplyForm({ bugId, target, label }: { bugId: string; target: ReplyTarget; label: string }) {
+export function EntryReplyForm({ bugId, target, label, icon = false }: { bugId: string; target: ReplyTarget; label: string; icon?: boolean }) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  if (!open && icon) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Reply"
+        title="Reply"
+        className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-lg text-zk-accent hover:bg-zk-chip print:hidden"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 14 4 9l5-5" />
+          <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+        </svg>
+      </button>
+    );
+  }
 
   if (!open) {
     return (

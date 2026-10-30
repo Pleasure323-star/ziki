@@ -169,12 +169,6 @@ export function IssueConfirmationsPanel({
           )}
         </div>
       </div>
-      {history ? null : (
-        <p className="mb-3 text-[13px] text-zk-text2">
-          Confirm if it is real and not a duplicate; reject if it is not, or name the issue it duplicates. It is confirmed
-          once {data.confirmationsNeeded} independent {data.confirmationsNeeded === 1 ? "person confirms" : "people confirm"} it.
-        </p>
-      )}
       {block && !history ? (
         <p className="mb-3 text-[13px] text-zk-muted" data-testid="confirmation-blocked">
           {BLOCK_REASON[block]}
@@ -186,11 +180,20 @@ export function IssueConfirmationsPanel({
       ) : (
         <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
           {data.entries.map((entry) => (
-            <li key={entry.id} id={`confirmation-${entry.id}`} className="rounded-xl border border-zk-divider px-3 py-2.5">
-              <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${verdictChipClass[entry.verdict]}`}>
-                  {confirmationVerdictLabels[entry.verdict]}
-                </span>
+            // A lighter shade of the banner's beige sets confirmations apart from comments.
+            <li
+              key={entry.id}
+              id={`confirmation-${entry.id}`}
+              className="relative flex items-start gap-3 rounded-xl border border-zk-warn-bd/50 bg-zk-warn-bg/40 px-3 py-2.5"
+            >
+              <span
+                data-testid="confirmation-verdict"
+                className={`flex w-[72px] shrink-0 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-bold ${verdictChipClass[entry.verdict]}`}
+              >
+                {confirmationVerdictLabels[entry.verdict]}
+              </span>
+              <div className="min-w-0 flex-1">
+              <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[13px]">
                 <b className="font-semibold text-zk-text">{entry.by}</b>
                 {entry.agentName ? <span className="text-zk-muted">via {entry.agentName}</span> : null}
                 {entry.verdict === "confirm" && entry.severity ? (
@@ -217,7 +220,10 @@ export function IssueConfirmationsPanel({
                 </p>
               ) : null}
               <EntryReplies replies={entry.replies} />
-              {!history && viewerId && block !== "deleted" ? <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" /> : null}
+              {!history && viewerId && block !== "deleted" ? (
+                <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" icon />
+              ) : null}
+              </div>
             </li>
           ))}
         </ul>
