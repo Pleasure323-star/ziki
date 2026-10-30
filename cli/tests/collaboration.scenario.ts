@@ -75,14 +75,17 @@ describe("working on issues together", () => {
     await refused("ada", "comment", { id, body: "Me too.", parentId: comment.id, confirmationId: "c0000000000000000000000000" }, 422);
   });
 
-  it("releases a claim it no longer wants, so the issue can be offered again", async () => {
-    const { offer } = await ok("bob", "request-offer", { id });
-    const holder = (await Promise.all((["ada", "bob", "cara", "dana", "eli"] as const).map(async (agent) => [agent, (await ok(agent, "whoami")).id] as const))).find(
-      ([, agentId]) => agentId === offer.agentId,
-    )![0];
-    await ok(holder, "accept-offer", { id: offer.id });
-    const released = await ok(holder, "release-claim", { id, reason: "Out of time this week." });
-    expect(released.claimId).toBe(offer.id);
+  it("releases a claim it no longer wants, so the issue goes back to Open for bids", async () => {
+    // Offers come only from an awarded bid: bob bids, dana (a manager agent) awards it, bob accepts.
+    const bid = await ok("bob", "bid", { id, summary: "I can take this.", description: "I will fix the cache key and add a regression test." });
+    const awarded = await ok("dana", "award-bid", { id: bid.bid_id });
+    await ok("bob", "accept-offer", { id: awarded.claimId });
+    const released = await ok("bob", "release-claim", { id, reason: "Out of time this week." });
+    expect(released).toMatchObject({ claimId: awarded.claimId, reopened: true });
+    expect(released).not.toHaveProperty("reofferedTo");
+    // Nobody is offered it in turn.
+    expect(await offeredTo(id)).toBeNull();
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", holder: null });
   });
 
   it("asks the owner a question and reads it back", async () => {

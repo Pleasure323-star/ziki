@@ -212,52 +212,29 @@ describe("awardBid", () => {
     withdrawnAt: null,
     awardedAt: null,
     beneficiary: { name: "Ada" },
+    agent: { ownerUserId: "ada" },
     bug: openBug,
   };
+  const manager = { ...caller, agentId: "dana-agent", name: "Dana's Claude", ownerId: "dana", level: "manager" as const };
 
-  it("preserves the dispatcher owner on an auto-awarded claim", async () => {
+  it("awards a bid as an offered claim to the bidding agent, attributed to the manager's owner", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
     db.issueClaim.create.mockResolvedValue({ id: "claim1" });
-    const dispatcher = { ...caller, ownerId: "dispatcher-owner", level: "manager" as const };
-    await awardBid({ id: "reporter" }, "bid1", dispatcher);
-    expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({
-      dispatcherUserId: "dispatcher-owner", beneficiaryUserId: "ada", status: "offered",
-    });
-  });
-
-  it("rejects forged dispatcher attribution from a lower-level caller", async () => {
-    await expect(awardBid({ id: "reporter" }, "bid1", caller)).rejects.toThrow("This needs a manager agent.");
-    expect(db.issueClaim.create).not.toHaveBeenCalled();
-  });
-
-  it("rejects dispatcher attribution from another tenant", async () => {
-    db.issueBid.findUnique.mockResolvedValue(stored);
-    await expect(awardBid({ id: "reporter" }, "bid1", {
-      ...caller, tenantId: "another-tenant", level: "manager",
-    })).rejects.toMatchObject({ status: 404 });
-    expect(db.issueClaim.create).not.toHaveBeenCalled();
-  });
-
-  it("lets a person who owns a manager agent award a bid as an offer to the bidding agent", async () => {
-    db.issueBid.findUnique.mockResolvedValue(stored);
-    db.issueClaim.create.mockResolvedValue({ id: "claim1" });
-    db.agent.findFirst.mockResolvedValue({ id: "manager-agent" });
-    await expect(awardBid({ id: "dana" }, "bid1")).resolves.toEqual({
+    await expect(awardBid(manager, "bid1")).resolves.toEqual({
       bidId: "bid1",
       claimId: "claim1",
       bugId: "issue1",
       bugTitle: "Broken login",
       beneficiaryUserId: "ada",
     });
-    expect(db.agent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ ownerUserId: "dana", tenantId: "tenant", revokedAt: null, level: { in: ["manager", "merger"] } }),
-    }));
     expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({
       status: "offered",
       offeredAt: expect.any(Date),
       agentId: "agent1",
       beneficiaryUserId: "ada",
     });
+    // Picking a bid is not dispatching: the manager is not recorded as dispatcher.
+    expect(db.issueClaim.create.mock.calls[0][0].data).not.toHaveProperty("dispatcherUserId");
     // An offer: the issue stays Open with no assignee, and the other bids stay open.
     expect(db.bug.update).not.toHaveBeenCalled();
     expect(db.issueBid.updateMany).toHaveBeenCalledTimes(1);
@@ -271,29 +248,57 @@ describe("awardBid", () => {
     }));
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
       type: "issue.bid_awarded",
-      payload: expect.objectContaining({ bidId: "bid1", claimId: "claim1", offered: true }),
+      payload: expect.objectContaining({ bidId: "bid1", claimId: "claim1", offered: true, awardedByAgentId: "dana-agent" }),
     }));
     expect(notifyClaimOffered).toHaveBeenCalledWith({ id: "claim1", bugId: "issue1", bugTitle: "Broken login", beneficiaryUserId: "ada" });
     expect(scheduleOfferExpiry).toHaveBeenCalledWith("claim1");
   });
 
-  it("lets a super admin award a bid", async () => {
+  it("lets a merger agent award a bid too", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
     db.issueClaim.create.mockResolvedValue({ id: "claim1" });
-    await expect(awardBid({ id: "root", role: "super_admin" }, "bid1")).resolves.toMatchObject({ claimId: "claim1" });
-    expect(db.agent.findFirst).not.toHaveBeenCalled();
+    await expect(awardBid({ ...manager, level: "merger" }, "bid1")).resolves.toMatchObject({ claimId: "claim1" });
   });
 
-  it("refuses a person who owns no manager agent, even the reporter", async () => {
+  it("requires a manager agent", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
-    for (const actor of [{ id: "reporter" }, { id: "bob" }]) {
-      await expect(awardBid(actor, "bid1")).rejects.toMatchObject({
+    await expect(awardBid(caller, "bid1")).rejects.toThrow("This needs a manager agent.");
+    expect(db.issueBid.findUnique).not.toHaveBeenCalled();
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bid from the manager's own owner with 403", async () => {
+    for (const bid of [{ ...stored, beneficiaryUserId: "dana" }, { ...stored, agent: { ownerUserId: "dana" } }]) {
+      db.issueBid.findUnique.mockResolvedValue(bid);
+      await expect(awardBid(manager, "bid1")).rejects.toMatchObject({
         status: 403,
-        message: "Only a manager agent, or a person who owns one, can award a bid.",
+        message: "A manager agent cannot award a bid from its own owner.",
       });
     }
     expect(db.issueClaim.create).not.toHaveBeenCalled();
     expect(notifyClaimOffered).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bid from another tenant as not found", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    await expect(awardBid({ ...manager, tenantId: "another-tenant" }, "bid1")).rejects.toMatchObject({ status: 404 });
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bid outside the key's project", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    await expect(awardBid({ ...manager, projectId: "other-project" }, "bid1")).rejects.toThrow("restricted");
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bid that is no longer open, or an issue with a pending offer", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ ...stored, withdrawnAt: new Date() });
+    await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: "This bid is no longer open." });
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { status?: string } }) =>
+      where.status === "active" ? null : { id: "offer", status: "offered", offeredAt: new Date(), agentId: "x", beneficiaryUserId: "x", bug: { tenantId: "tenant", projectId: "project" } });
+    await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("pending offer") });
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
   });
 });
 

@@ -16,6 +16,7 @@ export type ProjectWorkflowValues = {
   ideaThreshold: number;
   abandonCheckMinutes: number;
   abandonThreshold: number;
+  closeThreshold: number;
 };
 
 export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.freeze({
@@ -41,6 +42,8 @@ export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.
   abandonCheckMinutes: 360,
   // Three Abandoned votes (one manager agent's) take it back to Open.
   abandonThreshold: 3,
+  // Three close-suggestion votes (one manager agent's) put an issue in the managers' queue to close (#close-superseded).
+  closeThreshold: 3,
 });
 
 /**
@@ -60,6 +63,7 @@ export const WORKFLOW_LIMITS = {
   ideaThreshold: { min: 1, max: 100 },
   abandonCheckMinutes: { min: 0, max: 10080 },
   abandonThreshold: { min: 1, max: 100 },
+  closeThreshold: { min: 1, max: 100 },
 } as const;
 
 const boundedInt = (field: keyof typeof WORKFLOW_LIMITS, label: string) => {
@@ -83,6 +87,7 @@ export const workflowSettingsSchema = z.object({
   ideaThreshold: boundedInt("ideaThreshold", "Idea threshold"),
   abandonCheckMinutes: boundedInt("abandonCheckMinutes", "Sense check after"),
   abandonThreshold: boundedInt("abandonThreshold", "Abandoned threshold"),
+  closeThreshold: boundedInt("closeThreshold", "Close threshold"),
 });
 
 /** A stored row, with defaults for a missing row or a test double. */
@@ -102,5 +107,6 @@ export function workflowValues(
     ideaThreshold: row?.ideaThreshold ?? DEFAULT_PROJECT_WORKFLOW.ideaThreshold,
     abandonCheckMinutes: row?.abandonCheckMinutes ?? DEFAULT_PROJECT_WORKFLOW.abandonCheckMinutes,
     abandonThreshold: row?.abandonThreshold ?? DEFAULT_PROJECT_WORKFLOW.abandonThreshold,
+    closeThreshold: row?.closeThreshold ?? DEFAULT_PROJECT_WORKFLOW.closeThreshold,
   };
 }

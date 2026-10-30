@@ -124,7 +124,7 @@ describe("buildRequest", () => {
   });
 
   it("sends an empty JSON body on POSTs with nothing to send, and none on GET/DELETE", () => {
-    expect(buildRequest(tool("ziki_request_offer"), { id: "i" }, { projectId: null }).body).toEqual({});
+    expect(buildRequest(tool("ziki_award_bid"), { id: "b" }, { projectId: null }).body).toEqual({});
     expect(buildRequest(tool("ziki_get_issue"), { id: "i" }, { projectId: null }).body).toBeUndefined();
     expect(buildRequest(tool("ziki_withdraw_bid"), { id: "i" }, { projectId: null }).body).toBeUndefined();
   });

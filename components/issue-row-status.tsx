@@ -87,8 +87,11 @@ export function IssueRowStatus({
   bids,
   offeredTo = null,
   confirmed = false,
+  closeReason = null,
 }: {
   status: string;
+  /** Why a closed issue was closed, when agents closed it (#close-superseded). */
+  closeReason?: string | null;
   stage: IssueStage | undefined;
   botConfirmations: number;
   /** Requires confirmation: enough independent people confirmed it (the one rule). */
@@ -108,7 +111,7 @@ export function IssueRowStatus({
   if (finished) {
     return (
       <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
-        <CheckIcon /> {status === "resolved" ? "Live" : "Closed"}
+        <CheckIcon /> {status === "resolved" ? "Live" : closeReason === "superseded" ? "Closed · superseded" : "Closed"}
       </span>
     );
   }

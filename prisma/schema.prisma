@@ -266,6 +266,8 @@ model User {
   approvalsDecided          IssueApproval[]         @relation("ApprovalDecider")
   ideaVerdicts              IdeaVerdict[]           @relation("IdeaVerdictsGiven")
   abandonVotes              AbandonVote[]           @relation("AbandonVotesGiven")
+  bidVotes                  BidVote[]               @relation("BidVotesGiven")
+  closeSuggestions          CloseSuggestion[]       @relation("CloseSuggestionsGiven")
   reportedIdeas             Idea[]                  @relation("IdeaReporter")
   beneficiaryIdeas          Idea[]                  @relation("IdeaBeneficiary")
 }
@@ -314,6 +316,9 @@ model Bug {
   summary            String?
   description        String
   status             Status              @default(requires_confirmation)
+  /// Why a closed issue was closed, when agents closed it (#close-superseded).
+  /// Values: "superseded" (another issue or change covers it).
+  closeReason        String?
   typeId             String?
   type               IssueType?          @relation(fields: [typeId], references: [id], onDelete: SetNull)
   /// The issue's importance (#importance): its marks, a manager or merger agent's counting as 5.
@@ -367,6 +372,8 @@ model Bug {
   revisions          BugRevision[]
   claims             IssueClaim[]
   abandonVotes       AbandonVote[]
+  bidVotes           BidVote[]
+  closeSuggestions   CloseSuggestion[]
   approvals          IssueApproval[]
   bids               IssueBid[]
   deliveries         Delivery[]
@@ -741,6 +748,8 @@ model ProjectWorkflow {
   abandonCheckMinutes    Int      @default(360)
   /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts 3).
   abandonThreshold       Int      @default(3)
+  /// Close-suggestion votes that put an issue in the managers' queue to close (#close-superseded; a manager agent's vote counts 3).
+  closeThreshold         Int      @default(3)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -969,8 +978,10 @@ model Agent {
   recordedMistakes     AgentMistake[]
 
   ideaVerdicts    IdeaVerdict[]
-  abandonVotes    AbandonVote[]
-  importanceMarks Vote[]
+  abandonVotes     AbandonVote[]
+  bidVotes         BidVote[]
+  closeSuggestions CloseSuggestion[]
+  importanceMarks  Vote[]
 
   @@unique([ownerUserId, defaultProjectId])
   @@index([tenantId])
@@ -1128,6 +1139,7 @@ model IssueBid {
   beneficiary       User        @relation("IssueBidBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Cascade)
   claim             IssueClaim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
   replies           Comment[]
+  votes             BidVote[]
 
   @@unique([bugId, agentId])
   @@index([bugId, createdAt])
@@ -2013,5 +2025,51 @@ model AbandonVote {
   agent            Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@unique([claimId, onBehalfOfUserId])
+  @@index([bugId])
+}
+
+/// A vote for an open bid (#bid-votes): a person, through their agent, says
+/// another agent's bid is good. One per person per bid, each counting 1. A
+/// manager agent reads the votes when it awards one bid as an offer.
+model BidVote {
+  id               String   @id @default(cuid())
+  bidId            String
+  bugId            String
+  onBehalfOfUserId String
+  agentId          String?
+  createdAt        DateTime @default(now())
+  bid              IssueBid @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User     @relation("BidVotesGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([bidId, onBehalfOfUserId])
+  @@index([bugId])
+}
+
+/// A suggestion to close an issue (#close-superseded): a person, through their
+/// agent, says it should be closed for a reason ("superseded" for now), with a
+/// comment saying why. One per person per issue; a manager agent's counts 3.
+/// Once the votes reach the project's closeThreshold, the issue goes into the
+/// managers' queue and a manager agent closes it with that reason.
+model CloseSuggestion {
+  id               String   @id @default(cuid())
+  bugId            String
+  onBehalfOfUserId String
+  agentId          String?
+  /// "superseded" for now.
+  reason           String
+  votes            Int      @default(1)
+  /// The agent's comment, at most two sentences.
+  summary          String
+  /// An optional longer comment.
+  description      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User     @relation("CloseSuggestionsGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([bugId, onBehalfOfUserId])
   @@index([bugId])
 }

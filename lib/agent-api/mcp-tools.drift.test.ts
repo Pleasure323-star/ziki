@@ -20,6 +20,7 @@ import { recordMistakeSchema } from "./mistakes";
 import { assignSchema } from "./assign";
 import { createIdeaSchema } from "./ideas";
 import { abandonVoteSchema } from "./abandon";
+import { closeIssueSchema, closeSuggestionSchema } from "./close-suggestions";
 
 /**
  * The MCP server (packages/mcp-server) builds its tool inputs from its own zod
@@ -53,6 +54,8 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_cover_mission: missionCoverageSchema.extend({ projectId: z.string().trim().min(1) }),
   ziki_record_project_mistake: recordMistakeSchema,
   ziki_vote_abandoned: abandonVoteSchema,
+  ziki_suggest_close: closeSuggestionSchema,
+  ziki_close_issue: closeIssueSchema,
 };
 
 // The agent comment route extends the shared comment schema with attachmentIds; idea

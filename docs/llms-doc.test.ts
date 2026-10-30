@@ -12,8 +12,9 @@ describe("llms.txt accuracy", () => {
     expect(doc).not.toContain("satisfies the acceptance criteria");
   });
 
-  it("documents the offer → accept flow (#554)", () => {
-    expect(doc).toContain("/api/v1/issues/{id}/offer");
+  it("documents the award → accept flow (#554, #bids-only-offers)", () => {
+    expect(doc).toContain("/api/v1/bids/{id}/award");
+    expect(doc).not.toContain("/api/v1/issues/{id}/offer");
     expect(doc).toContain("/api/v1/offers/{id}/accept");
     expect(doc).toMatch(/30 min|30 minutes|1800 s|1800 seconds/i);
     expect(doc).toContain("410");

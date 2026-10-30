@@ -7,21 +7,11 @@ const db = vi.hoisted(() => ({
   issueClaim: { update: vi.fn(), count: vi.fn() },
 }));
 const isConfirmed = vi.hoisted(() => vi.fn());
-const offerNext = vi.hoisted(() => vi.fn());
-const scheduleOfferExpiry = vi.hoisted(() => vi.fn());
-const sweepExpiredOffers = vi.hoisted(() => vi.fn().mockResolvedValue({ expired: 0 }));
-const awardBid = vi.hoisted(() => vi.fn());
-const publish = vi.hoisted(() => vi.fn());
-const notifyClaimOffered = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
-vi.mock("@/lib/agent-api/offer", () => ({ offerNext, scheduleOfferExpiry, sweepExpiredOffers }));
-vi.mock("@/lib/agent-api/bid", () => ({ awardBid }));
-vi.mock("@/lib/agent-api/events", () => ({ publish }));
-vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered }));
 
-import { dispatchReadyIssues, findReadyIssues, getDispatcherMetrics } from "./dispatcher";
+import { findReadyIssues, getDispatcherMetrics } from "./dispatcher";
 
 const dispatcher = {
   agentId: "agent-disp",
@@ -51,11 +41,6 @@ beforeEach(() => {
   db.bug.findMany.mockResolvedValue([readyBug]);
   db.issueBid.findMany.mockResolvedValue([]);
   isConfirmed.mockResolvedValue(true);
-  offerNext.mockResolvedValue({
-    claim: { id: "claim-1", bugId: "bug-1", offeredAt: new Date() },
-    bugTitle: "Ready",
-    beneficiaryUserId: "bob",
-  });
 });
 
 describe("findReadyIssues", () => {
@@ -79,7 +64,6 @@ describe("findReadyIssues", () => {
     expect(await findReadyIssues(dispatcher, "project-1", 10)).toEqual([
       { ...rows[59], confirmed: true },
     ]);
-    expect(await dispatchReadyIssues(dispatcher, "project-1")).toMatchObject({ offered: 1 });
   });
 
   it("bounds confirmation concurrency and stops after enough ready issues", async () => {
@@ -156,187 +140,5 @@ describe("findReadyIssues", () => {
         }),
       })
     );
-  });
-
-  it("supports filtering by bid presence", async () => {
-    await findReadyIssues(dispatcher, "project-1", 10, { hasBids: true });
-    expect(db.bug.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          bids: { some: { withdrawnAt: null, awardedAt: null } },
-        }),
-      })
-    );
-
-    await findReadyIssues(dispatcher, "project-1", 10, { hasBids: false });
-    expect(db.bug.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          bids: { none: { withdrawnAt: null, awardedAt: null } },
-        }),
-      })
-    );
-
-    const cutoff = new Date();
-    await findReadyIssues(dispatcher, "project-1", 10, { hasBids: true, bidCreatedBefore: cutoff });
-    expect(db.bug.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          bids: { some: { withdrawnAt: null, awardedAt: null, createdAt: { lte: cutoff } } },
-        }),
-      })
-    );
-  });
-});
-
-describe("dispatchReadyIssues", () => {
-  it("requires a manager agent", async () => {
-    await expect(dispatchReadyIssues(contributor, "project-1")).rejects.toBeInstanceOf(AgentLevelError);
-  });
-
-  it("offers a ready issue with no bids to the next candidate", async () => {
-    const result = await dispatchReadyIssues(dispatcher, "project-1");
-
-    expect(result).toMatchObject({ offered: 1, awarded: 0, skipped: 0, errors: [] });
-    expect(offerNext).toHaveBeenCalledOnce();
-    expect(notifyClaimOffered).toHaveBeenCalledWith(expect.objectContaining({ bugId: "bug-1" }));
-  });
-
-  it("does not report an offer when no eligible candidate is available", async () => {
-    offerNext.mockResolvedValue(null);
-
-    expect(await dispatchReadyIssues(dispatcher, "project-1")).toMatchObject({
-      offered: 0, awarded: 0, skipped: 1, errors: [],
-    });
-    expect(notifyClaimOffered).not.toHaveBeenCalled();
-    expect(scheduleOfferExpiry).not.toHaveBeenCalled();
-  });
-
-  it("skips issues with pending bids in offer_only mode", async () => {
-    db.issueBid.findMany.mockResolvedValue([
-      { id: "bid-1", createdAt: new Date(), bug: { reporterId: "reporter" } },
-    ]);
-
-    const result = await dispatchReadyIssues(dispatcher, "project-1");
-
-    expect(result).toMatchObject({ offered: 0, awarded: 0, skipped: 1 });
-    expect(offerNext).not.toHaveBeenCalled();
-    expect(awardBid).not.toHaveBeenCalled();
-  });
-
-  it("awards the oldest bid as the dispatcher's owner in auto_award mode", async () => {
-    db.issueBid.findMany.mockResolvedValue([
-      { id: "bid-1", createdAt: new Date(), bug: { reporterId: "reporter" } },
-    ]);
-
-    const result = await dispatchReadyIssues(dispatcher, "project-1", { policy: "auto_award" });
-
-    expect(result.awarded).toBe(1);
-    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-1", dispatcher);
-    expect(offerNext).not.toHaveBeenCalled();
-  });
-
-  it("skips bids younger than autoAwardAfterHours in auto_award mode", async () => {
-    db.issueBid.findMany.mockResolvedValue([
-      { id: "bid-1", createdAt: new Date(), bug: { reporterId: "reporter" } },
-    ]);
-
-    const result = await dispatchReadyIssues(dispatcher, "project-1", {
-      policy: "auto_award",
-      autoAwardAfterHours: 24,
-    });
-
-    expect(result).toMatchObject({ awarded: 0, skipped: 1 });
-    expect(awardBid).not.toHaveBeenCalled();
-  });
-
-  it("collects per-issue errors instead of aborting the run", async () => {
-    offerNext.mockRejectedValue(new Error("no candidates"));
-
-    const result = await dispatchReadyIssues(dispatcher, "project-1");
-
-    expect(result.offered).toBe(0);
-    expect(result.errors).toEqual([{ issueId: "bug-1", error: "no candidates" }]);
-  });
-
-  it("sweeps expired offers before dispatching ready issues", async () => {
-    await dispatchReadyIssues(dispatcher, "project-1");
-    expect(sweepExpiredOffers).toHaveBeenCalledWith("tenant", "project-1");
-  });
-
-  it("prioritizes and auto-awards an aged pending bid while offer_only leaves it for the reporter", async () => {
-    const unbidIssue = { ...readyBug, id: "bug-unbid", createdAt: new Date(Date.now() - 100_000) };
-    const bidIssue = { ...readyBug, id: "bug-bid", createdAt: new Date(Date.now() - 50_000) };
-    const agedBid = { id: "bid-aged", createdAt: new Date(Date.now() - 7200_000), bug: { reporterId: "reporter" } };
-
-    db.bug.findMany.mockImplementation(async (args) => {
-      if (args.where?.bids?.some) {
-        return [bidIssue];
-      }
-      return [unbidIssue, bidIssue];
-    });
-    db.issueBid.findMany.mockImplementation(async ({ where }) => {
-      if (where.bugId === "bug-bid") return [agedBid];
-      return [];
-    });
-
-    // 1. auto_award with maxOffersPerRun=1 prioritizes the bid issue and awards it
-    const autoAwardResult = await dispatchReadyIssues(dispatcher, "project-1", {
-      policy: "auto_award",
-      autoAwardAfterHours: 1,
-      maxOffersPerRun: 1,
-    });
-    expect(autoAwardResult).toMatchObject({ awarded: 1, offered: 0, skipped: 0 });
-    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-aged", dispatcher);
-
-    // 2. offer_only leaves the pending bid for the reporter and offers the unbid issue instead
-    vi.clearAllMocks();
-    db.bug.findMany.mockImplementation(async (args) => {
-      if (args.where?.bids?.some) return [bidIssue];
-      return [unbidIssue, bidIssue];
-    });
-    db.issueBid.findMany.mockImplementation(async ({ where }) => {
-      if (where.bugId === "bug-bid") return [agedBid];
-      return [];
-    });
-    const offerOnlyResult = await dispatchReadyIssues(dispatcher, "project-1", {
-      policy: "offer_only",
-      maxOffersPerRun: 1,
-    });
-    expect(offerOnlyResult).toMatchObject({ awarded: 0, offered: 1, skipped: 0 });
-    expect(offerNext).toHaveBeenCalledWith(db, dispatcher, expect.objectContaining({ id: "bug-unbid" }));
-    expect(awardBid).not.toHaveBeenCalled();
-  });
-
-  it("does not let recent ineligible bids starve aged bids or unbid issues when autoAwardAfterHours is set", async () => {
-    const unbidIssue = { ...readyBug, id: "bug-unbid", createdAt: new Date(Date.now() - 100_000) };
-    const youngBidIssue = { ...readyBug, id: "bug-young", createdAt: new Date(Date.now() - 80_000) };
-    const agedBidIssue = { ...readyBug, id: "bug-aged", createdAt: new Date(Date.now() - 60_000) };
-
-    const youngBid = { id: "bid-young", createdAt: new Date(Date.now() - 60_000), bug: { reporterId: "reporter" } };
-    const agedBid = { id: "bid-aged", createdAt: new Date(Date.now() - 7200_000), bug: { reporterId: "reporter" } };
-
-    db.bug.findMany.mockImplementation(async (args) => {
-      if (args.where?.bids?.some?.createdAt) {
-        return [agedBidIssue];
-      }
-      return [unbidIssue, youngBidIssue, agedBidIssue];
-    });
-    db.issueBid.findMany.mockImplementation(async ({ where }) => {
-      if (where.bugId === "bug-aged") return [agedBid];
-      if (where.bugId === "bug-young") return [youngBid];
-      return [];
-    });
-
-    // maxOffersPerRun=2: should prioritize agedBidIssue, and fill second slot with unbidIssue to offer it
-    const result = await dispatchReadyIssues(dispatcher, "project-1", {
-      policy: "auto_award",
-      autoAwardAfterHours: 1,
-      maxOffersPerRun: 2,
-    });
-
-    expect(result).toMatchObject({ awarded: 1, offered: 1, skipped: 0 });
-    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-aged", dispatcher);
-    expect(offerNext).toHaveBeenCalledWith(db, dispatcher, expect.objectContaining({ id: "bug-unbid" }));
   });
 });

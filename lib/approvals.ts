@@ -5,8 +5,6 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isTenantAdminRole } from "@/lib/agents/membership";
 import { notifyLater } from "@/lib/notify";
-import { offerNext, scheduleOfferExpiry } from "@/lib/agent-api/offer";
-import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { mergeAcceptedFix } from "@/lib/github/merge-pr";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
@@ -375,21 +373,10 @@ export async function decideApproval(
         // Safe in partial DB mocks
       }
 
-      // Continue pipeline automatically with no agent action (#598)
-      if (approval.stage === "before_offer") {
-        if (approval.bug.status === "open") {
-          const offer = await offerNext(tx, { tenantId }, approval.bug);
-          if (offer) {
-            notifyClaimOffered({
-              id: offer.claim.id,
-              bugId: approval.bugId,
-              bugTitle: approval.bug.title,
-              beneficiaryUserId: offer.beneficiaryUserId,
-            });
-            scheduleOfferExpiry(offer.claim.id);
-          }
-        }
-      } else if (approval.stage === "before_merge") {
+      // Continue the pipeline with no agent action (#598). A granted
+      // before_offer approval needs nothing here: the issue stays Open and a
+      // manager agent awards one of its bids.
+      if (approval.stage === "before_merge") {
         // Find the manager agent that accepted the fix, to resume the merge as it.
         const acceptedAudit = await tx.agentAuditEvent.findFirst({
           where: { bugId: approval.bugId, action: "issue.accepted" },

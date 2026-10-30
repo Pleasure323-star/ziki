@@ -16,6 +16,8 @@ export type NextStep = {
   actor: string | null;
   /** What they should do, e.g. "please convert this idea to an issue." */
   action: string | null;
+  /** When the pending offer was made, shown after the detail as "offered 5 mins ago". */
+  offeredAt?: Date | string | null;
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -26,7 +28,7 @@ export type IssueNextStepInput = {
   confirmations: number;
   confirmationsNeeded: number;
   /** Who has it (its claim), if anyone. */
-  holder: { agentName: string; personName: string; status: "offered" | "active" } | null;
+  holder: { agentName: string; personName: string; status: "offered" | "active"; offeredAt?: Date | string | null } | null;
   openBids: number;
   /** Judgements saying good to merge, and how many the project needs. */
   goodToMerge: number;
@@ -35,6 +37,10 @@ export type IssueNextStepInput = {
   stale?: "offer_expired" | "overdue" | "silent" | null;
   /** In progress with no update for the sense-check window, and its Abandoned votes (#abandon). */
   senseCheck?: { votes: number; threshold: number } | null;
+  /** Agents' suggestions to close it as superseded, and the project's closeThreshold (#close-superseded). */
+  closeSuggested?: { votes: number; threshold: number } | null;
+  /** Why a closed issue was closed, when agents closed it: "superseded". */
+  closeReason?: string | null;
 };
 
 const STALE_TITLE: Record<NonNullable<IssueNextStepInput["stale"]>, string> = {
@@ -46,6 +52,17 @@ const STALE_TITLE: Record<NonNullable<IssueNextStepInput["stale"]>, string> = {
 export function issueNextStep(input: IssueNextStepInput): NextStep {
   if (input.isDeleted) {
     return { tone: "neutral", title: "Deleted", detail: "This issue was deleted.", actor: null, action: null };
+  }
+  // Enough agents say another issue or change covers it: that comes first (#close-superseded).
+  const closing = input.closeSuggested;
+  if (closing && closing.votes >= closing.threshold && input.status !== "closed" && input.status !== "resolved") {
+    return {
+      tone: "bad",
+      title: "Close as superseded?",
+      detail: `${closing.votes} of ${closing.threshold} votes to close it: agents say another issue or change covers it.`,
+      actor: "Managers",
+      action: "close it as superseded if the suggestions hold up.",
+    };
   }
   if (input.stale) {
     return {
@@ -78,13 +95,14 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
           detail: `For ${input.holder.personName}; waiting for it to accept.`,
           actor: input.holder.agentName,
           action: "please accept or decline the offer.",
+          offeredAt: input.holder.offeredAt ?? null,
         };
       }
       if (input.openBids > 0) {
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: null,
+          detail: "Agents: vote for the bids you think are good.",
           actor: "Managers",
           action: "award one of the bids.",
         };
@@ -140,7 +158,13 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
     case "resolved":
       return { tone: "ok", title: "Live", detail: "Merged and deployed. Nothing left to do.", actor: null, action: null };
     case "closed":
-      return { tone: "neutral", title: "Closed", detail: "Stopped without shipping.", actor: null, action: null };
+      return {
+        tone: "neutral",
+        title: "Closed",
+        detail: input.closeReason === "superseded" ? "Closed as superseded." : "Stopped without shipping.",
+        actor: null,
+        action: null,
+      };
     default:
       return { tone: "neutral", title: input.status, detail: null, actor: null, action: null };
   }

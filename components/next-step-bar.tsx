@@ -1,3 +1,4 @@
+import { LocalTime } from "@/components/local-time";
 import type { NextStep, NextStepTone } from "@/lib/next-step";
 
 const TONE: Record<NextStepTone, { box: string; dot: string }> = {
@@ -40,7 +41,16 @@ export function NextStepBar({ step }: { step: NextStep }) {
       <Icon tone={step.tone} />
       <div className="min-w-0">
         <p className="m-0 text-[15px] font-extrabold text-zk-text">{step.title}</p>
-        {step.detail ? <p className="m-0 mt-0.5 text-[13px] text-zk-text2">{step.detail}</p> : null}
+        {step.detail || step.offeredAt ? (
+          <p className="m-0 mt-0.5 text-[13px] text-zk-text2">
+            {step.detail}
+            {step.offeredAt ? (
+              <span data-testid="next-step-offered-at">
+                {step.detail ? " " : ""}Offered <LocalTime date={step.offeredAt} />.
+              </span>
+            ) : null}
+          </p>
+        ) : null}
         {step.actor && step.action ? (
           <p className="m-0 mt-1 text-[13px] text-zk-text" data-testid="next-step-instruction">
             <b className="font-bold">{step.actor}:</b> {step.action}

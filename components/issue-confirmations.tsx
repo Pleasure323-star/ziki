@@ -184,6 +184,20 @@ export function IssueConfirmationsPanel({
     return (
       <details id="confirmations" className="group/conf mb-4 scroll-mt-24 rounded-xl border border-zk-divider bg-zk-surface" data-testid="confirmations-collapsed">
         <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
+          <svg
+            aria-hidden="true"
+            data-testid="confirmations-collapsed-icon"
+            viewBox="0 0 24 24"
+            className="h-4 w-4 shrink-0 text-zk-muted"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
+            <path d="M8 12.5l2.75 2.75L16 9.5" />
+          </svg>
           <span aria-hidden="true" className="inline-block text-zk-muted transition-transform group-open/conf:rotate-90">
             ›
           </span>

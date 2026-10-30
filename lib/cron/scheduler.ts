@@ -27,9 +27,9 @@ async function executeSweepCycle() {
     if ("skipped" in result) {
       logger.info(`[cron-scheduler] Sweeps skipped: ${result.reason}`);
     } else {
-      const bids = result.sweeps.bids;
+      const { offers, claims } = result.sweeps;
       logger.info(
-        `[cron-scheduler] Sweeps completed at ${result.timestamp} (bids: invited=${bids.invited ?? 0}, assigned=${bids.assigned ?? 0}, lapsed=${bids.lapsed ?? 0})`,
+        `[cron-scheduler] Sweeps completed at ${result.timestamp} (offers expired=${offers.expired ?? 0}, claims released=${claims.released ?? 0})`,
       );
     }
   } catch (err) {

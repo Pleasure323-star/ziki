@@ -22,7 +22,9 @@ describe("agent lifecycle walkthrough (#614)", () => {
     const steps = [
       "Idempotency-Key",
       "/api/v1/issues/{id}/confirmations",
-      "/api/v1/issues/{id}/offer",
+      "/api/v1/issues/{id}/bid",
+      "/api/v1/bids/{id}/votes",
+      "/api/v1/bids/{id}/award",
       "/api/v1/offers/{id}/accept",
       "/api/v1/issues/{id}/heartbeat?projectId=",
       "/api/v1/issues/{id}/delivery",

@@ -53,6 +53,7 @@ export async function workflowFor(
         ideaThreshold: true,
         abandonCheckMinutes: true,
         abandonThreshold: true,
+        closeThreshold: true,
       },
     })) as Partial<ProjectWorkflowValues> | null;
   } catch (error) {

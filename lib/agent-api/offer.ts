@@ -3,27 +3,27 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
-import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 import { canAssignTicket } from "@/lib/ticket-assignment";
 import { assigneeChangedSummary, statusChangedSummary } from "@/lib/activity-log";
 import { ensureWatching } from "@/lib/watch";
-import { assertRedesignOpen } from "@/lib/redesigns";
-import { assertApprovalOpen } from "@/lib/approvals";
 import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
-import { hasLevel } from "@/lib/agents/levels";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
+
+/**
+ * Offers (#bids-only-offers). Only a manager (or merger) agent makes an offer,
+ * by awarding a bid (lib/agent-api/bid.ts `awardBid`; the assign route,
+ * lib/agent-api/assign.ts, is the same choice made by name). Nothing offers an
+ * issue automatically or in turn. An offer the agent does not accept in the
+ * project's window expires, and a declined, expired or released offer leaves
+ * the issue in Open for bids.
+ */
 
 /** Pure helper/tests default; requests use the project's offerWindowSeconds. */
 export const OFFER_TTL_MS = DEFAULT_PROJECT_WORKFLOW.offerWindowSeconds * 1000;
 const id = z.string().trim().min(1).max(191);
-export const offerSchema = z.object({ projectId: id.optional() }).strict();
-
-type Db = typeof prisma | Prisma.TransactionClient;
-export type OfferCandidate = { beneficiaryUserId: string; agentId: string; activeClaims: number; lastOfferedAt: Date | null; pendingOffer?: boolean; volunteered?: boolean; areaMatch?: boolean };
 
 export function isOfferExpired(
   offeredAt: Date | null,
@@ -33,22 +33,6 @@ export function isOfferExpired(
   return !offeredAt || now - offeredAt.getTime() >= windowMs;
 }
 
-export function rankOfferCandidates<T extends OfferCandidate>(candidates: T[]): T[] {
-  return [...candidates].sort((a, b) =>
-    (b.volunteered ? 1 : 0) - (a.volunteered ? 1 : 0)
-    || a.activeClaims - b.activeClaims
-    || Number(Boolean(b.areaMatch)) - Number(Boolean(a.areaMatch))
-    || (a.lastOfferedAt?.getTime() ?? Number.NEGATIVE_INFINITY) - (b.lastOfferedAt?.getTime() ?? Number.NEGATIVE_INFINITY)
-    || a.beneficiaryUserId.localeCompare(b.beneficiaryUserId));
-}
-
-export function availableOfferCandidates<T extends OfferCandidate>(
-  candidates: T[],
-  maxActiveClaims = DEFAULT_PROJECT_WORKFLOW.maxActiveClaims,
-): T[] {
-  return rankOfferCandidates(candidates.filter((person) => person.activeClaims < maxActiveClaims && !person.pendingOffer));
-}
-
 /**
  * Offers have a durable due date (`offeredAt + the project's offerWindowSeconds`) swept by the platform runner (#647).
  * Replaces in-process setTimeout so serverless and multi-instance deploys do not rely on dying timers (#527, #647).
@@ -56,140 +40,6 @@ export function availableOfferCandidates<T extends OfferCandidate>(
 export function scheduleOfferExpiry(claimId?: string): void {
   void claimId;
   // Expiry is handled by sweepExpiredOffers on the scheduled runner.
-}
-
-/** Picks by active workload, then by who has waited longest since their last offer.
- * Exported for the stale-claim sweep (#524), which re-offers a reopened issue with no agent caller. */
-export async function offerNext(db: Db, caller: { agentId?: string; tenantId: string; ownerId?: string; level?: AgentContext["level"] }, bug: { id: string; projectId: string; title: string; assigneeId?: string | null; areaId?: string | null }, excludeUserIds: string[] = []) {
-  // Lock the Bug row first to serialize offer creation on this issue across concurrent calls (#680).
-  await db.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR NO KEY UPDATE`;
-  const workflow = await workflowFor(bug.projectId, db);
-  const offerWindowMs = workflow.offerWindowSeconds * 1000;
-
-  const existingOffer = await db.issueClaim.findFirst({
-    where: {
-      bugId: bug.id,
-      releasedAt: null,
-      OR: [
-        { status: "active" },
-        { status: "offered", offeredAt: { gt: new Date(Date.now() - offerWindowMs) } },
-      ],
-    },
-    select: { id: true },
-  });
-  if (existingOffer) return null;
-  const memberships = await db.membership.findMany({
-    where: {
-      tenantId: caller.tenantId,
-      user: { agents: { some: { tenantId: caller.tenantId, revokedAt: null } } },
-    },
-    select: { userId: true, user: { select: { agents: {
-      where: { tenantId: caller.tenantId, revokedAt: null },
-      orderBy: { createdAt: "asc" }, select: {
-        id: true,
-        areaPreferences: { where: { projectAreaId: bug.areaId ?? "" }, select: { projectAreaId: true } },
-      },
-    } } } },
-  });
-  const people = memberships.flatMap((m) => {
-    if (!m.user.agents.length || excludeUserIds.includes(m.userId) || (bug.assigneeId && bug.assigneeId !== m.userId)) return [];
-    const preferred = bug.areaId ? m.user.agents.find((agent) => agent.areaPreferences.length > 0) : undefined;
-    const selected = preferred ?? m.user.agents[0];
-    return [{ beneficiaryUserId: m.userId, agentId: selected.id, areaMatch: Boolean(preferred) }];
-  });
-  if (!people.length) return null;
-
-  const active = await db.issueClaim.groupBy({
-    by: ["beneficiaryUserId"],
-    where: { beneficiaryUserId: { in: people.map((p) => p.beneficiaryUserId) }, releasedAt: null, status: "active", bug: { tenantId: caller.tenantId, projectId: bug.projectId } },
-    _count: { _all: true },
-  });
-  const counts = new Map(active.map((row) => [row.beneficiaryUserId, row._count._all]));
-  const offers = await db.issueClaim.groupBy({
-    by: ["beneficiaryUserId"],
-    where: { beneficiaryUserId: { in: people.map((p) => p.beneficiaryUserId) }, offeredAt: { not: null }, bug: { tenantId: caller.tenantId } },
-    _max: { offeredAt: true },
-  });
-  const lastOffered = new Map(offers.map((row) => [row.beneficiaryUserId, row._max.offeredAt]));
-
-  const pendingCutoff = new Date(Date.now() - offerWindowMs);
-  const pending = await db.issueClaim.groupBy({
-    by: ["beneficiaryUserId"],
-    where: {
-      beneficiaryUserId: { in: people.map((p) => p.beneficiaryUserId) },
-      status: "offered",
-      releasedAt: null,
-      offeredAt: { gt: pendingCutoff },
-      bug: { tenantId: caller.tenantId },
-    },
-  });
-  const pendingPeople = new Set(pending.map((row) => row.beneficiaryUserId));
-  const candidates: OfferCandidate[] = people.map((p) => ({
-    ...p, activeClaims: counts.get(p.beneficiaryUserId) ?? 0,
-    lastOfferedAt: lastOffered.get(p.beneficiaryUserId) ?? null,
-    pendingOffer: pendingPeople.has(p.beneficiaryUserId),
-    areaMatch: p.areaMatch,
-  }));
-
-  const next = availableOfferCandidates(candidates, workflow.maxActiveClaims)[0];
-  if (!next) return null;
-
-  // Lock only the chosen member (#544) instead of looping over every member.
-  await db.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${next.beneficiaryUserId} FOR NO KEY UPDATE`;
-  try {
-    const claim = await db.issueClaim.create({ data: {
-      bugId: bug.id, beneficiaryUserId: next.beneficiaryUserId, agentId: next.agentId, status: "offered", offeredAt: new Date(),
-      ...(caller.level && hasLevel(caller.level, "manager") && caller.ownerId ? { dispatcherUserId: caller.ownerId } : {}),
-    } });
-    const event = await publish(db, { tenantId: caller.tenantId, type: "claim.offered", actorAgentId: caller.agentId, bugId: bug.id,
-      payload: { claimId: claim.id, issueId: bug.id, projectId: bug.projectId, beneficiaryUserId: next.beneficiaryUserId, expiresAt: new Date(claim.offeredAt!.getTime() + offerWindowMs).toISOString() } });
-    return { claim, beneficiaryUserId: next.beneficiaryUserId, bugTitle: bug.title, eventId: event.id };
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-export async function offerIssue(agent: AgentContext, projectId: string, bugId: string) {
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${agent.tenantId} AND "projectId" = ${projectId} AND "isDeleted" = false FOR UPDATE`;
-      if (!locked.length) throw new IssueApiError(404, "Issue not found in this project.");
-      const bug = await tx.bug.findFirst({ where: { id: bugId, tenantId: agent.tenantId, projectId, isDeleted: false }, select: { id: true, title: true, projectId: true, status: true, assigneeId: true, areaId: true, voteCount: true } });
-      if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
-      if (bug.status !== "open") throw new IssueApiError(409, "Only open issues can be offered.");
-      if (!await isConfirmed(bugId, tx)) throw new IssueApiError(409, "The issue must be confirmed before it can be offered.");
-      await assertRedesignOpen(bugId, tx);
-      await assertApprovalOpen(bugId, "before_offer", { db: tx, tenantId: agent.tenantId, agent });
-      const current = await tx.issueClaim.findFirst({ where: { bugId, releasedAt: null } });
-      if (current) {
-        // The project's offer window, as the expiry sweep and accept use.
-        const { offerWindowSeconds } = await workflowFor(projectId, tx);
-        if (current.status === "offered" && !isOfferExpired(current.offeredAt, Date.now(), offerWindowSeconds * 1000)) {
-          return { claim: current, beneficiaryUserId: current.beneficiaryUserId, bugTitle: bug.title, created: false };
-        }
-        if (current.status === "active") throw new IssueApiError(409, "This issue already has an active claim.");
-        await tx.issueClaim.update({ where: { id: current.id }, data: { status: "released", releasedAt: new Date(), releaseReason: "expired" } });
-        await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId,
-          payload: { claimId: current.id, issueId: bugId, reason: "expired" } });
-      }
-      const next = await offerNext(tx, agent, bug);
-      if (!next) throw new IssueApiError(409, "No eligible person is available for this offer.");
-      return { ...next, created: true };
-    });
-    if (result.created) {
-      notifyClaimOffered({ id: result.claim.id, bugId, bugTitle: result.bugTitle, beneficiaryUserId: result.beneficiaryUserId });
-      scheduleOfferExpiry(result.claim.id);
-    }
-    return result.claim;
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      throw new IssueApiError(409, "This issue already has an active claim or pending offer.");
-    }
-    throw error;
-  }
 }
 
 /** Durable expiry state is checked here and again on acceptance after restarts. Returns true if expired. */
@@ -207,25 +57,10 @@ export async function expireOffer(claimId: string): Promise<boolean> {
     await tx.issueClaim.update({ where: { id: claimId }, data: { status: "released", releasedAt: now, releaseReason: "expired" } });
     await publish(tx, { tenantId: fresh.bug.tenantId, type: "claim.released", actorAgentId: fresh.agentId, bugId: fresh.bugId,
       payload: { claimId, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "expired" } });
-    const hasPendingBids = await (tx.issueBid?.findFirst
-      ? tx.issueBid.findFirst({
-          where: { bugId: fresh.bugId, withdrawnAt: null, awardedAt: null },
-          select: { id: true },
-        })
-      : null);
-    const next = hasPendingBids
-      ? null
-      : await offerNext(tx, { tenantId: fresh.bug.tenantId }, fresh.bug);
-    return { released: true, next };
+    // The issue stays Open for bids; nobody is offered it in turn.
+    return { released: true };
   });
-  if (result) {
-    if (result.next) {
-      notifyClaimOffered({ id: result.next.claim.id, bugId: result.next.claim.bugId, bugTitle: result.next.bugTitle, beneficiaryUserId: result.next.beneficiaryUserId });
-      scheduleOfferExpiry(result.next.claim.id);
-    }
-    return true;
-  }
-  return false;
+  return Boolean(result);
 }
 
 /**
@@ -288,8 +123,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "expired" } });
         await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId: fresh.bugId,
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "expired" } });
-        const next = await offerNext(tx, agent, fresh.bug);
-        return { expired: true as const, next, bugId: fresh.bugId };
+        return { expired: true as const };
       }
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${fresh.beneficiaryUserId} FOR UPDATE`;
       const activeClaims = await tx.issueClaim.count({ where: {
@@ -300,8 +134,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "capacity" } });
         await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId: fresh.bugId,
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "capacity" } });
-        const next = await offerNext(tx, agent, fresh.bug);
-        return { unavailable: true as const, next, bugId: fresh.bugId };
+        return { unavailable: true as const };
       }
       if (fresh.bug.status !== "open" || !canAssignTicket({ actorId: fresh.beneficiaryUserId, actorRole: "user", currentAssigneeId: fresh.bug.assigneeId, targetAssigneeId: fresh.beneficiaryUserId, claimed: true })) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "unavailable" } });
@@ -326,17 +159,9 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
       return { expired: false as const, claim: { ...fresh, status: "active", claimedAt: now, deliverBy }, issue };
     }, { maxWait: 10000, timeout: 15000 });
     if ("expired" in result && result.expired) {
-      if (result.next) {
-        notifyClaimOffered({ id: result.next.claim.id, bugId: result.bugId, bugTitle: result.next.bugTitle, beneficiaryUserId: result.next.beneficiaryUserId });
-        scheduleOfferExpiry(result.next.claim.id);
-      }
       throw new IssueApiError(410, "This offer expired and has been released.");
     }
     if ("unavailable" in result) {
-      if ("next" in result && result.next) {
-        notifyClaimOffered({ id: result.next.claim.id, bugId: result.bugId, bugTitle: result.next.bugTitle, beneficiaryUserId: result.next.beneficiaryUserId });
-        scheduleOfferExpiry(result.next.claim.id);
-      }
       throw new IssueApiError(409, "The issue can no longer be assigned to this person.");
     }
     return result;
@@ -356,8 +181,8 @@ export const releaseSchema = z.object({
 
 /**
  * An agent gives back an issue it holds (#547): declines a pending offer, or
- * releases an active claim it can't finish. Either way the issue goes to the
- * next person, without waiting for an offer to expire or a heartbeat to lapse.
+ * releases an active claim it can't finish, without waiting for an offer to
+ * expire or a heartbeat to lapse.
  *
  * - Only the agent holding the offer or claim can release it.
  * - releaseReason is "declined" for an offer and "agent" for an active claim.
@@ -365,11 +190,11 @@ export const releaseSchema = z.object({
  *   penalised the way going quiet is.
  * - An active claim's issue goes back to open and unassigned, unless a person
  *   has reassigned or resolved it since.
- * - The issue is then offered to someone else (never straight back to the
- *   same person), if it is still open and confirmed.
+ * - Nobody is offered it in turn: the issue waits in Open for bids, and a
+ *   manager agent awards one.
  */
 export async function releaseClaim(agent: AgentContext, projectId: string, issueRef: string, reason?: string) {
-  const result = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     // #605: the path may be the readable number (`123`, `ZE-123`) or the id, as on reads.
     const ref = parseIssueRef(issueRef);
     const bugId = ref.kind === "id" ? ref.id : (await resolveIssueRef(tx, ref, { tenantId: agent.tenantId }))?.id;
@@ -405,18 +230,6 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
     await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId,
       payload: { claimId: claim.id, issueId: bugId, beneficiaryUserId: claim.beneficiaryUserId, reason: releaseReason, ...(reason ? { note: reason } : {}) } });
 
-    const stillOpen = claim.status === "offered" ? bug.status === "open" : reopened;
-    const next = stillOpen && (await isConfirmed(bugId, tx))
-      ? await offerNext(tx, agent, { ...bug, assigneeId: null }, [claim.beneficiaryUserId])
-      : null;
-    return {
-      released: { claimId: claim.id, issueId: bugId, reason: releaseReason, reopened: claim.status === "active" ? reopened : false },
-      next,
-    };
+    return { claimId: claim.id, issueId: bugId, reason: releaseReason, reopened: claim.status === "active" ? reopened : false };
   }, { maxWait: 10000, timeout: 15000 });
-  if (result.next) {
-    notifyClaimOffered({ id: result.next.claim.id, bugId: result.released.issueId, bugTitle: result.next.bugTitle, beneficiaryUserId: result.next.beneficiaryUserId });
-    scheduleOfferExpiry(result.next.claim.id);
-  }
-  return { ...result.released, reofferedTo: result.next?.beneficiaryUserId ?? null };
 }

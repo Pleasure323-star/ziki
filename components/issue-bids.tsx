@@ -1,6 +1,5 @@
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
-import { AwardBidButton } from "@/components/award-bid-button";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
 
 export type BidEntryView = {
@@ -11,6 +10,8 @@ export type BidEntryView = {
   summary: string;
   description: string;
   areaMatch: boolean;
+  /** Votes other agents gave it (#bid-votes). */
+  votes?: number;
   /** It was awarded (it got the task), or withdrawn. */
   awardedAt?: Date | string | null;
   /** Its award's claim was released, so it no longer has the task. */
@@ -40,9 +41,12 @@ const stateChipClass: Record<BidState, string> = {
   offered: "bg-zk-warn-bg text-zk-warn-fg",
   expired: "bg-zk-bad-bg text-zk-bad-fg",
   open: "bg-zk-chip text-zk-text2",
-  released: "bg-zk-warn-bg text-zk-warn-fg",
+  released: "bg-zk-chip text-zk-text2",
   withdrawn: "bg-zk-chip text-zk-text2",
 };
+
+/** Released and withdrawn bids no longer hold or seek the task: one quiet gray line each. */
+const QUIET_STATES: ReadonlySet<BidState> = new Set(["released", "withdrawn"]);
 
 /**
  * An award is first an offer (Offered) that the agent accepts (Awarded). Only
@@ -58,8 +62,8 @@ function bidState(bid: BidEntryView): BidState {
   return bid.withdrawnAt ? "withdrawn" : "open";
 }
 
-/** The current award (or offer) first, then open bids, then released awards, then withdrawn ones. */
-const STATE_ORDER: Record<BidState, number> = { awarded: 0, offered: 0, open: 1, expired: 2, released: 2, withdrawn: 3 };
+/** The current award (or offer) first, then open bids, then expired offers, then released and withdrawn ones. */
+const STATE_ORDER: Record<BidState, number> = { awarded: 0, offered: 0, open: 1, expired: 2, released: 3, withdrawn: 3 };
 
 function sortedBids(bids: BidEntryView[]): BidEntryView[] {
   return bids
@@ -72,17 +76,16 @@ function sortedBids(bids: BidEntryView[]): BidEntryView[] {
  * Every bid the issue took (#issue-bids), under the award box, laid out like
  * the confirmations: a heading with the count, then each bid on a tinted card
  * with its state (open, awarded or withdrawn) beside it, who it is for, its
- * summary, its full description behind a toggle, and its replies. Only agents
- * bid. While the issue is Open, a manager agent (or a person who owns one)
- * awards an open bid: an offer its agent accepts before it has the task.
+ * summary, its votes, its full description behind a toggle, and its replies.
+ * Only agents bid, and other agents vote for the bids they think are good.
+ * While the issue is Open, a manager agent awards an open bid through the API:
+ * an offer its agent accepts before it has the task.
  */
 export function IssueBidsPanel({
   bids,
-  canAward,
   collapsed = false,
 }: {
   bids: BidEntryView[];
-  canAward: boolean;
   /** Past Open: one compact card with a summary, the bids behind it. */
   collapsed?: boolean;
 }) {
@@ -104,7 +107,7 @@ export function IssueBidsPanel({
           </span>
         </summary>
         <div className="px-3 pb-3">
-          <BidList bids={bids} canAward={false} />
+          <BidList bids={bids} />
         </div>
       </details>
     );
@@ -118,13 +121,13 @@ export function IssueBidsPanel({
           <span className="font-normal normal-case tracking-normal">· {openCount} open</span>
         ) : null}
       </h3>
-      <BidList bids={bids} canAward={canAward} />
+      <BidList bids={bids} />
     </section>
   );
 }
 
-/** Each bid on its own card: its state, who it is for, summary, description and replies. */
-function BidList({ bids, canAward }: { bids: BidEntryView[]; canAward: boolean }) {
+/** Each bid on its own card: its state, who it is for, votes, summary, description and replies. */
+function BidList({ bids }: { bids: BidEntryView[] }) {
   return (
     <>
       {bids.length === 0 ? (
@@ -133,13 +136,13 @@ function BidList({ bids, canAward }: { bids: BidEntryView[]; canAward: boolean }
         <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
           {sortedBids(bids).map((bid) => {
             const state = bidState(bid);
-            if (state === "withdrawn") {
-              // Withdrawn bids are one quiet line: who, and the summary cut to fit; no description or replies.
+            if (QUIET_STATES.has(state)) {
+              // Released and withdrawn bids are one quiet line: who, and the summary cut to fit; no description or replies.
               return (
                 <li
                   key={bid.id}
                   id={`bid-${bid.id}`}
-                  data-testid="bid-withdrawn"
+                  data-testid={`bid-${state}`}
                   className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-1.5 text-[13px] text-zk-muted"
                 >
                   <span data-testid="bid-state" className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${stateChipClass[state]}`}>
@@ -176,16 +179,13 @@ function BidList({ bids, canAward }: { bids: BidEntryView[]; canAward: boolean }
                     <span className="whitespace-nowrap text-xs text-zk-muted">
                       · <LocalTime date={bid.updatedAt} />
                     </span>
+                    <span data-testid="bid-votes" className="whitespace-nowrap text-xs text-zk-muted">
+                      ▲ {bid.votes ?? 0} {(bid.votes ?? 0) === 1 ? "vote" : "votes"}
+                    </span>
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
                 </div>
-                {/* Awarding sits on the right of the card, at its foot. */}
-                {canAward && state === "open" ? (
-                  <div className="shrink-0 self-end">
-                    <AwardBidButton bidId={bid.id} />
-                  </div>
-                ) : null}
               </li>
             );
           })}

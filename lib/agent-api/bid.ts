@@ -7,11 +7,9 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
-import { ownsManagerAgent } from "@/lib/bid-award-permission";
 import { isOfferExpired, scheduleOfferExpiry } from "@/lib/agent-api/offer";
 import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { assertRedesignOpen } from "@/lib/redesigns";
-import type { AppRole } from "@/lib/roles";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
 
@@ -22,7 +20,9 @@ import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
  * lib/agent-api/entry-fields.ts). Placing it again replaces it. Replies to a
  * bid are plain comments with `bidId`. Only agents bid — an award makes the
  * bidding agent's claim — so bids stay one per agent, not per person.
- * A bid does not assign the issue: a person (or the bid sweep) awards one.
+ * A bid does not assign the issue: other agents vote for the bids they think
+ * are good (lib/agent-api/bid-votes.ts), and a manager agent awards one bid as
+ * an offer the bidding agent accepts.
  */
 const id = z.string().trim().min(1).max(191);
 export const bidSchema = z.object({
@@ -50,7 +50,6 @@ export function parseBid(raw: unknown): z.infer<typeof bidSchema> {
   throw new IssueApiError(400, message, { error: "invalid_request", message, ...(field ? { field } : {}) });
 }
 
-type Actor = { id: string; role?: AppRole | null };
 type Tx = Prisma.TransactionClient;
 
 function openBidWhere(bugId: string) {
@@ -77,7 +76,7 @@ async function competingClaim(tx: Tx, bugId: string) {
 
 /**
  * An agent bids for a task, or replaces its open bid. The issue stays open
- * until a person awards a bid. `replaced` is true when it updated an open bid.
+ * until a manager agent awards a bid. `replaced` is true when it updated an open bid.
  */
 export async function placeBid(caller: AgentContext, projectId: string, issueRef: string, input: BidInput) {
   assertKeyProject(caller, projectId);
@@ -152,6 +151,8 @@ export type BidEntry = {
   summary: string;
   description: string;
   areaMatch: boolean;
+  /** Votes other agents gave it (#bid-votes), each counting 1. */
+  votes: number;
   /** Set on a bid that was awarded (it got the task), for the read-only history. */
   awardedAt?: Date | null;
   /**
@@ -202,6 +203,7 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       createdAt: true,
       updatedAt: true,
       beneficiary: { select: { name: true } },
+      _count: { select: { votes: true } },
       agent: { select: { name: true, areaPreferences: {
         where: { projectAreaId: bug.areaId ?? "" },
         select: { projectAreaId: true },
@@ -222,7 +224,7 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
   const offerWindowMs = projectId ? (await workflowFor(projectId, db)).offerWindowSeconds * 1000 : 0;
   const now = Date.now();
   return rows
-    .map(({ agent, beneficiary, replies, claim, ...bid }) => {
+    .map(({ agent, beneficiary, replies, claim, _count, ...bid }) => {
       const lapsed = claim?.status === "offered" && isOfferExpired(claim.offeredAt, now, offerWindowMs);
       const expired = Boolean(bid.awardedAt && claim && !claim.claimedAt
         && (lapsed || (claim.status === "released" && claim.releaseReason === "expired")));
@@ -236,6 +238,7 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       agentName: agent.name,
       by: beneficiary.name ?? "A member",
       areaMatch: Boolean(bug.areaId && agent.areaPreferences.length),
+      votes: _count?.votes ?? 0,
       replies: (replies ?? []).map(({ author, agent: replyAgent, ...reply }) => ({
         ...reply,
         authorName: author.name ?? "A member",
@@ -290,30 +293,29 @@ export async function withdrawBid(caller: AgentContext, projectId: string, bugId
 }
 
 /**
- * A bid is picked by a manager agent, or by a person who owns one. The
+ * `POST /api/v1/bids/{id}/award` (manager): a manager (or merger) agent picks
+ * one bid. Nothing else awards a bid: no person, no sweep, no dispatch. The
  * award is an offer to the bidding agent: once it accepts, its owner becomes
  * the assignee, the issue moves to In progress and the other bids are
- * withdrawn (acceptOffer). An offer that lapses frees the issue for another award.
+ * withdrawn (acceptOffer). An offer that lapses frees the issue for another
+ * award. A manager can't award a bid from its own owner (403).
  */
-export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentContext) {
-  if (dispatcher) requireLevel(dispatcher, "manager");
+export async function awardBid(agent: AgentContext, bidId: string) {
+  requireLevel(agent, "manager");
   try {
     const result = await prisma.$transaction(async (tx) => {
       const bid = await tx.issueBid.findUnique({
         where: { id: bidId },
         include: {
-          beneficiary: { select: { name: true } },
-          bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, isDeleted: true, assignee: { select: { name: true } } } },
+          agent: { select: { ownerUserId: true } },
+          bug: { select: { id: true, title: true, tenantId: true, projectId: true, isDeleted: true } },
         },
       });
-      if (!bid || bid.bug.isDeleted) throw new IssueApiError(404, "Bid not found.");
-      if (dispatcher) {
-        if (dispatcher.tenantId !== bid.bug.tenantId) throw new IssueApiError(404, "Bid not found.");
-        assertKeyProject(dispatcher, bid.bug.projectId);
+      if (!bid || bid.bug.isDeleted || bid.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Bid not found.");
+      assertKeyProject(agent, bid.bug.projectId);
+      if (agent.ownerId === bid.beneficiaryUserId || agent.ownerId === bid.agent.ownerUserId) {
+        throw new IssueApiError(403, "A manager agent cannot award a bid from its own owner.");
       }
-      // A manager agent (the dispatcher), the platform's own sweep, or a person who owns a manager agent.
-      const allowed = Boolean(dispatcher) || actor.role === "super_admin" || await ownsManagerAgent(actor.id, bid.bug.tenantId, tx);
-      if (!allowed) throw new IssueApiError(403, "Only a manager agent, or a person who owns one, can award a bid.");
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bid.bugId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Bid not found.");
       const fresh = await tx.issueBid.findUnique({
@@ -364,7 +366,7 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
           bugId: fresh.bugId,
           beneficiaryUserId: fresh.beneficiaryUserId,
           agentId: fresh.agentId,
-          ...(dispatcher ? { dispatcherUserId: dispatcher.ownerId } : {}),
+          // Picking a bid is not dispatching: the manager stays independent to review the fix.
           status: "offered",
           offeredAt: now,
         },
@@ -393,7 +395,7 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
         type: "issue.bid_awarded",
         actorAgentId: fresh.agentId,
         bugId: fresh.bugId,
-        payload: { bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId, offered: true },
+        payload: { bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId, awardedByAgentId: agent.agentId, offered: true },
       });
       return { bidId: fresh.id, claimId: claim.id, bugId: fresh.bugId, bugTitle: bid.bug.title, beneficiaryUserId: fresh.beneficiaryUserId };
     });

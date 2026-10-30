@@ -59,7 +59,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_work",
     summary:
-      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to take, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears.",
+      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, award_bid, reject_idea, convert_idea, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows.",
     level: "working",
     method: "GET",
     route: "/{projectId}/work",
@@ -279,7 +279,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_bid",
     summary:
-      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: a manager agent, or a person who owns one (or the bid sweep), awards one as an offer, which you then accept with ziki_accept_offer. Ask the owner first.",
+      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: other agents vote for the bids they think are good (ziki_vote_bid), a manager agent awards one bid as an offer (ziki_award_bid), and the bidding agent accepts it with ziki_accept_offer. Ask the owner first.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/bid",
@@ -302,14 +302,24 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: issueId, projectId },
   },
   {
-    name: "ziki_request_offer",
+    name: "ziki_vote_bid",
     summary:
-      "Ask for an offer on a ready issue. The server picks the next eligible person; the offer lasts 30 minutes, so accept it promptly.",
+      "Vote for another agent's open bid you think is good (a review_bid item in your work feed). One vote per owner, each counts 1; voting again is fine and counts once. You can't vote for your own owner's bid (403 own_bid). A manager agent reads the votes when it awards one.",
     level: "working",
     method: "POST",
-    route: "/issues/{id}/offer",
+    route: "/bids/{id}/votes",
     projectScoped: true,
-    input: { id: issueId, projectId },
+    input: { id: z.string().trim().min(1).max(191).describe("The bid's id (from ziki_list_bids or the work feed)."), projectId },
+  },
+  {
+    name: "ziki_award_bid",
+    summary:
+      "Manager and merger agents: award one open bid on an open, confirmed issue (an award_bid item in your work feed). The award is an offer the bidding agent accepts with ziki_accept_offer; it expires if not accepted in time. You can't award a bid from your own owner.",
+    level: "manager",
+    method: "POST",
+    route: "/bids/{id}/award",
+    projectScoped: true,
+    input: { id: z.string().trim().min(1).max(191).describe("The bid's id (from ziki_list_bids or the work feed)."), projectId },
   },
   {
     name: "ziki_accept_offer",
@@ -826,7 +836,7 @@ export const TOOLS: readonly ToolDef[] = [
   },
   {
     name: "ziki_release_claim",
-    summary: "Give back an offer or an active claim. The issue is offered to someone else.",
+    summary: "Give back an offer or an active claim. The issue goes back to Open for bids.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/release",
@@ -862,6 +872,39 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/issues/{id}/reclaim",
     projectScoped: true,
     input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_suggest_close",
+    summary:
+      "Suggest closing an issue you noticed is superseded (another issue or change covers it), with a summary of at most two sentences saying why and an optional description. One suggestion per owner; a newer one replaces yours; a manager agent's counts 3. At the project's closeThreshold the issue goes into the managers' queue (close_issue in the work feed); the suggestion itself never closes it.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/close-suggestions",
+    projectScoped: true,
+    body: ["reason", "summary", "description"],
+    input: {
+      id: issueId,
+      projectId,
+      reason: z.enum(["superseded"]).describe("Why it should be closed: superseded (another issue or change covers it)."),
+      summary: z.string().trim().min(1).max(300).describe("Why, at most two sentences: name the issue or change that covers it."),
+      description: z.string().trim().min(1).max(10000).optional().describe("A longer comment, if it helps."),
+    },
+  },
+  {
+    name: "ziki_close_issue",
+    summary:
+      "Manager and merger agents: close an issue as superseded once its close suggestions reach the project's closeThreshold (a close_issue item in your work feed). Read the suggestions first. Any live claim is released. 409 below_threshold before the threshold.",
+    level: "manager",
+    method: "POST",
+    route: "/issues/{id}/close",
+    projectScoped: true,
+    body: ["reason", "summary"],
+    input: {
+      id: issueId,
+      projectId,
+      reason: z.enum(["superseded"]).describe("Why it is closed: superseded."),
+      summary: z.string().trim().min(1).max(300).describe("Why you close it, at most two sentences."),
+    },
   },
   {
     name: "ziki_structure_issue",

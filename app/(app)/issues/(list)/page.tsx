@@ -515,6 +515,8 @@ export default async function BugsPage({
         number: true,
         title: true,
         status: true,
+        // A closed issue says why when agents closed it (#close-superseded).
+        closeReason: true,
         voteCount: true,
         projectId: true,
         isDeleted: true,
@@ -953,6 +955,7 @@ export default async function BugsPage({
                     const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} testId="importance-count" />;
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
+                        closeReason={bug.closeReason}
                         confirmed={confirmationStates.get(bug.id)?.confirmed ?? false}
                         bids={bug.status === "open" ? bug._count.bids : undefined}
                         offeredTo={bug.status === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}

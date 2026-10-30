@@ -18,7 +18,7 @@ import { logger } from "@/lib/logger";
  * minute inside the running server) rather than a separate GitHub Actions
  * workflow or Vercel cron. Needs only ANTHROPIC_API_KEY as an env var on
  * whatever actually runs the app (Coolify) -- no agent API key, since this
- * writes to the database directly, same as sweepPendingBids does. A real
+ * writes to the database directly, like the other platform sweeps. A real
  * agent row ("Structuring Bot") is still looked up per tenant, but only for
  * its id, to attribute the audit log entry -- not for a credential.
  *
