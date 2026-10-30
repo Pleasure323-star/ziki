@@ -355,7 +355,7 @@ describe("issue list layout", () => {
     const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toMatch(/class="issues-status-nav min-w-0"/);
     expect(nav).not.toContain("ml-auto");
-    const labels = [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">/g)].map((m) => m[1]);
+    const labels = [...nav.matchAll(/<span class="issues-status-label">([A-Za-z ]+)<\/span><span class="issues-status-count">/g)].map((m) => m[1]);
     expect(labels).toEqual(["Ideas", "Requires confirmation", "Open", "In progress", "Done", "Ready to merge", "Live", "Closed", "All"]);
     const ideas = nav.match(/<a [^>]*data-testid="ideas-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
     expect(ideas).toMatch(/href="\/issues"/);
@@ -501,7 +501,7 @@ describe("issue list layout", () => {
     const html = await renderList({ status: "all" });
     const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     const counts = Object.fromEntries(
-      [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
+      [...nav.matchAll(/<span class="issues-status-label">([A-Za-z ]+)<\/span><span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
     );
     expect(counts).toEqual({ Ideas: 4, "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to merge": 1, Live: 7, Closed: 3, All: 28 });
   });

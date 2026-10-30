@@ -865,14 +865,14 @@ export default async function BugsPage({
                 <li>
                   <Link href={statusHref(null)} aria-current={isIdeasView ? "page" : undefined} data-testid="ideas-tab">
                     <span className="issues-status-dot issues-status-ideas" aria-hidden="true" />
-                    Ideas<span className="issues-status-count">{ideasCount}</span>
+                    <span className="issues-status-label">Ideas</span><span className="issues-status-count">{ideasCount}</span>
                   </Link>
                 </li>
                 {STATUS_TABS.map(({ value, label }) => (
                   <li key={value}>
                     <Link href={statusHref(value)} aria-current={(value === ALL_STATUS ? allSelected : value === statusParam) ? "page" : undefined}>
                       <span className={`issues-status-dot issues-status-${value}`} aria-hidden="true" />
-                      {label}<span className="issues-status-count">{tabCount(value)}</span>
+                      <span className="issues-status-label">{label}</span><span className="issues-status-count">{tabCount(value)}</span>
                     </Link>
                   </li>
                 ))}
