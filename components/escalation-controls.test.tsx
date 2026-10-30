@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -77,7 +77,11 @@ describe("QuickResolveButtons refused action (Ziki #538)", () => {
 
     expect((await screen.findByRole("alert")).textContent).toBe("This question was already answered.");
     expect(onResolved).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /approve & unblock/i })).toHaveProperty("disabled", false);
+    // The error is set inside the transition, so the alert can show while the
+    // button is still pending ("Unblocking…"); wait for the transition to end.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /approve & unblock/i })).toHaveProperty("disabled", false),
+    );
   });
 
   it("clears the error when a retry succeeds", async () => {
@@ -92,7 +96,10 @@ describe("QuickResolveButtons refused action (Ziki #538)", () => {
     await user.click(screen.getByRole("button", { name: /authorize work/i }));
     expect(await screen.findByRole("alert")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /authorize work/i }));
+    // Retry once the first transition has ended; a pending button ignores the click.
+    const retry = screen.getByRole("button", { name: /authorize work/i });
+    await waitFor(() => expect(retry).toHaveProperty("disabled", false));
+    await user.click(retry);
     await vi.waitFor(() => expect(onResolved).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("alert")).toBeNull();
   });
