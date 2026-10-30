@@ -23,12 +23,15 @@ export function PlatformMenu({
   current,
   className = "",
   compact = false,
+  iconOnly = false,
 }: {
   tabs: PlatformTab[];
   current?: string | null;
   className?: string;
   /** In the search/filter/sort row: a 44px round button, icon-only on phones. */
   compact?: boolean;
+  /** Just the platform icon, a dot when filtered; the choices open below it. */
+  iconOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -67,9 +70,12 @@ export function PlatformMenu({
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
-        title={compact ? `Platform: ${selected.name}` : undefined}
+        aria-label={iconOnly ? `Platform: ${selected.name}` : undefined}
+        title={compact || iconOnly ? `Platform: ${selected.name}` : undefined}
         className={`relative inline-flex items-center gap-2 border text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue ${
-          compact ? "h-8 rounded-lg text-[13px] max-sm:w-8 max-sm:justify-center sm:px-3" : "h-10 rounded-full px-4"
+          iconOnly
+            ? "h-8 w-8 justify-center rounded-lg"
+            : compact ? "h-8 rounded-lg text-[13px] max-sm:w-8 max-sm:justify-center sm:px-3" : "h-10 rounded-full px-4"
         } ${
           filtered
             ? "border-zk-accent bg-zk-tint text-zk-accent"
@@ -80,15 +86,19 @@ export function PlatformMenu({
           <rect x="3" y="4" width="18" height="12" rx="2" />
           <path d="M8 20h8M12 16v4" />
         </svg>
-        <span className={compact ? "max-sm:sr-only" : ""}>
-          Platform: <span className="font-semibold">{selected.name}</span>
-        </span>
-        <span className={`rounded-full bg-zk-chip px-1.5 font-mono text-xs tabular-nums text-zk-muted ${compact ? "max-sm:hidden" : ""}`}>{selected.count}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className={`text-zk-muted ${compact ? "max-sm:hidden" : ""}`}>
-          <path d={open ? "m18 15-6-6-6 6" : "m6 9 6 6 6-6"} />
-        </svg>
-        {compact && filtered ? (
-          <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-zk-surface bg-electric-blue-strong sm:hidden" />
+        {iconOnly ? null : (
+          <>
+            <span className={compact ? "max-sm:sr-only" : ""}>
+              Platform: <span className="font-semibold">{selected.name}</span>
+            </span>
+            <span className={`rounded-full bg-zk-chip px-1.5 font-mono text-xs tabular-nums text-zk-muted ${compact ? "max-sm:hidden" : ""}`}>{selected.count}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className={`text-zk-muted ${compact ? "max-sm:hidden" : ""}`}>
+              <path d={open ? "m18 15-6-6-6 6" : "m6 9 6 6 6-6"} />
+            </svg>
+          </>
+        )}
+        {(compact || iconOnly) && filtered ? (
+          <span aria-hidden="true" className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-zk-surface bg-electric-blue-strong ${iconOnly ? "" : "sm:hidden"}`} />
         ) : null}
       </button>
       {/* Always rendered so the choices are real links in the page; hidden while closed. */}
@@ -96,7 +106,7 @@ export function PlatformMenu({
           id={menuId}
           aria-label="Platforms"
           hidden={!open}
-          className={`absolute right-0 top-12 z-30 w-60 max-w-[calc(100vw-2rem)] ${compact ? "max-sm:right-auto max-sm:left-1/2 max-sm:-translate-x-1/2" : ""} rounded-2xl border border-zk-border bg-zk-surface p-1.5 shadow-[0_16px_40px_rgba(11,23,51,0.16)]`}
+          className={`absolute right-0 ${iconOnly ? "top-10" : "top-12"} z-30 w-60 max-w-[calc(100vw-2rem)] ${compact ? "max-sm:right-auto max-sm:left-1/2 max-sm:-translate-x-1/2" : ""} rounded-2xl border border-zk-border bg-zk-surface p-1.5 shadow-[0_16px_40px_rgba(11,23,51,0.16)]`}
         >
           <ul className="flex flex-col gap-0.5">
             {tabs.map((tab) => {

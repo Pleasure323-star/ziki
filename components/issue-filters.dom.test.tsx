@@ -40,36 +40,11 @@ describe("Issues compact toolbar", () => {
     expect(nav.push).not.toHaveBeenCalled();
   });
 
-  it("sorts through the existing URL navigation and retains active filters", () => {
+  it("has no Filter or Sort button: the stages and the platform icon pick what is listed", () => {
     render(<IssueFilters compact />);
-    fireEvent.click(screen.getByRole("button", { name: "Sort issues" }));
-    expect(screen.getByRole("radio", { name: "Most important" })).toBeChecked();
-    fireEvent.click(screen.getByRole("radio", { name: "Newest" }));
-    expect(nav.push).toHaveBeenCalledWith("/issues?q=login&platform=web&sort=newest");
-    expect(screen.queryByRole("dialog", { name: "Sort options" })).not.toBeInTheDocument();
-  });
-
-  it("closes sort options with Escape and restores focus to the trigger", async () => {
-    render(<IssueFilters compact />);
-    fireEvent.click(screen.getByRole("button", { name: "Sort issues" }));
-    const selected = screen.getByRole("radio", { name: "Most important" });
-    await waitFor(() => expect(selected).toHaveFocus());
-    fireEvent.keyDown(selected, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Sort options" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sort issues" })).toHaveFocus();
-  });
-
-  it("shows the selected filter chips and navigates when another option is selected", () => {
-    nav.params = new URLSearchParams("status=open&severity=high&page=3");
-    render(<IssueFilters compact />);
-    fireEvent.click(screen.getByRole("button", { name: /^Filter/ }));
-    expect(screen.queryByRole("radiogroup", { name: "Status" })).not.toBeInTheDocument();
-    const severity = screen.getByRole("radiogroup", { name: "Severity" });
-    expect(within(severity).getByRole("radio", { name: /^High$/ })).toBeChecked();
-    fireEvent.click(within(severity).getByRole("radio", { name: /^Critical$/ }));
-    expect(nav.push).toHaveBeenCalledWith("/issues?status=open&severity=critical");
-    fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
-    expect(screen.queryByRole("dialog", { name: "Filters" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Filter/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sort issues" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Project notes" })).not.toBeInTheDocument();
   });
 
   it.each([

@@ -10,7 +10,9 @@ import { activeBulkOptions, loadBulkAssignees } from "@/lib/admin-list-lookups";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 
-import { MergeIcon } from "@/components/merge-path";
+import { ProjectNotesLink } from "@/components/project-notes-link";
+import { PipelineSteps } from "@/components/pipeline-steps";
+import { StageSidebar } from "@/components/stage-sidebar";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
@@ -19,7 +21,7 @@ import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
 import { severityLabels } from "@/lib/labels";
-import { severities, statuses } from "@/lib/validations/issue";
+import { severities } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
   hasMatch,
@@ -101,10 +103,6 @@ const IDEAS_STATUS = "ideas";
 /** The filters under the Ideas tab: new ideas (no `?ideas=`), or `?ideas=drafts`. */
 const IDEAS_PARAM = "ideas";
 type IdeasView = "new" | "drafts";
-const IDEAS_FILTERS: { view: IdeasView; label: string }[] = [
-  { view: "new", label: "New ideas" },
-  { view: "drafts", label: "Drafted" },
-];
 /** Most ideas a list shows, highest score first. */
 const IDEAS_LIMIT = 100;
 
@@ -119,13 +117,14 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
   label: statusFilterLabel(value),
 }));
 /**
- * The status tabs, left to right: one per status, in pipeline order, so every
- * issue is on exactly one of them (#one-status), then All.
+ * The three stages across the top, each holding the statuses listed down the
+ * left of the panel when it is picked. Ideas (the Idea table) comes first.
  */
-const STATUS_TABS = [...statuses, ALL_STATUS].map((value) => ({
-  value,
-  label: statusFilterLabel(value),
-}));
+const STAGE_GROUPS = [
+  { label: "Ideas", statuses: [IDEAS_STATUS, "requires_confirmation"] },
+  { label: "Working", statuses: ["open", "in_progress", "closed"] },
+  { label: "Delivered", statuses: ["done", "ready_to_merge", "resolved"] },
+] as const;
 
 /** New issue as a 32px + button; the name is kept for screen readers and the tooltip. */
 function NewIssueButton({ className = "" }: { className?: string }) {
@@ -212,10 +211,6 @@ export default async function BugsPage({
   }
   const activeProject = tenantId && projectId
     ? await prisma.project.findFirst({ where: { id: projectId, tenantId }, select: { slug: true, name: true, goal: true } }).catch(() => null)
-    : null;
-  // The breadcrumb's first crumb ("Zedu › Issues").
-  const workspaceName = tenantId
-    ? await loadOrEmpty("workspace name", async () => (await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name ?? null, null)
     : null;
 
   // #641: a short checklist for a new workspace's owner or admin, until it's
@@ -747,16 +742,8 @@ export default async function BugsPage({
   // One status per issue, so the status tabs never overlap and add up to All.
   const countForStatus = (status: string) => statusCounts.find((row) => row.status === status)?._count._all ?? 0;
   const allCount = statusCounts.reduce((sum, row) => sum + row._count._all, 0);
-  const tabCount = (value: string) => (value === ALL_STATUS ? allCount : countForStatus(value));
   const allFilterCount = (value: string) =>
     value === ALL_STATUS ? allCount : value === REJECTED_STATUS ? rejectedCount : value === DUPLICATE_STATUS ? duplicateCount : countForStatus(value);
-  const ideasFilterCount = (view: IdeasView) => (view === "drafts" ? draftIds.length : ideasCount);
-  const ideasHref = (view: IdeasView) => {
-    // Ideas is the page with no ?status=.
-    const next = new URLSearchParams(statusHref(null).split("?")[1] ?? "");
-    if (view === "drafts") next.set(IDEAS_PARAM, view);
-    return `/issues${next.size ? `?${next}` : ""}`;
-  };
   // The All tab stays selected on its own filters (Closed, Rejected, Duplicates).
   const allSelected = ALL_FILTERS.some((filter) => filter.value === statusParam);
   const statusHref = (status: string | null) => {
@@ -785,6 +772,12 @@ export default async function BugsPage({
     !selectedArea &&
     !stageView;
 
+  // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
+  const currentStatus = isIdeasView ? IDEAS_STATUS : statusParam;
+  const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
+  const statusCount = (value: string) => (value === IDEAS_STATUS ? ideasCount : countForStatus(value));
+  const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
+
   const headerContent = (
     <>
       {gettingStarted ? <GettingStarted {...gettingStarted} /> : null}
@@ -801,53 +794,30 @@ export default async function BugsPage({
       ) : null}
       <div className="issues-heading flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1.5">
-          {/* A thin breadcrumb row, "Zedu › Issues", in place of a big title. */}
-          <nav aria-label="Breadcrumb" className="issues-breadcrumb flex min-w-0 flex-wrap items-center gap-2">
-            {workspaceName ? (
-              <>
-                <Link href="/dashboard" className="truncate text-zk-text2 hover:text-zk-text">{workspaceName}</Link>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-zk-muted"><path d="m9 18 6-6-6-6" /></svg>
-              </>
-            ) : null}
-            <h1 aria-current="page" className="text-zk-text">
-              {isDeletedView ? "Deleted Issues" : "Issues"}
-            </h1>
-            {isDeletedView ? (
-              <span className="rounded-md bg-zk-bad-bg px-2 py-0.5 text-[11px] font-bold text-zk-bad-fg">Admin view</span>
-            ) : null}
-            {allProjects && !isDeletedView ? (
-              <span className="rounded-md border border-zk-border bg-zk-tint px-2 py-0.5 text-[11px] font-bold text-zk-accent">All projects</span>
-            ) : null}
-          </nav>
+          {/* No visible title: the stages above say where you are. */}
+          <h1 className="sr-only">{isDeletedView ? "Deleted Issues" : "Issues"}</h1>
+          {isDeletedView || allProjects ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {isDeletedView ? (
+                <span className="rounded-md bg-zk-bad-bg px-2 py-0.5 text-[11px] font-bold text-zk-bad-fg">Admin view</span>
+              ) : null}
+              {allProjects && !isDeletedView ? (
+                <span className="rounded-md border border-zk-border bg-zk-tint px-2 py-0.5 text-[11px] font-bold text-zk-accent">All projects</span>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <Suspense fallback={<div className="h-8 w-36 rounded-lg bg-zk-chip" />}>
           <IssueFilters compact tagTypes={tagTypes} platforms={platforms} milestones={milestones} areas={areas} shortcutsEnabled={shortcutsEnabled}
             stageCounts={isDeletedView ? undefined : { confirming: confirmingCount, ready: readyCount }}
             trailing={isFirstRun ? null : (
               <>
-                {/* Desktop: New issue is a + just left of the platform menu, which stays rightmost. */}
+                {/* Desktop: New issue is a + at the end of the search/filter row. */}
                 {!isDeletedView ? <NewIssueButton className="max-md:hidden" /> : null}
-                <PlatformMenu
-                  compact
-                  tabs={platformTabs.map((tab) => ({ ...tab, href: platformHref(tab.id) }))}
-                  current={selectedPlatform}
-                />
               </>
             )} />
         </Suspense>
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
-          {canDelete ? (
-            <Link
-              href={isDeletedView ? "/issues" : "/issues?deleted=true"}
-              className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-[13px] font-semibold border transition ${
-                isDeletedView
-                  ? "border-zk-border bg-zk-surface text-zk-text hover:bg-zk-chip"
-                  : "border-zk-bad-bd bg-zk-bad-soft text-zk-bad-fg hover:bg-zk-bad-bg"
-              }`}
-            >
-              {isDeletedView ? "← View active issues" : "View deleted issues"}
-            </Link>
-          ) : null}
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
           <IssuesToolsToggle
             active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || isSeverity(severityParam) || selectedMilestone)}
@@ -862,64 +832,6 @@ export default async function BugsPage({
 
   const listContent = (
     <div className="space-y-4">
-        {/* One left-aligned bar: Ideas, then the status tabs. */}
-        <div className="issues-tabs-row flex items-center gap-2.5">
-          {!isDeletedView ? (
-            <nav aria-label="Issue status" className="issues-status-nav min-w-0">
-              <ul>
-                <li>
-                  <Link href={statusHref(null)} aria-current={isIdeasView ? "page" : undefined} data-testid="ideas-tab">
-                    <span className="issues-status-dot issues-status-ideas" aria-hidden="true" />
-                    <span className="issues-status-label">Ideas</span><span className="issues-status-count">{ideasCount}</span>
-                  </Link>
-                </li>
-                {STATUS_TABS.map(({ value, label }) => (
-                  <li key={value}>
-                    <Link href={statusHref(value)} aria-current={(value === ALL_STATUS ? allSelected : value === statusParam) ? "page" : undefined}>
-                      <span className={`issues-status-dot issues-status-${value}`} aria-hidden="true" />
-                      <span className="issues-status-label">{label}</span><span className="issues-status-count">{tabCount(value)}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ) : null}
-          {!isDeletedView ? (
-            <Link
-              href="/issues/history"
-              aria-label="Merge history"
-              title="Merge history"
-              className="inline-flex h-[42px] shrink-0 items-center gap-2 rounded-[10px] border border-zk-divider bg-zk-chip px-3 text-[13px] font-semibold text-zk-text hover:bg-zk-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent max-sm:h-9"
-            >
-              <MergeIcon size={16} />
-            </Link>
-          ) : null}
-        </div>
-
-        {/* Ideas' filters, the same small pills the All tab has under it. */}
-        {ideasView ? (
-          <nav aria-label="Filter ideas" className="issues-all-filters flex flex-wrap items-center justify-end gap-1.5">
-            <span className="mr-1 text-[13px] font-medium text-zk-muted">Filter by:</span>
-            {IDEAS_FILTERS.map(({ view, label }) => {
-              const on = ideasView === view;
-              return (
-                <Link
-                  key={view}
-                  href={ideasHref(view)}
-                  aria-current={on ? "page" : undefined}
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
-                    on
-                      ? "border-electric-blue-strong bg-electric-blue-strong text-white"
-                      : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"
-                  }`}
-                >
-                  {label}
-                  <span className={`font-mono text-[11px] tabular-nums ${on ? "text-white/80" : "text-zk-muted"}`}>{ideasFilterCount(view)}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        ) : null}
 
         {!isDeletedView && allSelected ? (
           <nav aria-label="Filter all issues" className="issues-all-filters flex flex-wrap items-center justify-end gap-1.5">
@@ -1176,22 +1088,59 @@ export default async function BugsPage({
   );
 
   return (
+    <>
+    {/* The stages, centred, with Project notes at the right of the same row. */}
+    <div className="relative mx-auto mb-4 flex min-h-8 w-full max-w-6xl items-start justify-center">
+      {!isDeletedView ? (
+        <PipelineSteps
+          stages={STAGE_GROUPS.map((group, index) => ({
+            label: group.label,
+            count: group.statuses.reduce((sum, value) => sum + statusCount(value), 0),
+            href: statusLink(group.statuses[0]),
+            selected: index === stageIndex,
+          }))}
+        />
+      ) : null}
+      <div className="absolute right-0 top-0 flex items-center gap-2">
+        <ProjectNotesLink />
+        <PlatformMenu
+          iconOnly
+          tabs={platformTabs.map((tab) => ({ ...tab, href: platformHref(tab.id) }))}
+          current={selectedPlatform}
+        />
+      </div>
+    </div>
     <div className="issues-page mx-auto w-full max-w-6xl space-y-5">
       {headerContent}
-      {canDelete && !isDeletedView ? (
-        <BulkSelectionProvider
-          key={selectionKey}
-          pageIds={bugIds}
-          types={bulkTypes}
-          platforms={bulkPlatforms}
-          users={bulkUsers}
-        >
-          {listContent}
-        </BulkSelectionProvider>
-      ) : (
-        listContent
-      )}
+      <div className="flex items-start gap-5 max-lg:flex-col max-lg:gap-3">
+        {stageIndex >= 0 ? (
+          <StageSidebar
+            steps={STAGE_GROUPS[stageIndex].statuses.map((value) => ({
+              label: value === IDEAS_STATUS ? "Ideas" : statusFilterLabel(value),
+              count: statusCount(value),
+              href: statusLink(value),
+              selected: value === currentStatus,
+            }))}
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          {canDelete && !isDeletedView ? (
+            <BulkSelectionProvider
+              key={selectionKey}
+              pageIds={bugIds}
+              types={bulkTypes}
+              platforms={bulkPlatforms}
+              users={bulkUsers}
+            >
+              {listContent}
+            </BulkSelectionProvider>
+          ) : (
+            listContent
+          )}
+        </div>
+      </div>
     </div>
+    </>
   );
 }
 

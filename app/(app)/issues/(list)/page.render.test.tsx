@@ -114,6 +114,17 @@ async function renderList(params: Record<string, string> = {}) {
   return renderToStaticMarkup(page);
 }
 
+const clean = (html: string) => html.replace(/<!-- -->/g, "");
+/** The stage bar above the panel, and the status list down its left. */
+const stages = (html: string) => clean(html).match(/<nav aria-label="Stages"[\s\S]*?<\/nav>/)?.[0] ?? "";
+const statusList = (html: string) => clean(html).match(/<nav aria-label="Status"[\s\S]*?<\/nav>/)?.[0] ?? "";
+const links = (nav: string) => [...nav.matchAll(/<a [^>]*>[\s\S]*?<\/a>/g)].map((m) => m[0]);
+const labelOf = (link: string) => link.match(/>([A-Za-z][A-Za-z ]*?)(?:<span|<\/a>)/)?.[1] ?? "";
+const labels = (nav: string) => links(nav).map(labelOf);
+const current = (nav: string) => links(nav).filter((link) => link.includes('aria-current="page"')).map(labelOf);
+/** Each link's label and count: beside the label in the stage bar, read out after it in the status list. */
+const counted = (nav: string) => Object.fromEntries(links(nav).map((link) => [labelOf(link), Number(link.match(/(\d+)<\/span>/)?.[1])]));
+
 beforeEach(() => {
   vi.clearAllMocks();
   count.mockResolvedValue(1);
@@ -219,8 +230,6 @@ describe("issue list layout", () => {
     const html = await renderList({ ideas: "drafts" });
     expect(ideaFindMany.mock.calls.at(-1)![0].where.id).toEqual({ in: ["idea-1"] });
     expect(html).toContain('href="/ideas/12"');
-    const filters = html.match(/<nav aria-label="Filter ideas"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(filters).toMatch(/aria-current="page"[^>]*>Drafted<span[^>]*>1<\/span>/);
   });
 
   it("keeps the importance button on an issue, with an Importance column", async () => {
@@ -260,24 +269,22 @@ describe("issue list layout", () => {
   it("is one centred list column without the stats card (#1056)", async () => {
     const html = await renderList();
     expect(html).not.toContain("Total issues");
-    expect(html).toMatch(/^<div class="issues-page mx-auto w-full max-w-6xl space-y-5">/);
+    expect(html).toContain('<div class="issues-page mx-auto w-full max-w-6xl space-y-5">');
     // The four stats counts are no longer queried.
     const statusOnly = count.mock.calls.filter(([args]) => args?.where?.status === "in_progress");
     expect(statusOnly).toHaveLength(0);
   });
-
   it("keeps search and scope when switching status, and resets paging and intake", async () => {
-    const html = await renderList({ q: "login", platform: "cat-web", mine: "assigned", stage: "reported", page: "2" });
-    const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(nav).toContain('href="/issues?q=login&amp;platform=cat-web&amp;mine=assigned&amp;status=in_progress"');
-    expect(nav).not.toContain("page=");
-    expect(nav).not.toContain("stage=");
+    const html = await renderList({ q: "login", platform: "cat-web", mine: "assigned", stage: "reported", page: "2", status: "open" });
+    const list = statusList(html);
+    expect(list).toContain('href="/issues?q=login&amp;platform=cat-web&amp;mine=assigned&amp;status=in_progress"');
+    expect(list).not.toContain("page=");
+    expect(list).not.toContain("stage=");
     const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status");
     expect(statusCount?.[0].where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", categoryId: "cat-web" });
     expect(statusCount?.[0].where).not.toHaveProperty("status");
   });
-
-  it("puts the platforms in a dropdown in the search/filter/sort row, with counts (#1055)", async () => {
+  it("puts the platforms behind an icon beside the notes, above the panel, with counts (#1055)", async () => {
     groupBy.mockResolvedValue([
       { categoryId: "cat-web", _count: { _all: 4 } },
       { categoryId: "cat-mobile", _count: { _all: 2 } },
@@ -285,46 +292,41 @@ describe("issue list layout", () => {
     ] as never);
     const html = await renderList({ platform: "cat-web", page: "2", q: "login" });
 
-    // It sits with the other heading controls, not in the status tab row.
-    const heading = html.match(/<div class="issues-heading[\s\S]*?<div class="issues-tabs-row/)?.[0] ?? "";
-    expect(heading).toMatch(/<nav [^>]*aria-label="Platforms"/);
-    const tabsRow = html.match(/<div class="issues-tabs-row[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(tabsRow).toContain('aria-label="Issue status"');
-    expect(tabsRow).not.toContain('aria-label="Platforms"');
-    // The trigger names the chosen platform; the list stays hidden until opened.
-    expect(heading).toMatch(/Platform: <span[^>]*>Web<\/span>/);
-    const nav = heading.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    // It sits in the stage row, with Project notes, not in the panel.
+    const row = html.slice(0, html.indexOf('<div class="issues-page'));
+    expect(row).toContain('aria-label="Project notes"');
+    expect(row).toMatch(/<nav [^>]*aria-label="Platforms"/);
+    // An icon named for the chosen platform; the list stays hidden until opened.
+    expect(row).toContain('aria-label="Platform: Web"');
+    expect(row).not.toContain("Platform: <span");
+    const nav = row.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toMatch(/<nav [^>]*aria-label="Platforms" hidden=""/);
     const tabs = [...nav.matchAll(/<a [^>]*><span[^>]*>([^<]+)<\/span><span[^>]*>(\d+)<\/span><\/a>/g)].map((m) => `${m[1].trim()} ${m[2]}`);
-    // Active platforms only (not the inactive Desktop); no Resolved entry, the status tabs have it.
+    // Active platforms only (not the inactive Desktop).
     expect(tabs).toEqual(["All 7", "Web 4", "Mobile 2", "No platform 1"]);
     expect(nav).toMatch(/aria-current="page"[^>]*href="\/issues\?q=login&amp;platform=cat-web"/);
     // Choosing a platform keeps the search, drops paging, and swaps the platform.
     expect(nav).toContain('href="/issues?q=login&amp;platform=cat-mobile"');
     expect(nav).toContain('href="/issues?q=login"');
     expect(nav).toContain('href="/issues?q=login&amp;platform=none"');
-    expect(html).not.toContain('aria-label="Platforms" class="w-full');
 
-    // The counts ignore the current platform, so every tab is honest.
+    // The counts ignore the current platform, so every choice is honest.
     const tabQuery = groupBy.mock.calls.find(([args]) => args.by[0] === "categoryId")![0];
     expect(tabQuery.where).not.toHaveProperty("categoryId");
     // The list itself is still narrowed to the chosen platform.
     expect(findMany.mock.calls.at(-1)![0].where.categoryId).toBe("cat-web");
   });
-
-  it("keeps the Resolved status when a platform is chosen (#473)", async () => {
+  it("keeps the Live status when a platform is chosen (#473)", async () => {
     groupBy.mockResolvedValue([
       { categoryId: "cat-web", _count: { _all: 4 } },
       { categoryId: "cat-mobile", _count: { _all: 2 } },
     ] as never);
     const html = await renderList({ status: "resolved" });
-    const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(status).toMatch(/aria-current="page" href="\/issues\?status=resolved"/);
+    expect(current(statusList(html))).toEqual(["Live"]);
     const nav = html.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toContain('href="/issues?status=resolved"');
     expect(nav).toContain('href="/issues?status=resolved&amp;platform=cat-web"');
   });
-
   it("counts every issue in the platform menu on Ideas, and a pick opens the All tab", async () => {
     groupBy.mockResolvedValue([
       { categoryId: "cat-web", _count: { _all: 4 } },
@@ -360,53 +362,51 @@ describe("issue list layout", () => {
     }
   });
 
-  it("puts Ideas first in one left-aligned bar, with the open ideas' count, then Requires confirmation before Open", async () => {
+  it("shows the three stages above the panel, Ideas picked, and lists Ideas and Requires confirmation on the left", async () => {
     const html = await renderList();
-    const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(nav).toMatch(/class="issues-status-nav min-w-0"/);
-    expect(nav).not.toContain("ml-auto");
-    const labels = [...nav.matchAll(/<span class="issues-status-label">([A-Za-z ]+)<\/span><span class="issues-status-count">/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Ideas", "Requires confirmation", "Open", "In progress", "Done", "Ready to merge", "Live", "Closed", "All"]);
-    const ideas = nav.match(/<a [^>]*data-testid="ideas-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
-    expect(ideas).toMatch(/href="\/issues"/);
-    expect(ideas).toContain('aria-current="page"');
-    expect(ideas).toContain("issues-status-ideas");
-    expect(ideas).toContain('<span class="issues-status-count">4</span>');
+    expect(labels(stages(html))).toEqual(["Ideas", "Working", "Delivered"]);
+    expect(current(stages(html))).toEqual(["Ideas"]);
+    expect(stages(html)).toContain('href="/issues"');
+    expect(stages(html)).toContain('href="/issues?status=open"');
+    expect(stages(html)).toContain('href="/issues?status=done"');
+    expect(labels(statusList(html))).toEqual(["Ideas", "Requires confirmation"]);
+    expect(current(statusList(html))).toEqual(["Ideas"]);
+    expect(html.indexOf('aria-label="Stages"')).toBeLessThan(html.indexOf('<div class="issues-page'));
   });
 
+  it("puts Open, In progress and Closed under Working, and Done, Ready to merge and Live under Delivered", async () => {
+    let html = await renderList({ status: "in_progress" });
+    expect(current(stages(html))).toEqual(["Working"]);
+    expect(labels(statusList(html))).toEqual(["Open", "In progress", "Closed"]);
+    expect(current(statusList(html))).toEqual(["In progress"]);
+
+    html = await renderList({ status: "ready_to_merge" });
+    expect(current(stages(html))).toEqual(["Delivered"]);
+    expect(labels(statusList(html))).toEqual(["Done", "Ready to merge", "Live"]);
+    expect(current(statusList(html))).toEqual(["Ready to merge"]);
+  });
   it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
     await renderList({ status: "requires_confirmation" });
     expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
   });
 
-  it("filters Ideas with small pills, New ideas and Drafted, and nothing else above the list", async () => {
+  it("has no status toolbar, filter rows, breadcrumb, merge history or deleted-issues link", async () => {
     const html = await renderList();
-    const filters = html.match(/<nav aria-label="Filter ideas"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(filters).toContain("Filter by:");
-    const labels = [...filters.matchAll(/<a [^>]*>([A-Za-z ]+)<span/g)].map((m) => m[1]);
-    expect(labels).toEqual(["New ideas", "Drafted"]);
-    expect(filters).toMatch(/aria-current="page"[^>]*>New ideas/);
-    expect(filters).toContain('href="/issues?ideas=drafts"');
-    for (const gone of ["How the Inbox works", "Your agents", "Need your input", "Design feedback needed", 'aria-label="Filter all issues"']) {
+    for (const gone of ['aria-label="Issue status"', 'aria-label="Filter ideas"', 'aria-label="Filter all issues"', 'aria-label="Breadcrumb"', "Merge history", "View deleted issues", "Sort issues"]) {
       expect(html).not.toContain(gone);
     }
+    expect(html).toContain('<h1 class="sr-only">Issues</h1>');
   });
-
-  it("drops the Ideas filter when moving to another tab", async () => {
+  it("drops ?ideas= when moving to another stage", async () => {
     const html = await renderList({ ideas: "drafts" });
-    const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(status).toContain('href="/issues?status=open"');
-    expect(status).not.toContain("ideas=");
+    expect(stages(html)).toContain('href="/issues?status=open"');
+    expect(stages(html)).not.toContain("ideas=");
   });
-
-  it("leaves Ideas unselected on the other tabs, with no Ideas filters", async () => {
+  it("leaves Ideas unselected on the other stages", async () => {
     const html = await renderList({ status: "open" });
-    const ideas = html.match(/<a [^>]*data-testid="ideas-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
-    expect(ideas).toContain("Ideas");
-    expect(ideas).not.toContain('aria-current="page"');
-    expect(html).not.toContain('aria-label="Filter ideas"');
+    expect(current(stages(html))).toEqual(["Working"]);
+    expect(labels(statusList(html))).not.toContain("Ideas");
   });
-
   it("shows no tabs when the project has no platforms to choose between (#1055)", async () => {
     groupBy.mockResolvedValue([] as never);
     const { getPlatforms } = await import("@/lib/lookups");
@@ -415,27 +415,24 @@ describe("issue list layout", () => {
     expect(html).not.toContain('aria-label="Platforms"');
   });
 
-  it("lands on Ideas; All (?status=all) shows every issue, finished ones too", async () => {
+  it("lands on Ideas; All (?status=all) shows every issue, finished ones too, with no stage picked", async () => {
     let html = await renderList();
-    expect(html).toContain('aria-label="Filter ideas"');
+    expect(current(stages(html))).toEqual(["Ideas"]);
     expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
 
     html = await renderList({ q: "login", status: "all" });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
-    const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(status).toContain('href="/issues?q=login&amp;status=resolved"');
-    expect(status).toMatch(/aria-current="page" href="\/issues\?q=login&amp;status=all"/);
+    expect(current(stages(html))).toEqual([]);
+    expect(stages(html)).toContain('href="/issues?q=login&amp;status=done"');
+    expect(html).not.toContain('aria-label="Status"');
   });
-
-  it("searches across All when no tab is picked, so a just-reported issue can be found", async () => {
+  it("searches across All when no stage is picked, so a just-reported issue can be found", async () => {
     const html = await renderList({ q: "login" });
     const where = findMany.mock.calls.at(-1)![0].where;
     expect(where).not.toHaveProperty("id");
     expect(where).not.toHaveProperty("status");
-    const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(status).toMatch(/aria-current="page" href="\/issues\?q=login&amp;status=all"/);
+    expect(current(stages(html))).toEqual([]);
   });
-
   it("shows a Filter by row under All: All, Rejected and Duplicates (Closed has its own tab)", async () => {
     const html = await renderList({ status: "all" });
     const filters = html.match(/<nav aria-label="Filter all issues"[\s\S]*?<\/nav>/)?.[0] ?? "";
@@ -450,8 +447,6 @@ describe("issue list layout", () => {
     let html = await renderList({ status: "rejected" });
     expect(findMany.mock.calls.at(-1)![0].where.confirmations).toEqual({ some: { verdict: "reject", undoneAt: null } });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
-    const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(status).toMatch(/aria-current="page" href="\/issues\?status=all"/);
     expect(html).toMatch(/aria-current="page"[^>]*href="\/issues\?status=rejected"|href="\/issues\?status=rejected"[^>]*aria-current="page"/);
 
     html = await renderList({ status: "duplicate" });
@@ -495,7 +490,7 @@ describe("issue list layout", () => {
     }
   });
 
-  it("gives every status its own tab, counted by status, and All adds them up", async () => {
+  it("counts each stage as its statuses added up, and each status on the left by itself", async () => {
     groupBy.mockImplementation((async (args: { by: string[] }) =>
       args.by[0] !== "status"
         ? []
@@ -508,14 +503,11 @@ describe("issue list layout", () => {
           { status: "resolved", _count: { _all: 7 } },
           { status: "closed", _count: { _all: 3 } },
         ]) as never);
-    const html = await renderList({ status: "all" });
-    const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    const counts = Object.fromEntries(
-      [...nav.matchAll(/<span class="issues-status-label">([A-Za-z ]+)<\/span><span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
-    );
-    expect(counts).toEqual({ Ideas: 4, "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to merge": 1, Live: 7, Closed: 3, All: 28 });
+    const html = await renderList({ status: "open" });
+    // Ideas: 4 open ideas + 4 requiring confirmation. Working: Open, In progress, Closed. Delivered: Done, Ready to merge, Live.
+    expect(counted(stages(html))).toEqual({ Ideas: 8, Working: 14, Delivered: 10 });
+    expect(counted(statusList(html))).toEqual({ Open: 9, "In progress": 2, Closed: 3 });
   });
-
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {
     const html = await renderList({ status: "all" });
     expect(html).not.toContain("🔗");
