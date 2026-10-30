@@ -23,7 +23,7 @@ export type TicketAssignError = keyof typeof TICKET_ASSIGN_ERRORS;
  * - Owners, admins, and the site super admin can assign to any user, or unassign (targetAssigneeId = null).
  *   A site-wide admin who is only a member cannot.
  * - Normal users cannot take an unassigned issue. That happens when an agent
- *   accepts an offer or a person awards a bid (`claimed`).
+ *   accepts an offer, such as a bid a manager agent awarded (`claimed`).
  * - Normal users can keep a ticket already assigned to them, and can unassign
  *   themselves (targetAssigneeId = null && currentAssigneeId = actorId).
  * - Normal users cannot assign to any other user or take over another user's assignment.

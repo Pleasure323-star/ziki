@@ -20,6 +20,7 @@ describe("project workflow defaults (#595)", () => {
       ideaThreshold: 3,
       abandonCheckMinutes: 360,
       abandonThreshold: 3,
+      closeThreshold: 3,
     });
   });
 
@@ -75,6 +76,8 @@ describe("workflowSettingsSchema (#595)", () => {
       ["abandonCheckMinutes", 10081],
       ["abandonThreshold", 0],
       ["abandonThreshold", 101],
+      ["closeThreshold", 0],
+      ["closeThreshold", 101],
     ] as const) {
       expect(workflowSettingsSchema.safeParse({ ...valid, [field]: value }).success).toBe(false);
     }

@@ -26,16 +26,10 @@ describe("AwardBox", () => {
     expect(screen.getByText(/For Daniel Olaleye · won its bid/)).toBeInTheDocument();
   });
 
-  it("says nobody holds it, and lists no earlier holders (an Open issue says so in its bids panel)", () => {
-    render(<AwardBox hold={null} />);
-    expect(screen.getByRole("heading", { name: "Nobody holds this issue." })).toBeInTheDocument();
-    expect(screen.queryByText(/Open: not awarded yet/i)).toBeNull();
-    expect(screen.queryByText(/Previously held by/i)).toBeNull();
-  });
-
-  it("shows an offer waiting to be accepted, and who assigned it", () => {
-    render(<AwardBox hold={{ ...base, status: "offered", via: "assigned", dispatcherName: "Mark", claimedAt: null, offeredAt: new Date() }} />);
-    expect(screen.getByRole("heading", { name: "Offered to Vida" })).toBeInTheDocument();
-    expect(screen.getByText(/waiting for it to accept/)).toBeInTheDocument();
+  it("says who assigned an active claim, with when it is due", () => {
+    render(<AwardBox hold={{ ...base, via: "assigned", dispatcherName: "Mark", deliverBy: new Date("2026-10-29T10:00:00Z") }} />);
+    expect(screen.getByRole("heading", { name: "Awarded to Vida" })).toBeInTheDocument();
+    expect(screen.getByText(/For Daniel Olaleye · assigned by Mark/)).toBeInTheDocument();
+    expect(screen.getByText(/· due/)).toBeInTheDocument();
   });
 });

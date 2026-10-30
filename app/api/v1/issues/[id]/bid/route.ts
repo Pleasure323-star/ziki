@@ -17,6 +17,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         beneficiary_user_id: bid.beneficiaryUserId,
         beneficiary_name: bid.by,
         area_match: bid.areaMatch,
+        votes: bid.votes,
         summary: bid.summary,
         description: bid.description,
         created_at: bid.createdAt.toISOString(),

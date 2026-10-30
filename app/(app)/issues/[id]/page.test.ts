@@ -101,6 +101,11 @@ vi.mock("@/lib/platforms", () => ({
   getActivePlatforms: vi.fn().mockResolvedValue([]),
 }));
 
+// The close-suggestions panel reads its own rows (#close-superseded); these tests count the issue queries only.
+vi.mock("@/lib/agent-api/close-suggestions", () => ({
+  closeSuggestionsFor: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     membership: { findUnique: vi.fn().mockResolvedValue({ role: "member", userId: "user-123" }), findMany: vi.fn().mockResolvedValue([]) },

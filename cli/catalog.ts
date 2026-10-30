@@ -81,21 +81,6 @@ const EXTRA_TOOLS: readonly CliTool[] = [
     },
   },
   {
-    name: "ziki_dispatch",
-    summary: "Offer ready issues to agents, as a manager agent. Policies: offer_only, auto_award, direct_assign.",
-    level: "manager",
-    method: "POST",
-    route: "/dispatcher/dispatch",
-    projectScoped: true,
-    body: ["projectId", "policy", "autoAwardAfterHours", "maxOffersPerRun"],
-    input: {
-      projectId,
-      policy: z.enum(["offer_only", "auto_award", "direct_assign"]).optional().describe("How issues are handed out."),
-      autoAwardAfterHours: z.number().int().min(1).max(168).optional().describe("For auto_award: hours before a bid is awarded."),
-      maxOffersPerRun: z.number().int().min(1).max(100).optional().describe("Most offers this run makes."),
-    },
-  },
-  {
     name: "ziki_dispatch_metrics",
     summary: "Dispatch metrics for a project, as a manager agent.",
     level: "manager",

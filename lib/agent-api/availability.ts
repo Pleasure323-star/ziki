@@ -5,15 +5,13 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { audit, type AuditAgent } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
-import { notifyAgentQuestion, notifyClaimOffered } from "@/lib/agent-notifications";
-import { expireOffer, offerNext, scheduleOfferExpiry } from "@/lib/agent-api/offer";
+import { notifyAgentQuestion } from "@/lib/agent-notifications";
+import { expireOffer } from "@/lib/agent-api/offer";
 import { staleHold } from "@/lib/agent-api/stale-hold";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { isDeliveryOverdue, isOwnerWaitOver, ownerWaitCapMinutes, OWNER_REMINDER_MINUTES } from "@/lib/claim-deadline";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
-
-type OfferNextResult = NonNullable<Awaited<ReturnType<typeof offerNext>>>;
 
 function heartbeatCutoff(now: Date, heartbeatMinutes: number): Date {
   return new Date(now.getTime() - heartbeatMinutes * 60_000);
@@ -22,8 +20,8 @@ function heartbeatCutoff(now: Date, heartbeatMinutes: number): Date {
 /**
  * Claims a sweep should inspect: silent ones (no heartbeat for the project's
  * heartbeat window, 15 minutes by default) and
- * overdue ones (#593) whose fix is not linked yet. Both are released and
- * re-offered; the deadline does not depend on the heartbeat. A claim waiting
+ * overdue ones (#593) whose fix is not linked yet. Both are released and the
+ * issue goes back to Open for bids; the deadline does not depend on the heartbeat. A claim waiting
  * on its owner's answer (#606) is left to `sweepOwnerWaits`.
  */
 function claimSweepWhere(
@@ -77,37 +75,36 @@ type ReleaseOutcome = {
   released: boolean;
   /** True when this release moved the issue back to `open` with no assignee. */
   opened: boolean;
-  offered: boolean;
-  offer: OfferNextResult | null;
- };
+};
 
 /**
  * Release one active claim whose agent stopped heartbeating, atomically:
  * lock the issue, re-read the claim, mark it `released` for `silence`,
  * `deadline`, or `owner_unresponsive` once a wait on its owner is over (#606),
- * publish a `claim.released` event, audit, reopen the issue when no human
- * assignment or newer claim intervenes, and offer it to the next agent.
+ * publish a `claim.released` event, audit, and reopen the issue when no human
+ * assignment or newer claim intervenes. A reopened issue waits in Open for
+ * bids; nobody is offered it automatically.
  */
 async function releaseClaimIfStale(
   claim: StaleClaimRef,
   cutoff: Date,
-  options: { reOffer?: boolean; actorUserId?: string | null } = {},
+  options: { actorUserId?: string | null } = {},
 ): Promise<ReleaseOutcome> {
   const tenantId = claim.bug.tenantId;
   const projectId = claim.bug.projectId;
-  const result = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} FOR NO KEY UPDATE`;
     // Re-read after locking: a heartbeat or another sweep may have won the race.
     const fresh = await tx.issueClaim.findFirst({ where: { id: claim.id, status: "active", releasedAt: null,
       bug: { projectId, tenantId, isDeleted: false, status: "in_progress" } },
       include: { bug: { select: { pullRequestUrl: true, project: { select: { ownerWaitCapMinutes: true } } } } } });
     const now = new Date();
-    if (!fresh) return { released: false, opened: false, offered: false, offer: null };
+    if (!fresh) return { released: false, opened: false };
     let reason: "silence" | "deadline" | "owner_unresponsive";
     if (fresh.waitingOnOwnerSince) {
       // #606: the clocks are paused while the agent waits on its owner, up to the cap.
       const cap = ownerWaitCapMinutes(fresh.bug?.project?.ownerWaitCapMinutes);
-      if (!isOwnerWaitOver(fresh.waitingOnOwnerSince, now, cap)) return { released: false, opened: false, offered: false, offer: null };
+      if (!isOwnerWaitOver(fresh.waitingOnOwnerSince, now, cap)) return { released: false, opened: false };
       reason = "owner_unresponsive";
     } else {
       const lastSeen = fresh.lastHeartbeatAt ?? fresh.claimedAt;
@@ -117,7 +114,7 @@ async function releaseClaimIfStale(
       // #593: an undelivered claim past its deadline goes back even while the
       // agent keeps heartbeating.
       const overdue = isDeliveryOverdue(fresh.deliverBy, now) && !fresh.bug?.pullRequestUrl;
-      if (!silent && !overdue) return { released: false, opened: false, offered: false, offer: null };
+      if (!silent && !overdue) return { released: false, opened: false };
       reason = overdue ? "deadline" : "silence";
     }
     await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: reason } });
@@ -134,20 +131,8 @@ async function releaseClaimIfStale(
         isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open" } });
       reopened = reopenedRow.count > 0;
     }
-    let offer: OfferNextResult | null = null;
-    if (options.reOffer !== false && reopened) {
-      const bug = await tx.bug.findFirst({ where: { id: fresh.bugId, tenantId, isDeleted: false },
-        select: { id: true, projectId: true, title: true, assigneeId: true, areaId: true, status: true } });
-      if (bug && bug.status === "open") offer = await offerNext(tx, { tenantId }, bug);
-    }
-    return { released: true, opened: reopened, offered: offer !== null, offer };
+    return { released: true, opened: reopened };
   });
-  if (result.offer) {
-    notifyClaimOffered({ id: result.offer.claim.id, bugId: claim.bugId, bugTitle: result.offer.bugTitle,
-      beneficiaryUserId: result.offer.beneficiaryUserId });
-    scheduleOfferExpiry(result.offer.claim.id);
-  }
-  return { released: result.released, opened: result.opened, offered: result.offered, offer: result.offer };
 }
 
 /**
@@ -179,18 +164,16 @@ async function sweepOwnerWaits(
     ...(options.limit ? { take: options.limit } : {}),
   });
   let released = 0;
-  let offered = 0;
   for (const claim of waiting) {
     if (!claim.waitingOnOwnerSince) continue;
     if (isOwnerWaitOver(claim.waitingOnOwnerSince, now, ownerWaitCapMinutes(claim.bug.project?.ownerWaitCapMinutes))) {
       const outcome = await releaseClaimIfStale(claim, cutoff, { actorUserId: options.actorUserId ?? null });
       if (outcome.released) released++;
-      if (outcome.offered) offered++;
     } else {
       await remindOwnerIfDue(claim.agentId, claim.bugId, now);
     }
   }
-  return { released, offered };
+  return { released };
 }
 
 /** Remind the owner of the oldest unanswered question on the issue, once. */
@@ -244,7 +227,7 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
     await releaseClaimIfStale(
       { id: stale.claimId, bugId: row.id, bug: { tenantId: row.tenantId, projectId: row.projectId } },
       heartbeatCutoff(new Date(), heartbeatMinutes),
-      { reOffer: false, actorUserId: agent.ownerId },
+      { actorUserId: agent.ownerId },
     );
   }
   const after = await prisma.bug.findUnique({ where: { id: row.id }, select: { status: true } });
@@ -277,11 +260,12 @@ export async function releaseStaleClaims(projectId: string) {
   return { released: released + waits.released };
 }
 
-export type ClaimSweepResult = { released: number; offered: number };
+export type ClaimSweepResult = { released: number };
 
 /**
  * The scheduled sweep (#524): release every stale active claim across all
- * projects, publish `claim.released`, and re-offer every reopened issue.
+ * projects and publish `claim.released`. A reopened issue goes back to Open
+ * for bids.
  * Called by the protected `POST /api/v1/claims/dispatch` route; no agent
  * context, and actorUserId stays null (the scheduler acted, not a person).
  */
@@ -333,11 +317,9 @@ export async function sweepStaleClaims(limit = 50): Promise<ClaimSweepResult> {
   }
 
   let released = 0;
-  let offered = 0;
   for (const candidate of candidates.values()) {
     const outcome = await releaseClaimIfStale(candidate, candidate.cutoff);
     if (outcome.released) released++;
-    if (outcome.offered) offered++;
   }
   // `cutoff` is scoped to the per-window loop above; the owner-wait release
   // path uses reason owner_unresponsive and does not consult it, so the
@@ -348,5 +330,5 @@ export async function sweepStaleClaims(limit = 50): Promise<ClaimSweepResult> {
     {},
     { limit },
   );
-  return { released: released + waits.released, offered: offered + waits.offered };
+  return { released: released + waits.released };
 }

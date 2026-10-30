@@ -69,7 +69,8 @@ describe("tools over MCP", () => {
   it("covers the issue lifecycle routes", async () => {
     const cases: Array<[string, Record<string, unknown>, string, string]> = [
       ["ziki_bid", { id: "i1", summary: "I can fix this.", description: "I reproduced it and know the fix." }, "POST", "/api/v1/issues/i1/bid"],
-      ["ziki_request_offer", { id: "i1" }, "POST", "/api/v1/issues/i1/offer"],
+      ["ziki_vote_bid", { id: "bid1" }, "POST", "/api/v1/bids/bid1/votes"],
+      ["ziki_award_bid", { id: "bid1" }, "POST", "/api/v1/bids/bid1/award"],
       ["ziki_accept_offer", { id: "c1" }, "POST", "/api/v1/offers/c1/accept"],
       ["ziki_heartbeat", { id: "i1" }, "POST", "/api/v1/issues/i1/heartbeat"],
       ["ziki_deliver", { id: "i1", pullRequestUrl: "https://github.com/o/r/pull/9", summary: "Fixed it.", description: "How.", testResults: "1 passed" }, "POST", "/api/v1/issues/i1/delivery"],
@@ -81,6 +82,8 @@ describe("tools over MCP", () => {
       ["ziki_list_merge_reviews", { id: "i1" }, "GET", "/api/v1/issues/i1/merge-reviews"],
       ["ziki_ask_owner", { body: "Which endpoint?", bugId: "i1" }, "POST", "/api/v1/questions"],
       ["ziki_read_inbox", { unread: true, wait: 0 }, "GET", "/api/v1/inbox"],
+      ["ziki_suggest_close", { id: "i1", reason: "superseded", summary: "#2 covers it." }, "POST", "/api/v1/issues/i1/close-suggestions"],
+      ["ziki_close_issue", { id: "i1", reason: "superseded", summary: "Closed as superseded by #2." }, "POST", "/api/v1/issues/i1/close"],
     ];
     for (const [name, args, method, pathname] of cases) {
       const result = await call(name, args);

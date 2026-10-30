@@ -15,7 +15,6 @@ import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicat
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { openIssueConfirmations, type ConfirmationState, type IssueStage } from "@/lib/issue-stage";
 import { buildCommentTree } from "@/lib/comments";
 import {
   COMMENT_PARAM,
@@ -91,10 +90,11 @@ import { IssueLinks } from "@/components/issue-links";
 import { ReportSummary } from "@/components/report-summary";
 import { NextStepBar } from "@/components/next-step-bar";
 import { BackToList } from "@/components/back-to-list";
-import { ownsManagerAgent } from "@/lib/bid-award-permission";
 import { issueNextStep } from "@/lib/next-step";
-import { staleHold } from "@/lib/agent-api/stale-hold";
+import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { senseCheck } from "@/lib/agent-api/abandon";
+import { closeSuggestionsFor, type CloseSuggestionsData } from "@/lib/agent-api/close-suggestions";
+import { CloseSuggestionsPanel } from "@/components/close-suggestions";
 import { workflowFor } from "@/lib/workflow";
 import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
 import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
@@ -119,6 +119,21 @@ const NO_COMMENTS: CommentWindow = {
   shownThreads: 0,
   hiddenThreads: 0,
   visibleCount: 0,
+};
+
+/** The flags agents raised, listed under the status chip in the side rail (#close-superseded). */
+type StatusFlagTone = "bad" | "warn" | "info";
+
+const STALE_FLAG: Record<StaleHold["kind"], string> = {
+  offer_expired: "Stale: offer expired",
+  overdue: "Stale: overdue",
+  silent: "Stale: silent",
+};
+
+const FLAG_DOT: Record<StatusFlagTone, string> = {
+  bad: "bg-zk-bad-fg",
+  warn: "bg-zk-warn-fg",
+  info: "bg-zk-accent",
 };
 
 /** How much of the activity log a single page render is allowed to load. */
@@ -394,9 +409,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
       ])
     : [null as IssueHold | null, [] as BidEntryView[]];
-  // A person who owns a manager agent awards bids by hand; none while someone holds it or an offer waits.
-  const canAwardBid = bug.status === "open" && !bug.isDeleted && !hold && bidList.length > 0
-    && await ownsManagerAgent(user.id, bug.tenantId);
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
     await Promise.all([
@@ -664,16 +676,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     if (a.commentId) (attachmentsByComment[a.commentId] ??= []).push(a);
   }
 
-  let intakeStage: IssueStage | null = null;
-  let confirmation: ConfirmationState | null = null;
-  if (!bug.isDeleted && (bug.status === "open" || bug.status === "requires_confirmation")) {
-    try {
-      confirmation = (await openIssueConfirmations(prisma, { id: bug.id })).get(bug.id) ?? null;
-      intakeStage = confirmation?.stage ?? null;
-    } catch (error) {
-      console.error("[bugs] issue stage lookup failed", error);
-    }
-  }
   // #idea-table: the idea this issue was converted from.
   const sourceIdea = bug.idea;
   // #issue-confirmations: at Requires confirmation the issue takes confirmation
@@ -794,18 +796,42 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
   // The next step, always shown under the progress report (#next-step).
   const { verdictsNeeded } = await workflowFor(bug.projectId);
+  const stale = bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null;
+  const abandonCheck = bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id));
+  const closeSuggestions = await loadOptional<CloseSuggestionsData | null>("close suggestions", null, () => closeSuggestionsFor(bug.id));
   const nextStep = issueNextStep({
     status: bug.status,
     isDeleted: bug.isDeleted,
     confirmations: confirmationsData?.confirmations ?? 0,
     confirmationsNeeded: confirmationsData?.confirmationsNeeded ?? 0,
-    holder: hold ? { agentName: hold.agentName, personName: hold.personName, status: hold.status } : null,
+    holder: hold ? { agentName: hold.agentName, personName: hold.personName, status: hold.status, offeredAt: hold.offeredAt } : null,
     openBids: bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length,
     goodToMerge: testVerdictList.filter((verdict) => verdict.goodToMerge).length,
     verdictsNeeded,
-    stale: bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null,
-    senseCheck: bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id)),
+    stale,
+    senseCheck: abandonCheck,
+    closeSuggested: closeSuggestions && closeSuggestions.entries.length > 0
+      ? { votes: closeSuggestions.votes, threshold: closeSuggestions.threshold }
+      : null,
+    closeReason: bug.closeReason,
   });
+
+  // The flags agents raised, under the status chip in the side rail (#close-superseded).
+  const openBidVotes = bug.status === "open"
+    ? bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).reduce((sum, bid) => sum + (bid.votes ?? 0), 0)
+    : 0;
+  const statusFlags: { label: string; tone: StatusFlagTone }[] = bug.isDeleted
+    ? []
+    : [
+        ...(bug.status === "closed" && bug.closeReason === "superseded"
+          ? [{ label: "Closed as superseded", tone: "bad" as const }]
+          : closeSuggestions && closeSuggestions.votes > 0 && bug.status !== "closed" && bug.status !== "resolved"
+            ? [{ label: `Close suggested: superseded (${closeSuggestions.votes} of ${closeSuggestions.threshold})`, tone: "bad" as const }]
+            : []),
+        ...(abandonCheck ? [{ label: `Abandon votes: ${abandonCheck.votes} of ${abandonCheck.threshold}`, tone: "warn" as const }] : []),
+        ...(stale ? [{ label: STALE_FLAG[stale], tone: "bad" as const }] : []),
+        ...(openBidVotes > 0 ? [{ label: `${openBidVotes} bid ${openBidVotes === 1 ? "vote" : "votes"}`, tone: "info" as const }] : []),
+      ];
 
   // The Conversation card shows only when it has entries in it: no empty boxes.
   // Its Dispute award button alone is not enough (nothing to dispute before an award).
@@ -1075,8 +1101,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
           <NextStepBar step={nextStep} />
 
-              {/* Who has the issue (the award or the offer), on its own once it is past Requires confirmation. */}
-              {pastConfirmation && (hold || bug.status !== "open") ? <AwardBox hold={hold} /> : null}
+              {/* Who has the issue, for an active claim only: a pending offer is in the next-step bar. */}
+              {hold?.status === "active" ? <AwardBox hold={hold} /> : null}
 
               {confirming ? confirmationsCard : null}
 
@@ -1100,12 +1126,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   {pastConfirmation ? (
                     <IssueBidsPanel
                       bids={bidList}
-                      canAward={canAwardBid && intakeStage === "ready"}
                       collapsed={bug.status !== "open"}
                       />
                   ) : null}
                 </section>
               ) : null}
+
+              {closeSuggestions ? <CloseSuggestionsPanel data={closeSuggestions} /> : null}
 
               {!confirming ? confirmationsCard : null}
 
@@ -1186,6 +1213,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>
               ) : null}
             </div>
+            {statusFlags.length > 0 ? (
+              <ul data-testid="status-flags" className="m-0 flex list-none flex-col gap-1 p-0">
+                {statusFlags.map((flag) => (
+                  <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${FLAG_DOT[flag.tone]}`} aria-hidden />
+                    {flag.label}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </section>
 
           {/* People, compact: one row each, label on the left. */}

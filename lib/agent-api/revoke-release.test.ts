@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const publish = vi.hoisted(() => vi.fn(async () => ({ id: "event" })));
 const isConfirmed = vi.hoisted(() => vi.fn());
-const offerNext = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
-vi.mock("@/lib/agent-api/offer", () => ({ offerNext }));
 
 import { releaseWorkOfRevokedAgent } from "./revoke-release";
 
@@ -35,7 +33,6 @@ describe("revoking an agent hands its work back (#523)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isConfirmed.mockResolvedValue(false);
-    offerNext.mockResolvedValue(null);
   });
 
   it("releases an active claim and reopens the issue", async () => {
@@ -43,7 +40,7 @@ describe("revoking an agent hands its work back (#523)", () => {
 
     const result = await releaseWorkOfRevokedAgent(tx as never, input);
 
-    expect(result).toEqual({ releasedClaims: 1, withdrawnBids: 2, offers: [] });
+    expect(result).toEqual({ releasedClaims: 1, withdrawnBids: 2 });
     expect(tx.issueClaim.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { agentId: "agent-dead", releasedAt: null, status: { in: ["offered", "active"] } } }),
     );
@@ -71,29 +68,6 @@ describe("revoking an agent hands its work back (#523)", () => {
     await releaseWorkOfRevokedAgent(tx as never, input);
     expect(tx.issueClaim.update).toHaveBeenCalled();
     expect(tx.bug.updateMany).not.toHaveBeenCalled();
-  });
-
-  it("re-offers an open confirmed issue after revoking its active claim", async () => {
-    isConfirmed.mockResolvedValue(true);
-    offerNext.mockResolvedValue({
-      claim: { id: "claim-next" },
-      bugTitle: "Example",
-      beneficiaryUserId: "bob",
-    });
-    const tx = txWith([{ id: "claim-1", bugId: "bug-1", status: "active", beneficiaryUserId: "ada" }]);
-
-    const result = await releaseWorkOfRevokedAgent(tx as never, input);
-
-    expect(result.offers).toEqual([{
-      id: "claim-next",
-      bugId: "bug-1",
-      bugTitle: "Example",
-      beneficiaryUserId: "bob",
-    }]);
-    expect(offerNext).toHaveBeenCalledWith(tx, { tenantId: input.tenantId }, expect.objectContaining({
-      id: "bug-1",
-      status: "open",
-    }), ["ada"]);
   });
 
   it("leaves the issue alone when someone else also holds it", async () => {

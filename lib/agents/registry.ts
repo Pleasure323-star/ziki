@@ -12,8 +12,6 @@ import { currentTenantIdFor } from "@/lib/tenant-context";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { AGENT_LIMIT_MESSAGE, AGENT_MODEL_MAX, AGENT_NAME_MAX, MAX_ACTIVE_AGENTS_PER_OWNER } from "@/lib/agents/registry-limits";
 import { releaseWorkOfRevokedAgent } from "@/lib/agent-api/revoke-release";
-import { notifyClaimOffered } from "@/lib/agent-notifications";
-import { scheduleOfferExpiry } from "@/lib/agent-api/offer";
 
 /**
  * Registering agents and managing their keys (#427). A person creates agents
@@ -168,18 +166,16 @@ export async function revokeAgent(actor: Actor, agentId: string, now = new Date(
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
   if (managed.agent.revokedAt) return { ok: true };
-  let offers: Awaited<ReturnType<typeof releaseWorkOfRevokedAgent>>["offers"] = [];
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({ where: { id: agentId }, data: { revokedAt: now } });
     await tx.agentApiKey.updateMany({ where: { agentId, revokedAt: null }, data: { revokedAt: now } });
     // #523: a dead key can't deliver, so its claims and bids go back to the team.
-    const { offers: releasedOffers, ...handedBack } = await releaseWorkOfRevokedAgent(tx, {
+    const handedBack = await releaseWorkOfRevokedAgent(tx, {
       agentId,
       tenantId: managed.agent.tenantId,
       actorUserId: actor.id,
       now,
     });
-    offers = releasedOffers;
     await audit(
       { agentId, tenantId: managed.agent.tenantId },
       "agent.revoked",
@@ -188,10 +184,6 @@ export async function revokeAgent(actor: Actor, agentId: string, now = new Date(
       { actorUserId: actor.id, db: tx },
     );
   });
-  for (const offer of offers) {
-    notifyClaimOffered(offer);
-    scheduleOfferExpiry(offer.id);
-  }
   return { ok: true };
 }
 
@@ -202,21 +194,15 @@ export async function revokeAgent(actor: Actor, agentId: string, now = new Date(
 export async function deleteAgent(actor: Actor, agentId: string, now = new Date()): Promise<ManageResult> {
   const managed = await managedAgent(actor, agentId);
   if (!managed) return { ok: false, error: NOT_FOUND };
-  let offers: Awaited<ReturnType<typeof releaseWorkOfRevokedAgent>>["offers"] = [];
   await prisma.$transaction(async (tx) => {
-    const released = await releaseWorkOfRevokedAgent(tx, {
+    await releaseWorkOfRevokedAgent(tx, {
       agentId,
       tenantId: managed.agent.tenantId,
       actorUserId: actor.id,
       now,
     });
-    offers = released.offers;
     await tx.agent.delete({ where: { id: agentId } });
   });
-  for (const offer of offers) {
-    notifyClaimOffered(offer);
-    scheduleOfferExpiry(offer.id);
-  }
   return { ok: true };
 }
 

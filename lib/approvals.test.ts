@@ -39,24 +39,14 @@ const db = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 
-vi.mock("@/lib/agent-api/offer", () => ({
-  offerNext: vi.fn(),
-  scheduleOfferExpiry: vi.fn(),
-}));
-
 vi.mock("@/lib/github/merge-pr", () => ({
   mergeAcceptedFix: vi.fn(),
-}));
-
-vi.mock("@/lib/agent-notifications", () => ({
-  notifyClaimOffered: vi.fn(),
 }));
 
 vi.mock("@/lib/notify", () => ({
   notifyLater: vi.fn(),
 }));
 
-import { offerNext } from "@/lib/agent-api/offer";
 import { mergeAcceptedFix } from "@/lib/github/merge-pr";
 import { notifyLater } from "@/lib/notify";
 
@@ -241,7 +231,7 @@ describe("Human approval rules and gates (#598)", () => {
       ).rejects.toThrowError(new IssueApiError(403, "Only workspace owners and admins can decide approvals."));
     });
 
-    it("approves, publishes approval.granted, audits, and resumes offer automatically for before_offer", async () => {
+    it("approves, publishes approval.granted and audits for before_offer, leaving the issue Open for a manager's award (#bids-only-offers)", async () => {
       db.membership.findUnique.mockResolvedValue({ userId: "admin-1", role: "admin" });
       db.issueApproval.findFirst.mockResolvedValue({
         id: "appr-offer",
@@ -259,13 +249,6 @@ describe("Human approval rules and gates (#598)", () => {
         },
       });
       db.issueApproval.updateMany.mockResolvedValue({ count: 1 });
-
-      vi.mocked(offerNext).mockResolvedValue({
-        claim: { id: "claim-new" } as never,
-        beneficiaryUserId: "user-dev",
-        bugTitle: "Design issue",
-        eventId: "event-1",
-      });
 
       const result = await decideApproval("admin-1", "tenant-1", "appr-offer", "approved", { db: db as never });
       expect(result.status).toBe("approved");
@@ -291,11 +274,10 @@ describe("Human approval rules and gates (#598)", () => {
         }),
       );
 
-      // Verify work resumed automatically
-      expect(offerNext).toHaveBeenCalledWith(
-        db,
-        { tenantId: "tenant-1" },
-        expect.objectContaining({ id: "bug-100" }),
+      // Nobody is offered the issue: it waits in Open for a manager agent to award a bid.
+      expect(db.issueClaim.create).not.toHaveBeenCalled();
+      expect(db.agentEvent.create).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ type: "claim.offered" }) }),
       );
     });
 
@@ -362,7 +344,7 @@ describe("Human approval rules and gates (#598)", () => {
       ).rejects.toThrowError(new IssueApiError(409, "This approval has already been decided."));
 
       expect(db.projectAuditEvent.create).not.toHaveBeenCalled();
-      expect(offerNext).not.toHaveBeenCalled();
+      expect(db.issueClaim.create).not.toHaveBeenCalled();
     });
   });
 

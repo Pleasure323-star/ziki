@@ -55,6 +55,10 @@ describe("IssueRowStatus", () => {
     expect(text(<IssueRowStatus {...base} status="closed" />)).toBe("Closed");
   });
 
+  it("says why agents closed an issue (#close-superseded)", () => {
+    expect(text(<IssueRowStatus {...base} status="closed" closeReason="superseded" />)).toBe("Closed · superseded");
+  });
+
   it("labels the tested and accepted steps from the one status", () => {
     expect(text(<IssueRowStatus {...base} status="done" />)).toContain("Done");
     cleanup();

@@ -7,7 +7,6 @@ const mockSweepOrphans = vi.hoisted(() => vi.fn());
 const mockDispatch = vi.hoisted(() => vi.fn());
 const mockPruneAgent = vi.hoisted(() => vi.fn());
 const mockSweepAttachments = vi.hoisted(() => vi.fn());
-const mockSweepBids = vi.hoisted(() => vi.fn());
 const mockLogger = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
@@ -23,7 +22,6 @@ vi.mock("@/lib/orphaned-issues", () => ({ sweepOrphanedIssues: mockSweepOrphans 
 vi.mock("@/lib/webhooks/deliver", () => ({ dispatchDueDeliveries: mockDispatch }));
 vi.mock("@/lib/agent-retention", () => ({ pruneAgentRows: mockPruneAgent }));
 vi.mock("@/lib/attachment-retention", () => ({ sweepOrphanedAttachments: mockSweepAttachments }));
-vi.mock("@/lib/cron/bids", () => ({ sweepPendingBids: mockSweepBids }));
 
 import {
   runPlatformSweeps,
@@ -41,9 +39,8 @@ describe("runPlatformSweeps (#647)", () => {
 
     mockSweepOffers.mockResolvedValue({ expired: 2 });
     mockSweepJobReviewOffers.mockResolvedValue({ expired: 1, offered: 3 });
-    mockSweepClaims.mockResolvedValue({ released: 1, offered: 1 });
+    mockSweepClaims.mockResolvedValue({ released: 1 });
     mockSweepOrphans.mockResolvedValue({ reopened: 2 });
-    mockSweepBids.mockResolvedValue({ invited: 1, assigned: 2, lapsed: 0, errors: [] });
     mockDispatch.mockResolvedValue(4);
     mockPruneAgent.mockResolvedValue({
       pairings: 1,
@@ -66,9 +63,10 @@ describe("runPlatformSweeps (#647)", () => {
     if (!("skipped" in result)) {
       expect(result.sweeps.offers).toEqual({ status: "ok", expired: 2 });
       expect(result.sweeps.jobReviewOffers).toEqual({ status: "ok", expired: 1, offered: 3 });
-      expect(result.sweeps.claims).toEqual({ status: "ok", released: 1, offered: 1 });
+      expect(result.sweeps.claims).toEqual({ status: "ok", released: 1 });
       expect(result.sweeps.orphanedIssues).toEqual({ status: "ok", reopened: 2 });
-      expect(result.sweeps.bids).toEqual({ status: "ok", invited: 1, assigned: 2, lapsed: 0 });
+      // Bids are awarded only by manager agents: there is no bid sweep (#bids-only-offers).
+      expect(result.sweeps).not.toHaveProperty("bids");
       expect(result.sweeps).not.toHaveProperty("promotions");
       expect(result.sweeps.deliveries).toEqual({ status: "ok", processed: 4 });
       expect(result.sweeps.retention).toEqual({
@@ -101,7 +99,7 @@ describe("runPlatformSweeps (#647)", () => {
     if (!("skipped" in result)) {
       expect(result.sweeps.offers).toEqual({ status: "ok", expired: 2 });
       expect(result.sweeps.jobReviewOffers).toEqual({ status: "ok", expired: 1, offered: 3 });
-      expect(result.sweeps.claims).toEqual({ status: "ok", released: 1, offered: 1 });
+      expect(result.sweeps.claims).toEqual({ status: "ok", released: 1 });
       expect(result.sweeps.deliveries).toEqual({
         status: "error",
         error: "Network timeout during webhooks",
@@ -117,7 +115,7 @@ describe("runPlatformSweeps (#647)", () => {
     expect(mockSweepOrphans).toHaveBeenCalledOnce();
     if (!("skipped" in result)) {
       expect(result.sweeps.orphanedIssues).toEqual({ status: "error", error: "recovery failed" });
-      expect(result.sweeps.bids.status).toBe("ok");
+      expect(result.sweeps.deliveries.status).toBe("ok");
       expect(result.sweeps.retention.status).toBe("ok");
     }
     expect(getConsecutiveFailures("orphanedIssues")).toBe(1);

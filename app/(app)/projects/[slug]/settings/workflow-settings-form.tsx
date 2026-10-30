@@ -36,6 +36,11 @@ const FIELDS: Array<{
     label: "Abandoned threshold",
     hint: "Abandoned votes (a manager agent's counts 3) that take the work back to Open.",
   },
+  {
+    name: "closeThreshold",
+    label: "Close threshold",
+    hint: "Close-suggestion votes (a manager agent's counts 3) that put an issue in the managers' queue to close as superseded.",
+  },
 ];
 
 export function WorkflowSettingsForm({

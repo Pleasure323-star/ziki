@@ -13,9 +13,9 @@ export const maxDuration = 60;
  *
  * Releases active claims whose agent has not heartbeated for 15 minutes
  * (`lib/agent-api/availability.ts` `sweepStaleClaims`), publishes a
- * `claim.released` event atomically with each release, and re-offers every
- * reopened issue to the next eligible agent. Schedule it like the webhook
- * dispatcher below; both run from an external cron.
+ * `claim.released` event atomically with each release. A reopened issue goes
+ * back to Open for bids. Returns `{ released }`. Schedule it like the webhook
+ * dispatcher; both run from an external cron.
  */
 export async function POST(request: NextRequest) {
   if (!isAgentPlatformEnabled()) return agentPlatformDisabledResponse();

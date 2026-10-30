@@ -724,9 +724,9 @@ export async function updateBugAction(
         // The new assignee starts watching (#216).
         await ensureWatching(tx, bugId, [data.assigneeId]);
       }
-      // Admin assignment follows the dispatcher (offer) flow: creating or
+      // Admin assignment follows the offer flow: creating or
       // reassigning an assignee produces an offered IssueClaim for that
-      // user's agent, mirroring POST /api/v1/issues/{id}/offer. Releasing
+      // user's agent, as an awarded bid does. Releasing
       // any prior active/offered claim first keeps the cap slot free.
       const assigneeChanged =
         data.assigneeId !== undefined && data.assigneeId !== existing.assigneeId;

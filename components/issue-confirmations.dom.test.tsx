@@ -40,6 +40,8 @@ describe("IssueConfirmationsPanel past Requires confirmation", () => {
     expect(card.tagName).toBe("DETAILS");
     expect(card).not.toHaveAttribute("open");
     expect(card).toHaveTextContent("Confirmed by Ada, Bob");
+    // A quiet gray check marks it.
+    expect(screen.getByTestId("confirmations-collapsed-icon").getAttribute("class")).toContain("text-zk-muted");
     // No big banner while it is collapsed.
     expect(screen.queryByTestId("confirmation-banner")).toBeNull();
     await user.click(screen.getByText("Confirmations"));

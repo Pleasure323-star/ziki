@@ -5,18 +5,16 @@ import { confirm, feedItem, fileIdea, offeredTo, ok, refused, ziki, type Agent }
  * One report from idea to merge, through the CLI, with each agent class doing
  * its part: ada files an idea; bob, cara and eli say it is a good idea; dana
  * (manager) converts it to an issue; bob and cara confirm it and eli clears
- * duplicates; whichever agent Ziki offers the work to delivers; two other
- * owners test; dana accepts; eli (merger) merges.
+ * duplicates; cara bids, dana awards her bid as an offer and cara accepts
+ * and delivers; two other owners test; dana accepts; eli (merger) merges.
  */
 describe("a report from idea to merge", () => {
   /** The idea, then (once converted) the issue it became. */
   let ideaId: string;
   let id: string;
   let solver: Agent;
-  const agentIds = new Map<string, Agent>();
 
   beforeAll(async () => {
-    for (const agent of ["ada", "bob", "cara", "dana", "eli"] as const) agentIds.set((await ok(agent, "whoami")).id, agent);
     ideaId = await fileIdea("ada", "CLI lifecycle: Save does nothing");
     id = ideaId;
   });
@@ -119,30 +117,31 @@ describe("a report from idea to merge", () => {
     expect(await ok("bob", "unmark-important", { id })).toMatchObject({ important: false, importance: 0, changed: false });
   });
 
-  it("waits for bids or dispatch once ready: nobody is offered it automatically", async () => {
+  it("waits for bids once ready: nobody is offered it automatically", async () => {
     expect(await offeredTo(id)).toBeNull();
     expect(await feedItem("bob", "ready_issue", id)).toBeTruthy();
   });
 
-  it("keeps dispatch tools for manager agents", async () => {
+  it("keeps dispatch metrics for manager agents", async () => {
     expect((await refused("bob", "dispatch-metrics", {}, 403)).error).toBe("This needs a manager agent.");
     expect(await ok("dana", "dispatch-metrics")).toBeTruthy();
   });
 
-  it("is offered to an agent when one asks, and becomes that agent's claim once accepted", async () => {
-    const requested = (await ok("bob", "request-offer", { id })).offer;
-    expect(requested.status).toBe("offered");
-    const offer = { agent: agentIds.get(requested.agentId)!, offerId: requested.id };
-    solver = offer.agent;
-    expect(solver, "offered to an agent outside the sandbox").toBeTruthy();
+  it("is offered to the bidder once a manager agent awards its bid, and becomes that agent's claim once accepted", async () => {
+    const bid = await ok("cara", "bid", { id, summary: "I can fix Save.", description: "Save fires twice on a double click; I will wait for the pending request and add a test." });
+    const awarded = await ok("dana", "award-bid", { id: bid.bid_id });
+    expect(awarded).toMatchObject({ bidId: bid.bid_id, bugId: id, status: "offered" });
+    const offer = await offeredTo(id);
+    expect(offer).toEqual({ agent: "cara", offerId: awarded.claimId });
+    solver = offer!.agent;
     const someoneElse = (["ada", "bob", "cara"] as const).find((agent) => agent !== solver)!;
-    await refused(someoneElse, "accept-offer", { id: offer.offerId }, 409);
-    const accepted = await ok(solver, "accept-offer", { id: offer.offerId });
+    await refused(someoneElse, "accept-offer", { id: offer!.offerId }, 409);
+    const accepted = await ok(solver, "accept-offer", { id: offer!.offerId });
     expect(accepted.claim.status).toBe("active");
     expect(accepted.claim.deliverBy).toBeTruthy();
     // The issue read names who has it now: the agent, for its owner, by an accepted offer.
     const { holder } = (await ok("ada", "get-issue", { id })).issue;
-    expect(holder).toMatchObject({ status: "active", via: "offer", agentName: expect.any(String), personName: expect.any(String) });
+    expect(holder).toMatchObject({ status: "active", via: "bid", agentName: "cara", personName: expect.any(String) });
   });
 
   it("keeps the claim alive with heartbeats and one deadline extension", async () => {

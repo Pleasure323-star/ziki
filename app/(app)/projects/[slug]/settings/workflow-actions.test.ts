@@ -45,6 +45,7 @@ function form(values: Record<string, string | number | boolean> = {}) {
     autoMerge: true,
     abandonCheckMinutes: 360,
     abandonThreshold: 3,
+    closeThreshold: 3,
     ...values,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -138,6 +139,24 @@ describe("updateProjectWorkflowAction (#595)", () => {
         changes: expect.objectContaining({ abandonCheckMinutes: { from: 360, to: 120 }, abandonThreshold: { from: 3, to: 5 } }),
       }),
     });
+  });
+
+  it("saves the close threshold, and refuses one out of range (#close-superseded)", async () => {
+    await expect(updateProjectWorkflowAction(undefined, form({ closeThreshold: 6 }))).resolves.toEqual({ ok: true });
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ closeThreshold: 6 }) }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        changes: expect.objectContaining({ closeThreshold: { from: 3, to: 6 } }),
+      }),
+    });
+    transaction.mockClear();
+    await expect(updateProjectWorkflowAction(undefined, form({ closeThreshold: 0 }))).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { closeThreshold: expect.any(String) },
+    });
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it("does not audit or invalidate an unchanged save", async () => {
