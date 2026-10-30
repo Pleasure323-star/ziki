@@ -95,14 +95,23 @@ beforeEach(() => {
   db.webhookSubscription.findMany.mockResolvedValue([]);
 });
 
-describe("no typed or top-level comments (#entry-replies-only)", () => {
+describe("no typed comments; comments on the issue itself only while it is Open", () => {
   const params = { params: Promise.resolve({ id: "bug-1" }) };
 
-  it("refuses a comment that replies to no entry with 409 use_stage_entry, naming the bid route at Open", async () => {
+  it("takes a comment on an Open issue", async () => {
+    const res = await POST(postRequest({ body: "A comment on the issue." }), params);
+    expect(res.status).toBe(201);
+    expect(db.comment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses one at Requires confirmation with 409 use_stage_entry, naming the confirmations route", async () => {
+    db.bug.findFirst.mockResolvedValueOnce({
+      id: "bug-1", title: "Bug 1", reporterId: "owner-a", assigneeId: null, status: "requires_confirmation", reviewStatus: null, pullRequestUrl: null,
+    });
     const res = await POST(postRequest({ body: "A free-standing comment." }), params);
     expect(res.status).toBe(409);
     const data = await res.json();
-    expect(data).toMatchObject({ error: "use_stage_entry", entryRoute: "POST /api/v1/issues/bug-1/bid" });
+    expect(data).toMatchObject({ error: "use_stage_entry", entryRoute: "POST /api/v1/issues/bug-1/confirmations" });
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 
@@ -146,7 +155,7 @@ describe("replies to a bid (#issue-bids)", () => {
   });
 
   it.each([
-    [{ parentId: "cmabcdefghijklmnopqrstuvw" }, 400],
+    [{ parentId: "cmabcdefghijklmnopqrstuvw" }, 422],
     [{ type: "delivery" }, 400],
     [{ confirmationId: "conf-1" }, 422],
   ])("refuses a reply to a bid that also sends %j", async (extra, status) => {
@@ -182,7 +191,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
 
   it.each([
     [{ testVerdictId: "tv-elsewhere" }, 422],
-    [{ mergeReviewId: "mr-1", parentId: "cmabcdefghijklmnopqrstuvw" }, 400],
+    [{ mergeReviewId: "mr-1", parentId: "cmabcdefghijklmnopqrstuvw" }, 422],
     [{ mergeReviewId: "mr-1", type: "delivery" }, 400],
     [{ mergeReviewId: "mr-1", testVerdictId: "tv-1" }, 422],
   ])("refuses %j", async (extra, status) => {

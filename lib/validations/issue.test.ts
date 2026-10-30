@@ -219,11 +219,11 @@ describe("commentSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("has no type, metadata or parentId (#entry-replies-only)", () => {
+  it("has no type or metadata, and takes a parentId for a reply to a comment", () => {
     const parsed = commentSchema.parse({ body: "Review", type: "review", metadata: { confidence: 80 }, parentId: validCuid });
     expect(parsed).not.toHaveProperty("type");
     expect(parsed).not.toHaveProperty("metadata");
-    expect(parsed).not.toHaveProperty("parentId");
+    expect(parsed.parentId).toBe(validCuid);
   });
 
   it("treats an empty entry id as none", () => {

@@ -471,10 +471,9 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
 });
 
 describe("agent comments", () => {
-  it("refuses a top-level comment with 409 use_stage_entry naming the stage's entry route", async () => {
+  it("takes a comment on the issue itself only while it is Open; elsewhere 409 use_stage_entry names the stage's entry route", async () => {
     const cases: Array<[Record<string, unknown>, RegExp | null]> = [
       [{ status: "requires_confirmation" }, /\/issues\/issue-a\/confirmations$/],
-      [{ status: "open" }, /\/issues\/issue-a\/bid$/],
       [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "submitted" }, /\/issues\/issue-a\/test-results$/],
       [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "ready_to_merge" }, /\/issues\/issue-a\/merge$/],
       [{ status: "in_progress", pullRequestUrl: null, reviewStatus: null }, null],
@@ -489,25 +488,46 @@ describe("agent comments", () => {
       expect(body.replyFields).toEqual(["confirmationId", "bidId", "testVerdictId", "mergeReviewId"]);
       if (route) expect(body.entryRoute).toMatch(route);
       else expect(body.entryRoute).toBeNull();
-      expect(body.message).toMatch(/no top-level comments/);
+      expect(body.message).toMatch(/only while it is Open/);
     }
     expect(db.comment.create).not.toHaveBeenCalled();
+
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    expect((await comment(request("POST", { body: "A comment on an Open issue" }), context)).status).toBe(201);
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ parentId: null, bidId: null, confirmationId: null }),
+    }));
+  });
+
+  it("replies to a comment on an Open issue, one level deep", async () => {
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    db.comment.findFirst.mockResolvedValueOnce({ authorId: "someone" });
+    expect((await comment(request("POST", { body: "Agreed", parentId: "comment-a" }), context)).status).toBe(201);
+    expect(db.comment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: "comment-a", parentId: null, bidId: null }),
+    }));
+
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    db.comment.findFirst.mockResolvedValueOnce(null);
+    expect((await comment(request("POST", { body: "Agreed", parentId: "a-reply" }), context)).status).toBe(422);
+  });
+
+  it("refuses a body that names two places for the comment", async () => {
+    const response = await comment(request("POST", { body: "Reply", bidId: "bid-a", parentId: "comment-a" }), context);
+    expect(response.status).toBe(422);
   });
 
   it.each([
-    [{ type: "review" }, "comment_has_no_type"],
-    [{ type: "comment" }, "comment_has_no_type"],
-    [{ metadata: { confidence: 80 } }, "comment_has_no_type"],
-    [{ parentId: "cl000000000000000000000001" }, "replies_are_flat"],
-  ])("refuses %o with a 400 that explains entries", async (extra, error) => {
+    [{ type: "review" }],
+    [{ type: "comment" }],
+    [{ metadata: { confidence: 80 } }],
+  ])("refuses %o with a 400 that explains entries", async (extra) => {
     const response = await comment(request("POST", { body: "Reviewed", bidId: "bid-a", ...extra }), context);
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error).toBe(error);
-    if (error === "comment_has_no_type") {
-      expect(body.entryRoutes).toHaveLength(4);
-      expect(body.message).toMatch(/test-results/);
-    }
+    expect(body.error).toBe("comment_has_no_type");
+    expect(body.entryRoutes).toHaveLength(4);
+    expect(body.message).toMatch(/test-results/);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 

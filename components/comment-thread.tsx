@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
+import { EntryReplyForm } from "@/components/entry-reply-form";
 import { LocalTime } from "@/components/local-time";
 import { truncateCommentBody, type CommentNode } from "@/lib/comments";
 import { canDeleteComment } from "@/lib/comment-permissions";
@@ -23,13 +24,15 @@ type ViewerProps = {
   tenantAdmin?: boolean;
   /** A deleted issue: not even its author's own delete. */
   readOnly?: boolean;
+  /** Set while the issue is Open: top-level comments take replies. */
+  replyBugId?: string;
 };
 
 type UserOption = { id: string; name: string };
 
 /**
- * Small pencil button that opens the comment's actions. Earlier comments are
- * read-only (#entry-replies-only), so the one action is deleting your own. A
+ * Small pencil button that opens the comment's actions. Comments aren't
+ * edited, so the one action is deleting your own. A
  * disclosure, not an ARIA menu: Escape closes it and puts focus back on the
  * pencil.
  */
@@ -106,6 +109,7 @@ function CommentItem({
   attachmentsByComment = {},
   organizationRoles = {},
   readOnly = false,
+  replyBugId,
 }: {
   comment: CommentNode;
   /** Canonical issue URL, for each comment's permalink (#279). */
@@ -194,6 +198,9 @@ function CommentItem({
 
             <CommentBody body={comment.body} users={users} />
             <AttachmentList attachments={attachmentsByComment[comment.id] ?? []} />
+            {replyBugId && !readOnly && !comment.parentId ? (
+              <EntryReplyForm bugId={replyBugId} target={{ parentId: comment.id }} label="Reply to this comment" />
+            ) : null}
           </>
         )}
         {error ? (
@@ -218,6 +225,7 @@ function CommentItem({
               attachmentsByComment={attachmentsByComment}
               organizationRoles={organizationRoles}
               readOnly={readOnly}
+              replyBugId={replyBugId}
             />
           ))}
         </ul>
@@ -238,9 +246,9 @@ type ThreadProps = {
 } & ViewerProps;
 
 /**
- * Comments from before an issue's stages took entries (#entry-replies-only),
- * with their replies: read-only. Nobody replies to or edits them; an author
- * (or an admin) may still delete one.
+ * The comments on the issue itself, with their replies. While the issue is
+ * Open (`replyBugId` set) anyone may reply to a top-level comment; an author
+ * (or an admin) may delete their own.
  */
 export function CommentThread({ comments, ...props }: ThreadProps) {
   if (comments.length === 0) return null;
@@ -253,56 +261,34 @@ export function CommentThread({ comments, ...props }: ThreadProps) {
   );
 }
 
-/** Whether the URL's #fragment points at an element inside `root`. */
-function hashTargetsInside(root: HTMLElement | null): boolean {
-  const id = typeof window === "undefined" ? "" : decodeURIComponent(window.location.hash.slice(1));
-  if (!root || !id) return false;
-  const target = document.getElementById(id);
-  return Boolean(target && root.contains(target));
-}
-
 /**
- * The "Earlier comments (N)" section of the issue page: collapsed, and opened
- * by a permalink to one of its comments.
+ * The issue's Comments section: the comment box while the issue is Open
+ * (`composer`), then the comments, newest threads first as loaded.
  */
-export function EarlierComments({
+export function IssueComments({
   count,
-  defaultOpen = false,
+  composer,
   children,
   ...props
 }: ThreadProps & {
+  /** Top-level comments. */
+  count: number;
+  /** The comment box, shown only while the issue takes comments. */
+  composer?: ReactNode;
   /** Shown under the comments, e.g. "Show earlier". */
   children?: ReactNode;
-  /** Top-level comments, shown in the summary. */
-  count: number;
-  /** Open on load, e.g. when the page was asked for one of these comments. */
-  defaultOpen?: boolean;
 }) {
-  const ref = useRef<HTMLDetailsElement>(null);
-
-  useEffect(() => {
-    const openForHash = () => {
-      if (ref.current && hashTargetsInside(ref.current)) ref.current.open = true;
-    };
-    openForHash();
-    window.addEventListener("hashchange", openForHash);
-    return () => window.removeEventListener("hashchange", openForHash);
-  }, []);
-
-  if (count === 0) return null;
+  if (count === 0 && !composer) return null;
   return (
-    <details ref={ref} open={defaultOpen || undefined} className="group mt-4" data-testid="earlier-comments">
-      <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-[0.08em] text-zk-muted hover:text-zk-text [&::-webkit-details-marker]:hidden">
-        <span aria-hidden="true" className="mr-1 inline-block transition-transform group-open:rotate-90">
-          ›
-        </span>
-        Earlier comments ({count})
-      </summary>
-      <p className="mb-3 mt-2 text-[13px] text-zk-muted">
-        Written before issues took stage entries. They are kept as they were and can&apos;t be replied to.
-      </p>
+    <section aria-labelledby="comments-heading" className="mt-5" data-testid="issue-comments">
+      <h3 id="comments-heading" className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+        Comments
+        <span className="font-mono font-normal normal-case tracking-normal">{count}</span>
+      </h3>
+      {composer}
       <CommentThread {...props} />
       {children}
-    </details>
+    </section>
   );
 }
+

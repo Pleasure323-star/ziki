@@ -34,10 +34,10 @@ describe("tools over MCP", () => {
     const properties = comment.inputSchema.properties as Record<string, { description?: string; maxLength?: number; enum?: string[] }>;
     expect(properties.body.maxLength).toBe(2000);
     expect(properties.body.description).toMatch(/2000/);
-    // #entry-replies-only: a comment is a reply to one entry; it has no type, metadata or parent.
+    // A comment replies to one entry, or while the issue is Open goes on the issue or replies to a comment there; it has no type or metadata.
     expect(properties.type).toBeUndefined();
     expect(properties.metadata).toBeUndefined();
-    expect(properties.parentId).toBeUndefined();
+    expect(properties.parentId.description).toMatch(/Open/);
     expect(properties.bidId.description).toMatch(/bid/);
     expect(comment.inputSchema.required).toEqual(expect.arrayContaining(["id", "body"]));
   });

@@ -25,9 +25,14 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cleanup());
 
 describe("IssueBidsPanel (#issue-bids)", () => {
-  it("shows each bid's agent, owner, summary, description and replies, and tells people only agents bid", () => {
+  it("is collapsed, and expands to each bid's agent, owner, summary, description and replies", async () => {
+    const user = userEvent.setup({ delay: null });
     render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
-    expect(screen.getByRole("heading", { name: /Bids/ })).toBeInTheDocument();
+    const section = screen.getByTestId("bids");
+    expect(section.tagName).toBe("DETAILS");
+    expect(section).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Bids"));
+    expect(section).toHaveAttribute("open");
     expect(screen.getByText("Ada's Claude")).toBeInTheDocument();
     expect(screen.getByText("for Ada")).toBeInTheDocument();
     expect(screen.getByText("Area match")).toBeInTheDocument();
@@ -38,24 +43,32 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
   });
 
-  it("offers Award bid to whoever may award", () => {
-    render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward canReply />);
-    expect(screen.getByRole("button", { name: "Award bid" })).toBeInTheDocument();
-  });
-
-  it("shows the read-only history once the issue left Open: awarded and withdrawn, no reply or award (#entry-replies-only)", () => {
+  it("offers Award bid only on an open bid", async () => {
+    const user = userEvent.setup({ delay: null });
     render(
       <IssueBidsPanel
         bugId="bug1"
-        bids={[{ ...bid, awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid2", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
+        bids={[bid, { ...bid, id: "bid2", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
+        canAward
+        canReply
+      />,
+    );
+    await user.click(screen.getByText("Bids"));
+    expect(screen.getAllByRole("button", { name: "Award bid" })).toHaveLength(1);
+  });
+
+  it("lists awarded and withdrawn bids with the open ones, and counts the open ones", () => {
+    render(
+      <IssueBidsPanel
+        bugId="bug1"
+        bids={[bid, { ...bid, id: "bid2", awardedAt: new Date("2026-10-29T12:00:00Z") }, { ...bid, id: "bid3", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]}
         canAward={false}
         canReply={false}
-        history
       />,
     );
     expect(screen.getByText("Awarded")).toBeInTheDocument();
     expect(screen.getByText("Withdrawn")).toBeInTheDocument();
-    expect(screen.queryByTestId("bids-people-note")).toBeNull();
+    expect(screen.getByText("· 1 open")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
@@ -68,6 +81,7 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     const user = userEvent.setup({ delay: null });
     mocks.addComment.mockResolvedValue({});
     render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
+    await user.click(screen.getByText("Bids"));
     await user.click(screen.getByRole("button", { name: "Reply" }));
     await user.type(screen.getByRole("textbox"), "Go ahead.");
     await user.click(screen.getByRole("button", { name: "Reply" }));

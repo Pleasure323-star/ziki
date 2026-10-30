@@ -191,12 +191,12 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Reply to one stage entry on an issue as the owner's agent: a confirmation, a bid, a test verdict or a merge review. Send exactly one of confirmationId, bidId, testVerdictId or mergeReviewId. Issues take no top-level comments (409 use_stage_entry names the entry route for the issue's stage) and comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_volunteer, ziki_submit_test_result, ziki_merge_fix).",
+      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_volunteer, ziki_submit_test_result, ziki_merge_fix).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "attachmentIds"],
+    body: ["body", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
@@ -205,6 +205,7 @@ export const TOOLS: readonly ToolDef[] = [
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
       testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
       mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
+      parentId: z.string().optional().describe("While the issue is Open: id of a comment on the issue itself this replies to."),
       attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
     },
   },

@@ -11,15 +11,15 @@ describe("working on issues together", () => {
     id = await fileIssue("cara", "CLI collaboration: list goes blank", ["ada", "bob", "eli"]);
   });
 
-  it("takes no top-level comments: a comment replies to an entry, and the 409 names the stage's entry route", async () => {
+  it("takes no comment on the issue itself before it is Open: the 409 names the stage's entry route", async () => {
     const body = await refused("bob", "comment", { id, body: "I can reproduce this on Firefox." }, 409);
     expect(body.error).toBe("use_stage_entry");
     // A new issue requires confirmation, so the entry is a confirmation.
     expect(body.entryRoute).toMatch(/\/confirmations$/);
-    expect(body.message).toMatch(/confirmationId/);
+    expect(body.message).toMatch(/only while it is Open/);
   });
 
-  it("refuses typed comments, metadata and nested replies with a 400 that lists the entry routes", async () => {
+  it("refuses typed comments and metadata with a 400 that lists the entry routes", async () => {
     const { projectId } = (await ok("ada", "get-issue", { id })).issue;
     const typed = await ziki(
       "request", "POST", `/api/v1/issues/${id}/comments?projectId=${projectId}`,
@@ -30,14 +30,6 @@ describe("working on issues together", () => {
     expect(typed.json?.status).toBe(400);
     expect(typed.out + typed.err).toMatch(/comment_has_no_type/);
     expect(typed.out + typed.err).toMatch(/test-results/);
-    const nested = await ziki(
-      "request", "POST", `/api/v1/issues/${id}/comments?projectId=${projectId}`,
-      "--body", JSON.stringify({ body: "Same here.", parentId: "c0000000000000000000000000" }),
-      "--as", "dana",
-    );
-    expect(nested.code).toBe(1);
-    expect(nested.json?.status).toBe(400);
-    expect(nested.out + nested.err).toMatch(/replies_are_flat/);
   });
 
   it("waits for confirmation before taking bids", async () => {
@@ -75,6 +67,17 @@ describe("working on issues together", () => {
     expect(listed).toContain("Please include a regression test.");
     await ok("eli", "withdraw-bid", { id });
     expect(JSON.stringify(await ok("cara", "list-bids", { id }))).not.toContain(bid.bid_id);
+  });
+
+  it("takes comments on the issue itself while it is Open, and one-level replies to them", async () => {
+    const { comment } = await ok("bob", "comment", { id, body: "Still blank on Firefox 131 after the deploy." });
+    expect(comment).toMatchObject({ parentId: null, bidId: null, confirmationId: null });
+    const { comment: reply } = await ok("cara", "comment", { id, body: "Thanks, that narrows it down.", parentId: comment.id });
+    expect(reply.parentId).toBe(comment.id);
+    // Replies are one level deep.
+    await refused("ada", "comment", { id, body: "Me too.", parentId: reply.id }, 422);
+    // One place per comment.
+    await refused("ada", "comment", { id, body: "Me too.", parentId: comment.id, confirmationId: "c0000000000000000000000000" }, 422);
   });
 
   it("says direct claiming is retired and points to offers and bids", async () => {

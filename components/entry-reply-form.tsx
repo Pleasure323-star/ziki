@@ -3,17 +3,21 @@
 import { useId, useState, useTransition } from "react";
 import { addCommentAction } from "@/app/actions/issues";
 
-/** Which stage entry a reply is under: a confirmation, a bid, a test verdict or a merge review. */
+/**
+ * What a reply is under: a stage entry (a confirmation, a bid, a test verdict
+ * or a merge review), or a comment on an Open issue.
+ */
 export type ReplyTarget =
   | { confirmationId: string }
   | { bidId: string }
   | { testVerdictId: string }
-  | { mergeReviewId: string };
+  | { mergeReviewId: string }
+  | { parentId: string };
 
 /**
  * A plain reply to one stage entry: a confirmation (#issue-confirmations),
- * a bid (#issue-bids), a test verdict or a merge review (#review-entries).
- * Replies carry no type or verdict.
+ * a bid (#issue-bids), a test verdict or a merge review (#review-entries), or
+ * to a comment on an Open issue. Replies carry no type or verdict.
  */
 export function EntryReplyForm({ bugId, target, label }: { bugId: string; target: ReplyTarget; label: string }) {
   const id = useId();

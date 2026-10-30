@@ -172,6 +172,13 @@ export const commentSchema = z.object({
     .max(191)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
+  /** A reply to a comment on an Open issue names it here (lib/comment-placement.ts). */
+  parentId: z
+    .string()
+    .trim()
+    .max(191)
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
 export const loginSchema = z.object({

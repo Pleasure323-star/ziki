@@ -41,7 +41,10 @@ import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueStageSummary } from "@/components/issue-stage-summary";
-import { EarlierComments } from "@/components/comment-thread";
+import { IssueComments } from "@/components/comment-thread";
+import { CommentComposer } from "@/components/comment-composer";
+import { AwardBox } from "@/components/award-box";
+import { issueHolds, type IssueHold } from "@/lib/issue-holders";
 import {
   claimDecisionKind,
   currentDecisionStage,
@@ -51,7 +54,7 @@ import {
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
-import { bidHistoryEntries, openBidEntries } from "@/lib/agent-api/bid";
+import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
 import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
@@ -399,11 +402,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     ),
   ]) : [[], null] as const;
   const canChooseRedesign = isTenantAdminRole(membership?.role, user.role);
-  // #issue-bids: at Open the issue takes bids, not comments.
-  const bidding = !bug.isDeleted && bug.status === "open";
-  const bidList: BidEntryView[] = bidding
-    ? await loadOptional<BidEntryView[]>("bids", [], () => openBidEntries({ id: bug.id, areaId: bug.areaId ?? null }))
-    : [];
+  // Once an issue is past Requires confirmation, the Conversation opens on who
+  // has it (its claims), then every bid it took (#issue-bids).
+  const pastConfirmation = bug.status !== "requires_confirmation";
+  const [holds, bidList] = pastConfirmation
+    ? await Promise.all([
+        loadOptional<IssueHold[]>("holders", [], () => issueHolds(bug.id)),
+        loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
+      ])
+    : [[] as IssueHold[], [] as BidEntryView[]];
   const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
 
   // #importance: started now, read after the batch below, so it runs alongside it.
@@ -691,13 +698,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         listIdeaVerdicts({ tenantId: bug.tenantId, projectId: bug.projectId }, sourceIdea.id),
       )
     : null;
-  // #issue-confirmations: at Requires confirmation the issue takes confirmation entries, not comments.
+  // #issue-confirmations: at Requires confirmation the issue takes confirmation
+  // entries; afterwards they stay, read-only, under the comments.
   const confirming = !bug.isDeleted && bug.status === "requires_confirmation";
-  const confirmationsData: ConfirmationsData | null = confirming
-    ? await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
-        listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
-      )
-    : null;
+  const confirmationsData: ConfirmationsData | null = await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
+    listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
+  );
   const confirmationBlock: ConfirmationBlock =
     bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
   const isAssignee = !!userId && bug.assigneeId === userId;
@@ -736,33 +742,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const reviewBug = { id: bug.id, pullRequestUrl: bug.pullRequestUrl ?? null, pullRequestHeadSha: bug.pullRequestHeadSha ?? null };
   const testing = !bug.isDeleted && currentStage === "done";
   const mergeReviewing = !bug.isDeleted && currentStage === "ready";
-  const [testVerdictList, mergeReviewList] = await Promise.all([
-    testing ? loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)) : Promise.resolve([]),
-    mergeReviewing ? loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)) : Promise.resolve([]),
-  ]);
-  // #entry-replies-only: a stage with no entries of its own (in progress,
-  // live, closed) shows the entries of the earlier stages, read-only.
-  const showHistory = !confirming && !bidding && !testing && !mergeReviewing;
-  const [historyConfirmations, historyBids, historyTestVerdicts, historyMergeReviews] = showHistory
+  // Taken at their own stage; read-only afterwards.
+  const [testVerdictList, mergeReviewList] = pastConfirmation
     ? await Promise.all([
-        loadOptional<ConfirmationsData | null>("confirmation history", null, () =>
-          listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
-        ),
-        loadOptional<BidEntryView[]>("bid history", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
-        loadOptional<TestVerdictView[]>("test verdict history", [], () => testVerdictEntries(reviewBug)),
-        loadOptional<MergeReviewView[]>("merge review history", [], () => mergeReviewEntries(reviewBug)),
+        loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)),
+        loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)),
       ])
-    : [null, [] as BidEntryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
-  const hasHistory =
-    (historyConfirmations?.entries.length ?? 0) > 0 ||
-    historyBids.length > 0 ||
-    historyTestVerdicts.length > 0 ||
-    historyMergeReviews.length > 0;
-  // Comments from before the stages took entries: read-only, collapsed.
-  const earlierCommentCount = comments.shownThreads + comments.hiddenThreads;
-  const commentTarget = parseCommentTarget(query.comment);
-  const openEarlierComments =
-    typeof query.threads === "string" || Boolean(commentTarget && comments.comments.some((c) => c.id === commentTarget));
+    : [[] as TestVerdictView[], [] as MergeReviewView[]];
+  // Comments on the issue itself: taken only while it is Open (lib/comment-placement.ts).
+  const takesComments = !bug.isDeleted && bug.status === "open";
+  const commentCount = comments.shownThreads + comments.hiddenThreads;
   // #489: the Admin label follows each person's role in this issue's
   // organization, not their account-wide role, the same rule as admin powers.
   const namedUserIds = [
@@ -1081,6 +1070,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   </h2>
                   <DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />
                 </div>
+                {/* Who has the issue, once it is past Requires confirmation: the agent it was awarded to, or Open. */}
+                {pastConfirmation ? <AwardBox holds={holds} open={bug.status === "open"} /> : null}
                 {/* #186: the picked stage's summary, in place of the Agent decisions card. */}
                 <IssueStageSummary
                   decisions={agentDecisions}
@@ -1095,57 +1086,34 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   }
                   confirmation={confirmation}
                 />
-                {confirmationsData ? (
+                {confirming && confirmationsData ? (
                   <IssueConfirmationsPanel
                     bugId={bug.id}
                     data={confirmationsData}
                     viewerId={user.id}
                     block={confirmationBlock}
                     summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
+                    confirmed={false}
                   />
                 ) : null}
-                {bidding ? (
+                {testing || testVerdictList.length > 0 ? (
+                  <TestVerdictsPanel bugId={bug.id} verdicts={testVerdictList} canReply={testing} history={!testing} />
+                ) : null}
+                {mergeReviewing || mergeReviewList.length > 0 ? (
+                  <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply={mergeReviewing} history={!mergeReviewing} />
+                ) : null}
+                {pastConfirmation ? (
                   <IssueBidsPanel
                     bugId={bug.id}
                     bids={bidList}
                     canAward={canAwardBid && intakeStage === "ready"}
-                    canReply
+                    canReply={!bug.isDeleted}
                   />
                 ) : null}
-                {testing ? <TestVerdictsPanel bugId={bug.id} verdicts={testVerdictList} canReply /> : null}
-                {mergeReviewing ? <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply /> : null}
-                {showHistory ? (
-                  hasHistory ? (
-                    <div data-testid="stage-history">
-                      {historyConfirmations && historyConfirmations.entries.length > 0 ? (
-                        <IssueConfirmationsPanel
-                          bugId={bug.id}
-                          data={historyConfirmations}
-                          viewerId={user.id}
-                          block={null}
-                          summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
-                          history
-                        />
-                      ) : null}
-                      {historyBids.length > 0 ? (
-                        <IssueBidsPanel bugId={bug.id} bids={historyBids} canAward={false} canReply={false} history />
-                      ) : null}
-                      {historyTestVerdicts.length > 0 ? (
-                        <TestVerdictsPanel bugId={bug.id} verdicts={historyTestVerdicts} canReply={false} history />
-                      ) : null}
-                      {historyMergeReviews.length > 0 ? (
-                        <MergeReviewsPanel bugId={bug.id} reviews={historyMergeReviews} canReply={false} history />
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="mb-3 text-[13px] text-zk-muted" data-testid="stage-no-entries">
-                      This stage takes no entries. Earlier stages&apos; entries appear here once there are any.
-                    </p>
-                  )
-                ) : null}
-                <EarlierComments
-                  count={earlierCommentCount}
-                  defaultOpen={openEarlierComments}
+                <IssueComments
+                  count={commentCount}
+                  composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
+                  replyBugId={takesComments ? bug.id : undefined}
                   issueUrl={absoluteUrl(issuePath(bug.number))}
                   reporterId={bug.reporterId}
                   comments={commentTree}
@@ -1181,7 +1149,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       ) : null}
                     </div>
                   ) : null}
-                </EarlierComments>
+                </IssueComments>
+                {pastConfirmation && confirmationsData && confirmationsData.entries.length > 0 ? (
+                  <IssueConfirmationsPanel
+                    bugId={bug.id}
+                    data={confirmationsData}
+                    viewerId={user.id}
+                    block={null}
+                    summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
+                    history
+                    confirmed
+                  />
+                ) : null}
                 <Suspense fallback={null}>
                   <CommentPermalinkResolver />
                 </Suspense>

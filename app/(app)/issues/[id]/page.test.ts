@@ -192,12 +192,17 @@ describe("BugDetailPage conditional user query (#349)", () => {
     );
     expect(pageSourceFresh).toContain('id="conversation"');
     expect(pageSourceFresh).toContain('id="comments"');
-    // #entry-replies-only: no Add comment anywhere; stage entries and their replies,
-    // earlier comments read-only, and the dispute option on its own button.
+    // Past Requires confirmation: who has it, the bids, the comments (a comment
+    // box only while Open), then the confirmations; disputes on their own button.
     expect(pageSourceFresh).not.toContain("AddCommentDialog");
-    expect(pageSourceFresh).toContain("<EarlierComments");
+    expect(pageSourceFresh).toContain("<AwardBox holds={holds}");
+    expect(pageSourceFresh).toContain("<IssueComments");
+    expect(pageSourceFresh).toContain("composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}");
     expect(pageSourceFresh).toContain("<DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />");
-    expect(pageSourceFresh).toContain('data-testid="stage-history"');
+    const order = ["<AwardBox", "<IssueBidsPanel", "<IssueComments"].map((s) => pageSourceFresh.indexOf(s));
+    order.push(pageSourceFresh.lastIndexOf("<IssueConfirmationsPanel"));
+    expect(order.every((at) => at > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
   describe("runtime execution", () => {

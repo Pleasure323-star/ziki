@@ -59,6 +59,61 @@ export function confirmationsText(confirmations: number, needed: number): string
 }
 
 /**
+ * Whether the issue is confirmed, at the top of its confirmations: the status
+ * decides (an issue past Requires confirmation was confirmed); the people are
+ * the confirms that count, the date the one that confirmed it.
+ */
+function ConfirmationBanner({ data, confirmed }: { data: ConfirmationsData; confirmed: boolean }) {
+  const confirms = data.entries
+    .filter((entry) => entry.verdict === "confirm" && entry.counted && !entry.undone)
+    .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+  const deciding = confirms[Math.min(data.confirmationsNeeded, confirms.length) - 1] ?? null;
+  if (confirmed) {
+    return (
+      <div data-testid="confirmation-banner" data-confirmed="true" className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-zk-ok-fg/40 bg-zk-ok-bg px-4 py-3">
+        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zk-ok-fg text-white">
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        </span>
+        <div className="min-w-0">
+          <p className="m-0 text-[15px] font-extrabold text-zk-text">Confirmed</p>
+          <p className="m-0 mt-0.5 text-[13px] text-zk-text2">
+            {confirms.length > 0 ? (
+              <>
+                By {confirms.map((entry) => entry.by).join(", ")}
+                {deciding ? (
+                  <>
+                    {" "}· <LocalTime compact date={deciding.updatedAt} />
+                  </>
+                ) : null}
+              </>
+            ) : (
+              "Confirmed before confirmations were recorded as entries."
+            )}
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="confirmation-banner" data-confirmed="false" className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-zk-warn-fg/40 bg-zk-warn-bg px-4 py-3">
+      <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zk-warn-fg text-white">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+          <path d="M12 7v6M12 17h.01" />
+        </svg>
+      </span>
+      <div className="min-w-0">
+        <p className="m-0 text-[15px] font-extrabold text-zk-text">Not confirmed yet</p>
+        <p className="m-0 mt-0.5 text-[13px] text-zk-text2">
+          {confirmationsText(data.confirmations, data.confirmationsNeeded)} from independent people.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The Requires confirmation stage (#issue-confirmations), in place of the
  * conversation's "Add comment": each person's entry — confirm, neutral or
  * reject — with its summary, its full description behind a toggle, and its
@@ -71,6 +126,7 @@ export function IssueConfirmationsPanel({
   block,
   summaryMaxChars,
   history = false,
+  confirmed,
 }: {
   bugId: string;
   data: ConfirmationsData;
@@ -79,12 +135,15 @@ export function IssueConfirmationsPanel({
   summaryMaxChars: number;
   /** The read-only record once the issue is confirmed (#entry-replies-only): no new entries, no replies. */
   history?: boolean;
+  /** The issue is past Requires confirmation (its status says so). */
+  confirmed: boolean;
 }) {
   const reached = data.confirmations >= data.confirmationsNeeded;
   const mine = viewerId ? data.entries.find((entry) => entry.onBehalfOfUserId === viewerId) ?? null : null;
 
   return (
     <section id="confirmations" aria-labelledby="confirmations-heading" className="mb-4 scroll-mt-24">
+      <ConfirmationBanner data={data} confirmed={confirmed} />
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h3 id="confirmations-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
           Confirmations

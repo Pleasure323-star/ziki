@@ -98,7 +98,8 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
   | Done | test verdict: good to merge or not |
   | Ready to Merge | merge review: accept or reject |
 
-- **Replies, not comments.** A comment is only ever a plain-text reply under one entry. There are no free-standing or typed comments, and no comment that repeats a decision already recorded as an entry: the entry's description is the record.
+- **Replies, and comments only while Open.** A comment is a plain-text reply under one entry, or, while the issue is Open, a comment on the issue itself or a one-level reply to one (`lib/comment-placement.ts` is the one rule). There are no typed comments, and no comment that repeats a decision already recorded as an entry: the entry's description is the record.
+- **Who has the issue is its claim.** `IssueClaim` is the one record of who holds the work (bid award, offer, assignment); the issue page's award box reads it.
 - **No upvotes.** An issue's importance is an Importance mark with a written reason, not a bare vote.
 - **One way to do each thing.** When the model changes, remove the old route, field or value outright. Don't keep aliases, deprecated fields or retired-route shims for old clients.
 

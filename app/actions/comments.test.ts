@@ -304,12 +304,3 @@ describe("updateCommentAction mentions stay inside the tenant (#502)", () => {
   });
 });
 
-describe("earlier comments are read-only (#entry-replies-only)", () => {
-  it("refuses to edit a comment that replies to no entry", async () => {
-    vi.clearAllMocks();
-    (await import("@/lib/rate-limit")).resetRateLimits();
-    findCommentMock.mockResolvedValue({ ...existingComment("an old comment"), bidId: null });
-    expect(await edit("edited")).toEqual({ error: "Earlier comments are read-only" });
-    expect(txCommentUpdateMany).not.toHaveBeenCalled();
-  });
-});

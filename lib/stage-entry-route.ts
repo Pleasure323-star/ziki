@@ -1,9 +1,8 @@
 /**
- * #entry-replies-only: an issue takes no free-standing comments. What anyone
- * says about it is an entry of its current stage (a confirmation, a bid, a
- * test verdict or a merge review), and a comment is a plain reply to one.
- * This names the entry route for the stage an issue is in, for the errors
- * that turn a top-level comment away.
+ * What anyone decides about an issue is an entry of its current stage (a
+ * confirmation, a bid, a test verdict or a merge review). This names the entry
+ * route for the stage an issue is in, for the errors that turn a comment away
+ * (lib/comment-placement.ts).
  */
 
 import { currentDecisionStage } from "@/lib/decision-stages";
@@ -65,25 +64,8 @@ export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null
   }
 }
 
-/** The 409 `use_stage_entry` message an agent gets for a comment that replies to no entry. */
-export function topLevelCommentMessage(issue: IssueStageFields): string {
-  const entry = stageEntryRoute(issue);
-  const reply = `To reply to an entry, send exactly one of ${ENTRY_REPLY_FIELDS.join(", ")}.`;
-  return entry
-    ? `An issue takes no top-level comments. At this stage, say it as ${entry.label}: ${entry.route} with a summary and a description. ${reply}`
-    : `An issue takes no top-level comments, and its current stage takes no entries. ${reply}`;
-}
-
-/** The same refusal, for a person in the web app. */
-export function topLevelCommentMessageForPeople(): string {
-  return "Issues take no free-standing comments: reply to a confirmation, bid, test verdict or merge review instead.";
-}
-
 /** The 400 message for a comment sent with `type` or `metadata`. */
 export const TYPED_COMMENT_MESSAGE =
   "Comments have no type or metadata. Stage decisions are entries, each with a summary and a description: " +
-  `${STAGE_ENTRY_ROUTES.join("; ")}. A comment is a plain reply to one entry (send one of ${ENTRY_REPLY_FIELDS.join(", ")}).`;
-
-/** The 400 message for a comment sent with `parentId`. */
-export const PARENT_ID_MESSAGE =
-  `Replies are not nested: reply to the entry itself with one of ${ENTRY_REPLY_FIELDS.join(", ")}, without parentId.`;
+  `${STAGE_ENTRY_ROUTES.join("; ")}. A comment replies to one entry (send one of ${ENTRY_REPLY_FIELDS.join(", ")}), ` +
+  "or, while the issue is Open, goes on the issue itself or replies to a comment there (parentId).";

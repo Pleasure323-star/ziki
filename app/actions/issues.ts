@@ -96,7 +96,7 @@ import {
 import { publish } from "@/lib/agent-api/events";
 import { issueChangePayload, publishWebEvent } from "@/lib/agent-api/web-events";
 import { firstPullRequestLink } from "@/lib/github/pr-mention";
-import { topLevelCommentMessageForPeople } from "@/lib/stage-entry-route";
+import { CommentPlacementError, placeComment, type CommentPlacement } from "@/lib/comment-placement";
 import { isPullRequestClosedUnmerged, standingAcceptance } from "@/lib/github/merge-pr";
 import {
   agentMentionNames,
@@ -1283,7 +1283,10 @@ export async function editProofLinksAction(
   return { ok: true };
 }
 
-/** Adds a reply to one stage entry of a bug (#entry-replies-only) and records the activity. */
+/**
+ * Adds a comment to a bug and records the activity: a reply to one stage
+ * entry, or, while the issue is Open, a comment on it or a reply to one.
+ */
 export async function addCommentAction(
   bugId: string,
   formData: FormData,
@@ -1298,30 +1301,18 @@ export async function addCommentAction(
     return { error: RATE_LIMIT_MESSAGE };
   }
 
-  // #entry-replies-only: a comment is a plain reply to one stage entry.
-  if (formData.get("type") || formData.get("metadata") || formData.get("parentId")) {
-    return { error: topLevelCommentMessageForPeople() };
-  }
-
   const parsed = commentSchema.safeParse({
     body: formData.get("body"),
     confirmationId: formData.get("confirmationId") || undefined,
     bidId: formData.get("bidId") || undefined,
     testVerdictId: formData.get("testVerdictId") || undefined,
     mergeReviewId: formData.get("mergeReviewId") || undefined,
+    parentId: formData.get("parentId") || undefined,
   });
 
   if (!parsed.success) {
     return fromZodError(parsed.error, "Invalid comment");
   }
-
-  const confirmationId = parsed.data.confirmationId ?? null;
-  const bidId = parsed.data.bidId ?? null;
-  const testVerdictId = parsed.data.testVerdictId ?? null;
-  const mergeReviewId = parsed.data.mergeReviewId ?? null;
-  const entryCount = [confirmationId, bidId, testVerdictId, mergeReviewId].filter(Boolean).length;
-  if (entryCount === 0) return { error: topLevelCommentMessageForPeople() };
-  if (entryCount > 1) return { error: "Reply to one entry at a time" };
 
   const bug = await prisma.bug.findUnique({
     where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
@@ -1332,46 +1323,24 @@ export async function addCommentAction(
       reporterId: true,
       assigneeId: true,
       tenantId: true,
+      status: true,
+      reviewStatus: true,
+      pullRequestUrl: true,
     },
   });
   if (!bug || bug.isDeleted) {
     return { error: "Issue not found" };
   }
 
-  // Whom the reply answers: the entry's author.
-  let parentAuthorId: string | null = null;
-  if (confirmationId) {
-    const entry = await prisma.issueConfirmation.findFirst({
-      where: { id: confirmationId, bugId },
-      select: { onBehalfOfUserId: true },
-    });
-    if (!entry) return { error: "That confirmation is not on this issue" };
-    parentAuthorId = entry.onBehalfOfUserId;
+  // One rule for where a comment may go, as for agents (lib/comment-placement.ts).
+  let placement: CommentPlacement;
+  try {
+    placement = await placeComment(prisma, bug, parsed.data);
+  } catch (error) {
+    if (error instanceof CommentPlacementError) return { error: error.message };
+    throw error;
   }
-  if (bidId) {
-    const bid = await prisma.issueBid.findFirst({
-      where: { id: bidId, bugId },
-      select: { beneficiaryUserId: true },
-    });
-    if (!bid) return { error: "That bid is not on this issue" };
-    parentAuthorId = bid.beneficiaryUserId;
-  }
-  if (testVerdictId) {
-    const verdict = await prisma.testVerdict.findFirst({
-      where: { id: testVerdictId, bugId },
-      select: { onBehalfOfUserId: true },
-    });
-    if (!verdict) return { error: "That test verdict is not on this issue" };
-    parentAuthorId = verdict.onBehalfOfUserId;
-  }
-  if (mergeReviewId) {
-    const review = await prisma.mergeReview.findFirst({
-      where: { id: mergeReviewId, bugId },
-      select: { onBehalfOfUserId: true },
-    });
-    if (!review) return { error: "That merge review is not on this issue" };
-    parentAuthorId = review.onBehalfOfUserId;
-  }
+  const { confirmationId, bidId, testVerdictId, mergeReviewId, parentId, parentAuthorId } = placement;
 
   // #603: only agents in this issue's organization can be mentioned.
   const agents = await mentionedAgents(prisma, bug.tenantId, parsed.data.body);
@@ -1387,6 +1356,7 @@ export async function addCommentAction(
         bidId,
         testVerdictId,
         mergeReviewId,
+        parentId,
       },
       select: { id: true },
     });
@@ -1425,7 +1395,7 @@ export async function addCommentAction(
       actorUserId: userId,
       payload: {
         commentId: created.id,
-        parentId: null,
+        parentId,
         authorId: userId,
       },
     });
