@@ -394,7 +394,7 @@ describe("mergeAcceptedFix gates (#452)", () => {
   it("does not merge and returns waiting_for_human when approval is pending (#598)", async () => {
     (db as Record<string, unknown>).approvalRule = {
       findMany: vi.fn(async () => [
-        { id: "rule-1", stage: "before_merge", issueTypeId: null, severity: null, fileGlob: null },
+        { id: "rule-1", stage: "before_merge", issueTypeId: null, fileGlob: null },
       ]),
     };
     (db as Record<string, unknown>).issueApproval = {

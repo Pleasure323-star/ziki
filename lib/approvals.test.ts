@@ -96,12 +96,6 @@ describe("Human approval rules and gates (#598)", () => {
       expect(ruleMatches(rule, { stage: "before_offer", issueTypeName: "Design" })).toBe(false);
     });
 
-    it("matches by severity", () => {
-      const rule = { stage: "before_offer", severity: "critical" };
-      expect(ruleMatches(rule, { stage: "before_offer", severity: "critical" })).toBe(true);
-      expect(ruleMatches(rule, { stage: "before_offer", severity: "low" })).toBe(false);
-    });
-
     it("matches by file glob from changed files in PR", () => {
       const rule = { stage: "before_merge", fileGlob: "app/(app)/billing/**" };
       expect(ruleMatches(rule, { stage: "before_merge", files: ["app/(app)/billing/invoice.tsx"] })).toBe(true);
@@ -117,7 +111,6 @@ describe("Human approval rules and gates (#598)", () => {
       tenantId: "tenant-1",
       projectId: "proj-1",
       typeId: "type-design",
-      severity: "high",
       type: { id: "type-design", name: "Design" },
     };
 
@@ -131,7 +124,7 @@ describe("Human approval rules and gates (#598)", () => {
     it("blocks with 409 waiting_for_human and creates approval when rule matches", async () => {
       db.bug.findUnique.mockResolvedValue(bug);
       db.approvalRule.findMany.mockResolvedValue([
-        { id: "rule-1", stage: "before_offer", issueTypeId: "Design", severity: null, fileGlob: null },
+        { id: "rule-1", stage: "before_offer", issueTypeId: "Design", fileGlob: null },
       ]);
       db.issueApproval.findFirst.mockResolvedValue(null);
       db.issueApproval.create.mockResolvedValue({ id: "appr-1", bugId: "bug-1", status: "pending" });
@@ -180,7 +173,7 @@ describe("Human approval rules and gates (#598)", () => {
     it("passes when approval is already approved", async () => {
       db.bug.findUnique.mockResolvedValue(bug);
       db.approvalRule.findMany.mockResolvedValue([
-        { id: "rule-1", stage: "before_offer", issueTypeId: "Design", severity: null, fileGlob: null },
+        { id: "rule-1", stage: "before_offer", issueTypeId: "Design", fileGlob: null },
       ]);
       db.issueApproval.findFirst.mockResolvedValue({
         id: "appr-1",
@@ -199,14 +192,13 @@ describe("Human approval rules and gates (#598)", () => {
       tenantId: "tenant-1",
       projectId: "proj-1",
       typeId: "type-bug",
-      severity: "medium",
       type: { id: "type-bug", name: "Bug" },
     };
 
     it("returns allowed: false with approvalId when file glob rule matches", async () => {
       db.bug.findUnique.mockResolvedValue(bug);
       db.approvalRule.findMany.mockResolvedValue([
-        { id: "rule-glob", stage: "before_merge", issueTypeId: null, severity: null, fileGlob: "app/(app)/billing/**" },
+        { id: "rule-glob", stage: "before_merge", issueTypeId: null, fileGlob: "app/(app)/billing/**" },
       ]);
       db.issueApproval.findFirst.mockResolvedValue(null);
       db.issueApproval.create.mockResolvedValue({ id: "appr-2", bugId: "bug-2", status: "pending" });
@@ -223,7 +215,7 @@ describe("Human approval rules and gates (#598)", () => {
     it("returns allowed: true when approval is granted", async () => {
       db.bug.findUnique.mockResolvedValue(bug);
       db.approvalRule.findMany.mockResolvedValue([
-        { id: "rule-glob", stage: "before_merge", issueTypeId: null, severity: null, fileGlob: "app/(app)/billing/**" },
+        { id: "rule-glob", stage: "before_merge", issueTypeId: null, fileGlob: "app/(app)/billing/**" },
       ]);
       db.issueApproval.findFirst.mockResolvedValue({
         id: "appr-2",

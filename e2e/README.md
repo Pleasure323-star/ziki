@@ -4,7 +4,7 @@ Playwright drives a production build in a real browser (#299). It covers:
 - sign-in, a wrong password, and a deleted account's session;
 - reporting an issue and finding it in the list;
 - stage entries and replies to them, and older comments shown read-only;
-- triage (status, severity, assignee), surviving a reload;
+- triage (status, assignee), surviving a reload;
 - deleting and restoring an issue;
 - the admin screens;
 - the same paths at 375px, with a check that no page scrolls sideways;

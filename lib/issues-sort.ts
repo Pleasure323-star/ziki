@@ -5,7 +5,6 @@ export const BUG_SORT_OPTIONS = [
   "recently_updated",
   "importance",
   "least_important",
-  "severity",
 ] as const;
 export type BugSortOption = (typeof BUG_SORT_OPTIONS)[number];
 
@@ -17,7 +16,6 @@ export const bugSortLabels: Record<BugSortOption, string> = {
   recently_updated: "Recently Updated",
   importance: "Most important",
   least_important: "Least important",
-  severity: "Most Severe",
 };
 
 export const bugSortDescriptions: Record<BugSortOption, string> = {
@@ -25,19 +23,6 @@ export const bugSortDescriptions: Record<BugSortOption, string> = {
   recently_updated: "recently updated",
   importance: "most important",
   least_important: "least important",
-  severity: "most severe",
-};
-
-/**
- * Severity is a Prisma enum, and Postgres orders enums by declaration order.
- * Severity is declared low -> critical, so "desc" is critical first. A test
- * pins that, because reordering the enum would silently invert this sort.
- */
-export const SEVERITY_RANK: Record<string, number> = {
-  critical: 3,
-  high: 2,
-  medium: 1,
-  low: 0,
 };
 
 /** Sort key for bug lists: most important first, then most recently updated. */
@@ -71,13 +56,6 @@ export function parseBugSort(
   ) {
     return "recently_updated";
   }
-  if (
-    normalized === "severity" ||
-    normalized === "most_severe" ||
-    normalized === "severity_desc"
-  ) {
-    return "severity";
-  }
   if (normalized === "importance" || normalized === "most_important" || normalized === "important") {
     return "importance";
   }
@@ -98,13 +76,6 @@ export function getBugOrderBy(
         return [{ createdAt: "desc" }, { id: "desc" }];
       case "recently_updated":
         return [{ updatedAt: "desc" }, { id: "desc" }];
-      case "severity":
-        // Ties fall back to the default ordering so the list stays stable.
-        return [
-          { severity: "desc" },
-          { voteCount: "desc" },
-          { createdAt: "desc" },
-        ];
       case "importance":
         return [
           { voteCount: "desc" },
@@ -185,20 +156,8 @@ export function compareBugsByRecentlyUpdated(
   return 0;
 }
 
-export function compareBugsBySeverity(
-  a: { severity?: string; voteCount: number; createdAt: Date | string },
-  b: { severity?: string; voteCount: number; createdAt: Date | string },
-): number {
-  const rank = (s?: string) => SEVERITY_RANK[s ?? ""] ?? -1;
-  const diff = rank(b.severity) - rank(a.severity);
-  if (diff !== 0) return diff;
-  if (b.voteCount !== a.voteCount) return b.voteCount - a.voteCount;
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-}
-
 export type BugSortableItem = {
   id?: string;
-  severity?: string;
   voteCount: number;
   isBoosted?: boolean;
   boostedAt?: Date | string | null;
@@ -224,8 +183,6 @@ export function sortBugs<T extends BugSortableItem>(
         return compareBugsByNewest(a, b);
       case "recently_updated":
         return compareBugsByRecentlyUpdated(a, b);
-      case "severity":
-        return compareBugsBySeverity(a, b);
       case "importance":
         return compareBugsByPopularity(
           { voteCount: a.voteCount, updatedAt: a.updatedAt ?? a.createdAt },

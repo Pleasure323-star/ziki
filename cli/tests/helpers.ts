@@ -126,7 +126,7 @@ export async function feedItem(agent: Agent, kind: string, id: string): Promise<
 /** Confirms an issue the way the workflow needs: two independent confirmation entries (#issue-confirmations). */
 export async function confirm(id: string, confirmers: [Agent, Agent]): Promise<void> {
   const [first, second] = confirmers;
-  await ok(first, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps; it fails as reported and no other issue covers it.", severity: "high" });
+  await ok(first, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps; it fails as reported and no other issue covers it." });
   const last = await ok(second, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it too.", description: "Same result on a second machine; not a duplicate." });
   expect(last.confirmed).toBe(true);
 }

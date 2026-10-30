@@ -14,7 +14,6 @@ const entry = (id: string, by: string, at: string): ConfirmationEntryView => ({
   verdict: "confirm",
   summary: `${by} reproduced it.`,
   description: `${by}'s steps and what happened.`,
-  severity: null,
   duplicateOf: null,
   onBehalfOfUserId: `user-${id}`,
   by,

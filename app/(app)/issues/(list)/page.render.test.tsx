@@ -41,7 +41,7 @@ vi.mock("@/lib/tenant-context", async (importOriginal) => ({
 }));
 vi.mock("@/lib/issue-stage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/issue-stage")>()),
-  openIssueConfirmations: vi.fn(async () => new Map([["bug-1", { stage: "confirming", accepts: 1, rejects: 0, needed: 2 }]])),
+  openIssueConfirmations: vi.fn(async () => new Map([["bug-1", { stage: "confirming", accepts: 1, rejects: 0, needed: 2, confirmed: false }]])),
 }));
 vi.mock("@/lib/voter-summaries", () => ({
   fetchVoterSummaries: vi.fn(async () =>
@@ -72,6 +72,8 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import BugsPage from "./page";
+import { openIssueConfirmations } from "@/lib/issue-stage";
+import { fetchVoterSummaries } from "@/lib/voter-summaries";
 
 const BUG = {
   id: "bug-1",
@@ -80,7 +82,6 @@ const BUG = {
   description: "## Summary\nLogin button does nothing\n\n## Acceptance Criteria\n- [ ] Fix login",
   createdByAgentId: null,
   status: "open",
-  severity: "high",
   voteCount: 2,
   proofLinks: ["https://github.com/acme/web/pull/1", "https://github.com/acme/web/pull/2"],
   isDeleted: false,
@@ -198,9 +199,9 @@ describe("issue list layout", () => {
   });
 
   it("says no issues match when the project has issues but the filters hide them", async () => {
-    count.mockImplementation(async (args: { where?: { severity?: unknown } }) => (args?.where?.severity ? 0 : 3));
+    count.mockImplementation(async (args: { where?: { assigneeId?: unknown } }) => (args?.where?.assigneeId ? 0 : 3));
     findMany.mockResolvedValue([]);
-    const html = await renderList({ severity: "critical", status: "all" });
+    const html = await renderList({ mine: "assigned", status: "all" });
     expect(html).toContain("No issues match these filters.");
     expect(html).not.toContain("No issues yet");
   });
@@ -232,12 +233,32 @@ describe("issue list layout", () => {
     expect(html).toContain('href="/ideas/12"');
   });
 
-  it("keeps the importance button on an issue, with an Importance column", async () => {
+  it("shows an issue's importance as a plain number in the Importance column, not a button", async () => {
     findMany.mockResolvedValue([{ ...BUG, projectId: "project-acme" }]);
     const html = await renderList({ status: "all" });
     expect(html).not.toContain('data-testid="idea-score-badge"');
-    expect(html).toMatch(/click to mark important/);
-    expect(html).toContain('title="Importance"');
+    expect(html).not.toMatch(/click to mark important/);
+    expect(html).toMatch(new RegExp(`data-testid="importance-count"[^>]*aria-label="Importance ${BUG.voteCount}"[^>]*>${BUG.voteCount}<`));
+    expect(html).toContain('<span class="w-[76px] shrink-0 text-center">Importance</span>');
+    expect(html).not.toContain(">Imp.</abbr>");
+    // A number to read: no vote button, so no voters or the viewer's own votes are fetched.
+    expect(html).not.toMatch(/<button[^>]*aria-label="[^"]*[Ii]mportan/);
+    expect(fetchVoterSummaries).not.toHaveBeenCalled();
+    expect(findMany.mock.calls.at(-1)![0].select).not.toHaveProperty("votes");
+  });
+
+  it("has no Priority column and no severity anywhere in the list", async () => {
+    const html = await renderList({ status: "all" });
+    expect(html).not.toContain("Priority");
+    expect(html).not.toContain("issues-priority");
+    expect(html).not.toMatch(/severity|Most severe/i);
+    expect(findMany.mock.calls.at(-1)![0].select).not.toHaveProperty("severity");
+  });
+
+  it("has no bulk-select checkboxes", async () => {
+    const html = await renderList({ status: "all" });
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain("issues-selection");
   });
 
   it("has no stage sidebar beside the list (#1054)", async () => {
@@ -345,11 +366,11 @@ describe("issue list layout", () => {
   it("counts each platform's total in the platform menu, whatever status tab is picked", async () => {
     for (const status of ["open", "in_progress", "done", "ready_to_merge", "resolved", "all"]) {
       groupBy.mockClear();
-      await renderList({ status, severity: "high" });
+      await renderList({ status, mine: "assigned" });
       const tabQuery = groupBy.mock.calls.find(([args]) => args.by[0] === "categoryId")![0];
       for (const key of ["status", "AND", "categoryId"]) expect(tabQuery.where).not.toHaveProperty(key);
       // Other filters still narrow it.
-      expect(tabQuery.where?.severity).toBe("high");
+      expect(tabQuery.where?.assigneeId).toBe("dave");
     }
   });
 
@@ -388,6 +409,42 @@ describe("issue list layout", () => {
   it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
     await renderList({ status: "requires_confirmation" });
     expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
+  });
+
+  it("counts confirmations on the left on the Requires confirmation tab, and puts importance at the row end", async () => {
+    const html = await renderList({ status: "requires_confirmation" });
+    expect(html).toContain('title="Confirmations">Conf.</abbr>');
+    expect(html).toContain('<span class="issues-vote-end">Importance</span>');
+    expect(html).not.toContain("Priority");
+    expect(html).toContain('aria-label="1 of 2 confirmations so far"');
+    // Just the count: no "of 2" and no check while it is not confirmed.
+    expect(html).toMatch(/data-testid="confirmation-count"[^>]*><span[^>]*>1<\/span><\/span>/);
+    expect(html).not.toMatch(/data-testid="confirmation-count"[\s\S]*?>of 2</);
+    expect(clean(html)).toContain("Not confirmed");
+    expect(html).not.toContain("Requires confirmation…");
+    // The importance number comes after the status cell, at the end of the row.
+    const row = html.slice(html.indexOf('class="issues-row'));
+    expect(row.indexOf("issues-vote issues-vote-end")).toBeGreaterThan(row.indexOf("issues-status-cell"));
+    expect(row).toMatch(/issues-vote issues-vote-end[^>]*><span data-testid="importance-count"/);
+    expect(row).not.toContain('class="issues-vote w-[76px]');
+  });
+
+  it("turns the confirmations badge green with a check, and the row says Confirmed, at the threshold", async () => {
+    vi.mocked(openIssueConfirmations).mockResolvedValueOnce(new Map([["bug-1", { stage: "confirming", accepts: 2, rejects: 0, needed: 2, confirmed: true }]]));
+    const html = await renderList({ status: "requires_confirmation" });
+    expect(html).toContain('aria-label="Confirmed: 2 of 2 confirmations"');
+    expect(html).toMatch(/data-testid="confirmation-count"[^>]*bg-zk-ok-bg[^>]*><span[^>]*>2<\/span><svg/);
+    expect(clean(html)).toMatch(/class="issue-row-status[^"]*text-zk-ok-fg"[^>]*>[\s\S]*?Confirmed<\/span>/);
+    expect(clean(html)).not.toContain("Not confirmed");
+  });
+
+  it("keeps importance on the left, with no Priority column, on the other tabs", async () => {
+    const html = await renderList({ status: "open" });
+    expect(html).toContain('<span class="w-[76px] shrink-0 text-center">Importance</span>');
+    expect(html).not.toContain(">Imp.</abbr>");
+    expect(html).not.toContain("Priority");
+    expect(html).not.toContain("issues-vote-end");
+    expect(html).not.toContain("confirmation-count");
   });
 
   it("has no status toolbar, filter rows, breadcrumb, merge history or deleted-issues link", async () => {

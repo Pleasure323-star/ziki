@@ -90,7 +90,6 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     tenantId: "tenant_zedu",
     pullRequestUrl: PR,
     pullRequestHeadSha: "linked-sha",
-    severity: "medium",
     status: "open",
     assigneeId: "ada",
     beneficiaryUserId: "ada",

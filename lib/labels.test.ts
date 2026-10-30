@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   authorBadgeClass,
-  severityClass,
-  severityLabel,
-  severityLabels,
   statusClass,
   statusLabel,
   statusLabels,
 } from "./labels";
-import { severities, statuses } from "./validations/issue";
+import { statuses } from "./validations/issue";
 
 /**
  * These maps are indexed directly by enum value all over the app, so a
@@ -20,24 +17,17 @@ describe("labels and classes cover every enum value", () => {
     expect(statusClass[status], status).toBeTruthy();
   });
 
-  it.each(severities)("severity %s has a label and a class", (severity) => {
-    expect(severityLabel[severity], severity).toBeTruthy();
-    expect(severityClass[severity], severity).toBeTruthy();
-  });
-
   it("has no keys beyond the enums", () => {
     expect(Object.keys(statusLabel).sort()).toEqual([...statuses].sort());
-    expect(Object.keys(severityLabel).sort()).toEqual([...severities].sort());
   });
 
   it("gives each value a distinct label", () => {
     expect(new Set(Object.values(statusLabel)).size).toBe(statuses.length);
-    expect(new Set(Object.values(severityLabel)).size).toBe(severities.length);
   });
 
   it("labels read as prose, not as enum values", () => {
     // "in_progress" leaking into the UI is the failure this guards.
-    for (const label of [...Object.values(statusLabel), ...Object.values(severityLabel)]) {
+    for (const label of Object.values(statusLabel)) {
       expect(label).not.toMatch(/_/);
       expect(label[0]).toBe(label[0].toUpperCase());
     }
@@ -47,7 +37,6 @@ describe("labels and classes cover every enum value", () => {
 describe("the plural aliases", () => {
   it("are the same objects, not copies that can drift", () => {
     expect(statusLabels).toBe(statusLabel);
-    expect(severityLabels).toBe(severityLabel);
   });
 });
 
@@ -55,7 +44,6 @@ describe("badge classes", () => {
   it("every class sets both a background and a text colour", () => {
     const classes = [
       ...Object.values(statusClass),
-      ...Object.values(severityClass),
       authorBadgeClass,
     ];
     for (const value of classes) {

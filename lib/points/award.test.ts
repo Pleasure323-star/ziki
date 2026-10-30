@@ -24,7 +24,7 @@ function fakeLedger() {
   return { rows, db: { pointEntry: { createMany } } as never, createMany };
 }
 
-const issue = { id: "bug-1", tenantId: "tenant-zedu", severity: "high" as const, assigneeId: "user-1" };
+const issue = { id: "bug-1", tenantId: "tenant-zedu", assigneeId: "user-1" };
 
 describe("points ledger (#428)", () => {
   it("pays the dispatcher once per completed issue, including reassignment", async () => {
@@ -44,13 +44,13 @@ describe("points ledger (#428)", () => {
     expect(rows).toEqual([]);
   });
 
-  it("builds the solver award from severity and assignee", () => {
+  it("builds the flat solver award for the assignee", () => {
     expect(solverAward(issue)).toEqual({
       tenantId: "tenant-zedu",
       userId: "user-1",
       bugId: "bug-1",
       role: "solver",
-      points: 1200,
+      points: 750,
       sourceKey: "solver:bug-1:user-1",
     });
   });
@@ -67,14 +67,19 @@ describe("points ledger (#428)", () => {
     expect(await awardSolver(db, issue)).toBe(true);
     expect(await awardSolver(db, issue)).toBe(false);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ points: 1200, role: "solver" });
+    expect(rows[0]).toMatchObject({ points: 750, role: "solver" });
   });
 
-  it("uses the severity at resolution time", async () => {
+  it("pays the same flat amount for every issue, or the project's own amount", async () => {
     const { db, rows } = fakeLedger();
-    await awardSolver(db, { ...issue, id: "bug-2", severity: "critical" });
-    await awardSolver(db, { ...issue, id: "bug-3", severity: "low" });
-    expect(rows.map((r) => r.points)).toEqual([1800, 450]);
+    await awardSolver(db, { ...issue, id: "bug-2" });
+    await awardSolver(db, { ...issue, id: "bug-3" });
+    await awardSolver(db, {
+      ...issue,
+      id: "bug-4",
+      rewardConfig: { solver: 900, reporter: 150, reviewer: 300, guidelines: null },
+    });
+    expect(rows.map((r) => r.points)).toEqual([750, 750, 900]);
   });
 
   it("skips duplicates in the database instead of failing", async () => {

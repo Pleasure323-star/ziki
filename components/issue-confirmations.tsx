@@ -5,10 +5,7 @@ import { AddConfirmationDialog } from "@/components/add-confirmation-dialog";
 import { EntryReplyForm } from "@/components/entry-reply-form";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
 import type { ConfirmationVerdictName } from "@/components/confirmation-form";
-import { severityLabel } from "@/lib/labels";
 import { issuePath } from "@/lib/issue-ref";
-
-type SeverityName = keyof typeof severityLabel;
 
 export type ConfirmationReplyView = EntryReplyView;
 
@@ -17,7 +14,6 @@ export type ConfirmationEntryView = {
   verdict: ConfirmationVerdictName;
   summary: string;
   description: string;
-  severity: SeverityName | null;
   duplicateOf: { id: string; number: number } | null;
   onBehalfOfUserId: string;
   by: string;
@@ -169,9 +165,6 @@ export function IssueConfirmationsPanel({
               <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[13px]">
                 <b className="font-semibold text-zk-text">{entry.by}</b>
                 {entry.agentName ? <span className="text-zk-muted">via {entry.agentName}</span> : null}
-                {entry.verdict === "confirm" && entry.severity ? (
-                  <span className="text-zk-muted">· severity {severityLabel[entry.severity]}</span>
-                ) : null}
                 {entry.duplicateOf ? (
                   <span className="text-zk-muted">
                     · duplicate of{" "}
@@ -251,7 +244,6 @@ export function IssueConfirmationsPanel({
                       verdict: mine.verdict,
                       summary: mine.summary,
                       description: mine.description,
-                      severity: mine.severity,
                       duplicateOfNumber: mine.duplicateOf?.number ?? null,
                     }
                   : null

@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { severityLabel } from "@/lib/labels";
 import { ClaimDeadline } from "@/components/claim-deadline";
 import type { AgentDecision } from "@/components/issue-agent-activity";
 import { useIssueStage } from "@/components/issue-stage-context";
@@ -113,7 +112,6 @@ export function decisionCard(decision: AgentDecision): DecisionCard {
         text: (
           <>
             Confirmed this issue as real
-            {decision.severity ? ` and set the severity to ${severityLabel[decision.severity]}` : ""}
             {onBehalf(decision.personName)}.
           </>
         ),
@@ -206,32 +204,6 @@ function entryCount(n: number, [one, many]: readonly [string, string]) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** The progress header's status chip, as in the design: "Done · tested". */
-function statusChip(stage: DecisionStage, setback: boolean): { label: string; tone: Tone } {
-  const label = decisionStageInfo[stage].label;
-  if (setback) return { label: `${label} · not good to merge`, tone: "ca" };
-  switch (stage) {
-    case "idea":
-      return { label: `${label} · in review`, tone: "cn" };
-    case "confirm":
-      return { label: `${label} · with reviewers`, tone: "ca" };
-    case "open":
-      return { label: `${label} · waiting for bids`, tone: "cb" };
-    case "progress":
-      return { label: `${label} · being worked on`, tone: "cb" };
-    case "delivered":
-      return { label: `${label} · being judged`, tone: "cv" };
-    case "done":
-      return { label: `${label} · waiting for a manager's review`, tone: "cv" };
-    case "ready":
-      return { label, tone: "cv" };
-    case "live":
-      return { label, tone: "cg" };
-    case "closed":
-      return { label, tone: "cn" };
-  }
-}
-
 /**
  * The design's progress report (#1446). The stepper opens on the issue's
  * current stage; picking a stage switches the Conversation card's stage
@@ -253,19 +225,16 @@ export function IssueProgressReport({
   const steps = pipelineStages(currentStage);
   const currentIndex = steps.indexOf(currentStage);
   const tallies = tallyStages(decisions);
-  const chip = statusChip(currentStage, setback);
 
   return (
     <section
       aria-labelledby="progress-report-title"
       className="issue-progress rounded-[20px] border border-zk-border bg-zk-surface px-5 py-[18px]"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="progress-report-title" className="cap">
-          Progress report
-        </h2>
-        <span className={`chip ${chip.tone}`}>{chip.label}</span>
-      </div>
+      {/* No status chip: the stepper below already marks where the issue is (one status per issue). */}
+      <h2 id="progress-report-title" className="cap">
+        Progress report
+      </h2>
       <div className="pgw">
         <div className="pg-track" aria-hidden="true">
           <span className="pg-fill" style={{ width: `${(currentIndex * 100) / (steps.length - 1)}%` }} />

@@ -142,8 +142,6 @@ CREATE TABLE IF NOT EXISTS "IssueValidation" (
     "verdict" "ValidationVerdict" NOT NULL,
     "notes" TEXT,
     "duplicateOfId" TEXT,
-    "severity" "Severity",
-    "previousSeverity" "Severity",
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "IssueValidation_pkey" PRIMARY KEY ("id")

@@ -140,7 +140,7 @@ export type ProjectWork = {
   ideaThreshold: number;
   tests: (IssueRef & { pullRequestUrl: string | null })[];
   /** `importance` is the issue's importance (#importance). */
-  ready: (IssueRef & { importance: number; severity: string })[];
+  ready: (IssueRef & { importance: number })[];
   toAccept: IssueRef[];
   toMerge: IssueRef[];
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
@@ -231,7 +231,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
-    ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, importance: r.voteCount, severity: r.severity })),
+    ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, importance: r.voteCount })),
     toAccept: toAccept.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     jobs,
@@ -516,7 +516,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
         minimumRole: "working",
         method: "POST",
         path: apiPath(issue.id, "confirmations", pid),
-        cli: `confirm-issue --id ${issue.id} --verdict confirm|reject|neutral --summary <two sentences at most> --description <why, in full> [--severity low|medium|high|critical] [--duplicate-of-id <issue>]`,
+        cli: `confirm-issue --id ${issue.id} --verdict confirm|reject|neutral --summary <two sentences at most> --description <why, in full> [--duplicate-of-id <issue>]`,
       },
     ];
     items.push({
@@ -552,7 +552,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "ready_issue",
       key: `ready_issue:${issue.id}`,
       title: `Take #${issue.number}`,
-      detail: `Confirmed, severity ${issue.severity}. Ask for an offer to fix it now, or bid.`,
+      detail: `Confirmed. Ask for an offer to fix it now, or bid.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),

@@ -5,17 +5,12 @@
  */
 
 export const DEFAULT_DELIVERY_WINDOW_MINUTES = 240;
-export const HIGH_PRIORITY_DELIVERY_WINDOW_MINUTES = 60;
 
-/** A project can raise the window, but high and critical work never gets less than an hour. */
-export function deliveryWindowMinutes(severity: string, projectMinutes?: number | null): number {
-  const base =
-    typeof projectMinutes === "number" && Number.isFinite(projectMinutes) && projectMinutes > 0
-      ? Math.floor(projectMinutes)
-      : DEFAULT_DELIVERY_WINDOW_MINUTES;
-  return severity === "high" || severity === "critical"
-    ? Math.max(base, HIGH_PRIORITY_DELIVERY_WINDOW_MINUTES)
-    : base;
+/** One window for every claim: the project's minutes, else the default. */
+export function deliveryWindowMinutes(projectMinutes?: number | null): number {
+  return typeof projectMinutes === "number" && Number.isFinite(projectMinutes) && projectMinutes > 0
+    ? Math.floor(projectMinutes)
+    : DEFAULT_DELIVERY_WINDOW_MINUTES;
 }
 
 export function deliveryDeadline(claimedAt: Date, minutes: number): Date {

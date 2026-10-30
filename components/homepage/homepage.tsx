@@ -285,7 +285,7 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
           </div>
           <div className="leaderboard">
             <div className="leaderboard-head"><div><span>Contribution rewards</span><small>Illustrative rewards · project rules vary</small></div><Icon name="target" /></div>
-            <div className="leader-row"><b>01</b><span className="leader-avatar green"><Icon name="code" size={14} /></span><div><strong>Solver</strong><small>High-severity issue resolved</small></div><em>+1200 pts</em></div>
+            <div className="leader-row"><b>01</b><span className="leader-avatar green"><Icon name="code" size={14} /></span><div><strong>Solver</strong><small>Issue resolved</small></div><em>+750 pts</em></div>
             <div className="leader-row"><b>02</b><span className="leader-avatar violet"><Icon name="eye" size={14} /></span><div><strong>Reviewer</strong><small>Eligible independent verdict</small></div><em>up to 300 pts</em></div>
             <div className="leader-row"><b>03</b><span className="leader-avatar blue"><Icon name="target" size={14} /></span><div><strong>Reporter</strong><small>Confirmed original issue</small></div><em>+150 pts</em></div>
             <div className="points-award"><span><Icon name="shield" /></span><div><small>Recognition rule</small><b>Validated work only. No points for abandoned claims.</b></div></div>

@@ -63,6 +63,34 @@ export type IssueRowWork = {
  * (bots), Ready for bids, who is working on it and for how long, Delivered, Done, Ready to merge,
  * or Live / Closed. A live fix shows its dev → staging → main chips from merge history instead.
  */
+/**
+ * On the Requires confirmation tab, in the row's left column: how many
+ * independent people confirmed the issue so far, out of how many it needs.
+ * Once it is confirmed the badge turns green with a checkmark.
+ */
+export function ConfirmationCountBadge({ accepts, needed, confirmed }: { accepts: number; needed: number; confirmed: boolean }) {
+  const label = confirmed
+    ? `Confirmed: ${accepts} of ${needed} confirmations`
+    : `${accepts} of ${needed} confirmations so far`;
+  return (
+    <span
+      data-testid="confirmation-count"
+      aria-label={label}
+      title={label}
+      className={`inline-flex min-h-[38px] w-[46px] flex-col items-center justify-center rounded-lg border px-1 py-1 text-xs font-semibold ${
+        confirmed ? "border-transparent bg-zk-ok-bg text-zk-ok-fg" : "border-dashed border-zk-border text-zk-text"
+      }`}
+    >
+      <span className="tabular-nums leading-tight">{accepts}</span>
+      {confirmed ? (
+        <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+      ) : null}
+    </span>
+  );
+}
+
 export function IssueRowStatus({
   status,
   stage,
@@ -71,10 +99,13 @@ export function IssueRowStatus({
   mergePath,
   bids,
   offeredTo = null,
+  confirmed = false,
 }: {
   status: string;
   stage: IssueStage | undefined;
   botConfirmations: number;
+  /** Requires confirmation: enough independent people confirmed it (the one rule). */
+  confirmed?: boolean;
   work: IssueRowWork | null;
   /** Open issues: how many open bids it has. */
   bids?: number;
@@ -153,6 +184,15 @@ export function IssueRowStatus({
       </span>
     );
   }
+  if (stage === "confirming" && confirmed) {
+    // Enough people confirmed it; it moves to Open as the agents carry on.
+    const bots = `${botConfirmations} ${botConfirmations === 1 ? "person" : "people"}`;
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 text-zk-ok-fg" title={`Confirmed by ${bots}`}>
+        <CheckIcon /> Confirmed
+      </span>
+    );
+  }
   if (stage === "confirming") {
     // An issue now; it is Ready for bids once enough independent people (or their agents) confirm it.
     const bots = `${botConfirmations} ${botConfirmations === 1 ? "person" : "people"}`;
@@ -162,7 +202,7 @@ export function IssueRowStatus({
         title={`Confirmed by ${bots} so far`}
       >
         <span className="text-zk-accent"><BotIcon /></span>
-        <span>Requires confirmation…</span>
+        <span>Not confirmed</span>
         <span className="sr-only"> Confirmed by {bots}.</span>
       </span>
     );

@@ -4,19 +4,11 @@ import { useId, useState, useTransition } from "react";
 import { giveConfirmationAction } from "@/app/actions/confirmations";
 
 export type ConfirmationVerdictName = "confirm" | "reject" | "neutral";
-type SeverityName = "low" | "medium" | "high" | "critical";
 
 const VERDICTS: { value: ConfirmationVerdictName; label: string }[] = [
   { value: "confirm", label: "Confirm" },
   { value: "neutral", label: "Neutral" },
   { value: "reject", label: "Reject" },
-];
-
-const SEVERITIES: { value: SeverityName; label: string }[] = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "critical", label: "Critical" },
 ];
 
 /** Sentences end in `.`, `!` or `?` and a space or the end, as the server counts them. */
@@ -30,8 +22,8 @@ const fieldClass =
 /**
  * A person's confirmation entry on an issue (#issue-confirmations): confirm,
  * neutral or reject, a summary of two sentences at most and a full
- * description. Confirm may set severity; reject may name the issue this one
- * duplicates. Giving it again replaces the earlier one.
+ * description. Reject may name the issue this one duplicates. Giving it
+ * again replaces the earlier one.
  */
 export function ConfirmationForm({
   bugId,
@@ -45,7 +37,6 @@ export function ConfirmationForm({
     verdict: ConfirmationVerdictName;
     summary: string;
     description: string;
-    severity: SeverityName | null;
     duplicateOfNumber: number | null;
   } | null;
   /** Called once the entry is saved, so a dialog can close. */
@@ -55,7 +46,6 @@ export function ConfirmationForm({
   const [verdict, setVerdict] = useState<ConfirmationVerdictName | null>(initial?.verdict ?? null);
   const [summary, setSummary] = useState(initial?.summary ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [severity, setSeverity] = useState<string>(initial?.severity ?? "");
   const [duplicateOf, setDuplicateOf] = useState(initial?.duplicateOfNumber ? String(initial.duplicateOfNumber) : "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -77,7 +67,6 @@ export function ConfirmationForm({
     data.set("verdict", verdict);
     data.set("summary", summary);
     data.set("description", description);
-    if (verdict === "confirm" && severity) data.set("severity", severity);
     if (verdict === "reject" && duplicate) data.set("duplicateOfId", duplicate);
     startTransition(async () => {
       const result = await giveConfirmationAction(bugId, data);
@@ -122,32 +111,6 @@ export function ConfirmationForm({
           Confirm means it is real and not a duplicate. Neutral counts for nothing either way.
         </p>
       </fieldset>
-
-      {verdict === "confirm" ? (
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`${id}-severity`} className="text-[13px] font-semibold text-zk-text">
-            Severity
-          </label>
-          <select
-            id={`${id}-severity`}
-            name="severity"
-            value={severity}
-            onChange={(event) => setSeverity(event.target.value)}
-            aria-describedby={`${id}-severity-help`}
-            className={`${fieldClass} h-9 py-0 sm:w-56`}
-          >
-            <option value="">Leave as it is</option>
-            {SEVERITIES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <p id={`${id}-severity-help`} className="m-0 text-xs text-zk-muted">
-            Optional. Severity is only ever raised, never lowered.
-          </p>
-        </div>
-      ) : null}
 
       {verdict === "reject" ? (
         <div className="flex flex-col gap-1">

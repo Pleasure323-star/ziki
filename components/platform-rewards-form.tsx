@@ -43,36 +43,23 @@ export function PlatformRewardsForm({
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-card p-4 sm:p-6">
         <div>
-          <h2 className="text-sm font-semibold text-slate-900">Solver points by severity</h2>
+          <label htmlFor="solverPoints" className="text-sm font-semibold text-slate-900">
+            Solver points
+          </label>
           <p className="text-xs text-slate-500">
-            Paid when an issue is resolved. Projects may still override these per project.
+            Paid when an issue is resolved. Projects may still override this per project.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(
-            [
-              ["solverPointsLow", "Low", initial.solver.low, hard.solver.low],
-              ["solverPointsMedium", "Medium", initial.solver.medium, hard.solver.medium],
-              ["solverPointsHigh", "High", initial.solver.high, hard.solver.high],
-              ["solverPointsCritical", "Critical", initial.solver.critical, hard.solver.critical],
-            ] as const
-          ).map(([name, label, value, fallback]) => (
-            <div key={name}>
-              <label htmlFor={name} className="block text-xs text-slate-500">
-                {label}
-              </label>
-              <Input
-                id={name}
-                name={name}
-                type="number"
-                min={0}
-                max={POINT_AWARD_MAX}
-                defaultValue={value}
-                placeholder={String(fallback)}
-                className="mt-1"
-              />
-            </div>
-          ))}
+        <div className="sm:max-w-xs">
+          <Input
+            id="solverPoints"
+            name="solverPoints"
+            type="number"
+            min={0}
+            max={POINT_AWARD_MAX}
+            defaultValue={initial.solver}
+            placeholder={String(hard.solver)}
+          />
         </div>
       </section>
 

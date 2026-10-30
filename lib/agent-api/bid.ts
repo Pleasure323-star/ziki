@@ -295,7 +295,7 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
         where: { id: bidId },
         include: {
           beneficiary: { select: { name: true } },
-          bug: { select: { id: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, severity: true, voteCount: true, assignee: { select: { name: true } } } },
+          bug: { select: { id: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
         },
       });
       if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
@@ -340,7 +340,7 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
           status: "active",
           claimedAt: now,
           lastHeartbeatAt: now,
-          deliverBy: deliveryDeadline(now, deliveryWindowMinutes(fresh.bug.severity, workflow.deliveryMinutes)),
+          deliverBy: deliveryDeadline(now, deliveryWindowMinutes(workflow.deliveryMinutes)),
         },
       });
       const marked = await tx.issueBid.updateMany({

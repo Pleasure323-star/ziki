@@ -79,7 +79,7 @@ export async function readFeed(tenantId: string, projectId: string, cursor: Feed
     where: feedWhere(tenantId, projectId, cursor, area),
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: pageSize + 1,
-    select: { id: true, number: true, title: true, status: true, severity: true, createdAt: true, projectId: true, areaId: true },
+    select: { id: true, number: true, title: true, status: true, createdAt: true, projectId: true, areaId: true },
   });
   const issues = rows.slice(0, pageSize);
   const last = issues.at(-1);

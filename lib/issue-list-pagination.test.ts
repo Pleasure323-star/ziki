@@ -4,7 +4,6 @@ import { issueListPaginationParams, type IssueListFilterValues } from "./issue-l
 
 const everything: IssueListFilterValues = {
   status: "open",
-  severity: "high",
   mine: "assigned",
   q: "login",
   sort: "newest",
@@ -21,7 +20,6 @@ const everything: IssueListFilterValues = {
 
 const nothing: IssueListFilterValues = {
   status: undefined,
-  severity: undefined,
   mine: null,
   q: undefined,
   sort: undefined,
@@ -41,7 +39,6 @@ describe("issueListPaginationParams (#967)", () => {
     expect(issueListPaginationParams(everything)).toEqual({
       status: "open",
       milestone: "m1",
-      severity: "high",
       mine: "assigned",
       q: "login",
       tags: "bug,ui",

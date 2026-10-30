@@ -1,5 +1,3 @@
-import type { Severity } from "@prisma/client";
-import { severityLabel } from "@/lib/labels";
 import { LocalTime } from "@/components/local-time";
 import { ClaimDeadline } from "@/components/claim-deadline";
 import { ExpandableText } from "@/components/expandable-text";
@@ -16,7 +14,6 @@ export type AgentDecision =
       agentName: string;
       /** The person the agent acted for. */
       personName: string;
-      severity: Severity | null;
     }
   | {
       id: string;
@@ -204,13 +201,6 @@ export function decisionSentence(decision: AgentDecision) {
       return (
         <>
           <strong className="font-bold text-zk-text">{decision.agentName}</strong> confirmed this issue as real
-          {decision.severity ? (
-            <>
-              {" "}
-              and set the severity to{" "}
-              <strong className="font-bold text-zk-text">{severityLabel[decision.severity]}</strong>
-            </>
-          ) : null}
           {decision.personName ? <> on behalf of {decision.personName}</> : null}.
         </>
       );

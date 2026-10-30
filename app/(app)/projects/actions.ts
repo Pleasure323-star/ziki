@@ -320,7 +320,6 @@ export async function createApprovalRuleAction(formData: FormData): Promise<void
   const slug = String(formData.get("slug") ?? "").trim();
   const stage = String(formData.get("stage") ?? "before_merge").trim() as "before_offer" | "before_merge";
   const issueTypeId = String(formData.get("issueTypeId") ?? "").trim() || null;
-  const severity = String(formData.get("severity") ?? "").trim() || null;
   const fileGlob = String(formData.get("fileGlob") ?? "").trim() || null;
 
   if (!projectId || (stage !== "before_offer" && stage !== "before_merge")) return;
@@ -333,7 +332,6 @@ export async function createApprovalRuleAction(formData: FormData): Promise<void
     {
       stage,
       issueTypeId,
-      severity: severity as "low" | "medium" | "high" | "critical" | null,
       fileGlob,
     },
   );

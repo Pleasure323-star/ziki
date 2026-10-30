@@ -112,7 +112,6 @@ describe("resolveDisputeAction (#436)", () => {
       tenantId: "tenant-1",
       reporterId: "user-1",
       assigneeId: "user-2",
-      severity: "high",
     });
     p.pointEntry.createMany.mockResolvedValue({ count: 1 });
     p.pointDispute.update.mockResolvedValue({});
@@ -150,7 +149,7 @@ describe("resolveDisputeAction (#436)", () => {
           expect.objectContaining({
             userId: "user-2",
             role: "solver",
-            points: 1200,
+            points: 750,
             sourceKey: "solver:bug-1:user-2",
           }),
         ],

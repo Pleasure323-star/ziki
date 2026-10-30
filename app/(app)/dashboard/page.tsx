@@ -43,10 +43,10 @@ function buildStats(input: {
   overview: WorkspaceOverview;
   weekPoints: number;
   createdLast30: number;
-  highPriorityAssigned: number;
+  openAssigned: number;
   resolvedAssigned: number;
 }): OverviewStat[] {
-  const { overview, weekPoints, createdLast30, highPriorityAssigned, resolvedAssigned } = input;
+  const { overview, weekPoints, createdLast30, openAssigned, resolvedAssigned } = input;
   const toGo = Math.max(0, TARGET_POINTS - weekPoints);
   const assigned = overview.assignedToMe;
   const resolvedPct =
@@ -73,9 +73,9 @@ function buildStats(input: {
       label: "Assigned to me",
       value: String(assigned),
       href: "/issues?mine=assigned",
-      chip: String(highPriorityAssigned),
-      chipTone: highPriorityAssigned > 0 ? "bad" : "chip",
-      note: "high priority",
+      chip: String(openAssigned),
+      chipTone: "chip",
+      note: "still open",
     },
     {
       label: "Resolved issues",
@@ -105,7 +105,6 @@ async function loadAssignedIssues(
       id: true,
       number: true,
       title: true,
-      severity: true,
       status: true,
       voteCount: true,
       createdAt: true,
@@ -134,7 +133,6 @@ async function loadAssignedIssues(
     id: bug.id,
     number: bug.number,
     title: bug.title,
-    severity: bug.severity,
     status: bug.status,
     voteCount: bug.voteCount,
     userVoted: voteDirection(bug.votes[0]?.value) === 1,
@@ -172,7 +170,7 @@ export default async function DashboardPage() {
 
   let historyEntries: PointHistoryEntry[] = [];
   let createdLast30 = 0;
-  let highPriorityAssigned = 0;
+  let openAssigned = 0;
   let resolvedAssigned = 0;
   let assignedIssues: OverviewAssignedIssue[] = [];
 
@@ -181,7 +179,7 @@ export default async function DashboardPage() {
     const base = { ...bugInTenant(tenantId), isDeleted: false as const };
 
     try {
-      const [history, createdCount, highCount, resolvedCount, assigned] = await Promise.all([
+      const [history, createdCount, openCount, resolvedCount, assigned] = await Promise.all([
         loadPointHistory(prisma, { tenantId, userId: user.id }),
         prisma.bug.count({
           where: { ...base, reporterId: user.id, createdAt: { gte: thirtyDaysAgo } },
@@ -190,7 +188,6 @@ export default async function DashboardPage() {
           where: {
             ...base,
             assigneeId: user.id,
-            severity: { in: ["high", "critical"] },
             status: { in: ["requires_confirmation", "open", "in_progress"] },
           },
         }),
@@ -205,7 +202,7 @@ export default async function DashboardPage() {
       ]);
       historyEntries = history;
       createdLast30 = createdCount;
-      highPriorityAssigned = highCount;
+      openAssigned = openCount;
       resolvedAssigned = resolvedCount;
       assignedIssues = assigned;
     } catch (error) {
@@ -223,7 +220,7 @@ export default async function DashboardPage() {
     overview,
     weekPoints,
     createdLast30,
-    highPriorityAssigned,
+    openAssigned,
     resolvedAssigned,
   });
 

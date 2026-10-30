@@ -51,7 +51,7 @@ const reject = (id: string, owner: string, extra: Partial<Entry> = {}): Entry =>
 describe("readConfirmations (#714, #issue-confirmations): one rule for confirmed", () => {
   it("confirms on two independent confirms; there is no separate duplicate clearance", async () => {
     const one = await openIssueConfirmations(db([confirm("c1", "bob")]), {});
-    expect(one.get("b1")).toEqual({ stage: "confirming", accepts: 1, rejects: 0, needed: 2 });
+    expect(one.get("b1")).toEqual({ stage: "confirming", accepts: 1, rejects: 0, needed: 2, confirmed: false });
 
     const read = await readConfirmations(db([confirm("c1", "bob"), confirm("c2", "cara", { agent: false })]), {});
     expect(read.get("b1")).toMatchObject({ confirmed: true, accepts: 2, confirmers: ["bob", "cara"], duplicate: false });

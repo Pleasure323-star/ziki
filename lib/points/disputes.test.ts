@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Severity } from "@prisma/client";
 import {
   ALREADY_CORRECTED,
   ALREADY_RESOLVED,
@@ -77,7 +76,6 @@ const bugOn = {
   tenantId: TENANT,
   reporterId: ME,
   assigneeId: "user-solver",
-  severity: "high" as Severity,
 };
 
 function openDisputeRow(overrides: Partial<DisputeRow> = {}): DisputeRow {
@@ -123,13 +121,13 @@ describe("disputeInputSchema", () => {
 });
 
 describe("missingAwardEntry", () => {
-  it("builds the canonical solver award with severity points", () => {
+  it("builds the canonical solver award worth the flat 750 points", () => {
     expect(missingAwardEntry(bugOn, "solver")).toEqual({
       tenantId: TENANT,
       userId: "user-solver",
       bugId: "bug-1",
       role: "solver",
-      points: 1200,
+      points: 750,
       sourceKey: "solver:bug-1:user-solver",
     });
   });
@@ -142,7 +140,7 @@ describe("missingAwardEntry", () => {
 
   it("uses platform/project reward amounts when provided", () => {
     const config = {
-      solver: { low: 7, medium: 10, high: 20, critical: 40 },
+      solver: 20,
       reporter: 7,
       reviewer: 12,
       guidelines: null,
@@ -195,7 +193,7 @@ describe("openDispute", () => {
     const result = await openDispute(db, {
       tenantId: TENANT,
       userId: ME,
-      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-x", reason: "Wrong severity." },
+      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-x", reason: "Wrong amount." },
     });
     expect(result).toEqual({ ok: false, error: NOT_YOUR_ENTRY });
   });
@@ -207,7 +205,7 @@ describe("openDispute", () => {
     const result = await openDispute(db, {
       tenantId: TENANT,
       userId: ME,
-      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-1", reason: "Wrong severity." },
+      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-1", reason: "Wrong amount." },
     });
     expect(result).toEqual({ ok: false, error: ALREADY_CORRECTED });
   });
@@ -220,7 +218,7 @@ describe("openDispute", () => {
     const result = await openDispute(db, {
       tenantId: TENANT,
       userId: ME,
-      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-1", reason: "Wrong severity." },
+      input: { bugNumber: 42, kind: "wrong", pointEntryId: "entry-1", reason: "Wrong amount." },
     });
     expect(result).toEqual({ ok: false, error: DISPUTE_ALREADY_OPEN });
   });
@@ -269,7 +267,7 @@ describe("grantMissingAward", () => {
         data: [
           expect.objectContaining({
             role: "solver",
-            points: 1200,
+            points: 750,
             sourceKey: "solver:bug-1:user-solver",
           }),
         ],
@@ -302,7 +300,7 @@ describe("grantMissingAward", () => {
     expect(first).toEqual({ ok: true, awarded: true });
     expect(second).toEqual({ ok: true, awarded: false });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ points: 1200 });
+    expect(rows[0]).toMatchObject({ points: 750 });
   });
 
   it("refuses to resolve a dispute that is already resolved", async () => {
@@ -519,7 +517,6 @@ describe("creditMissingAwards", () => {
     tenantId: TENANT,
     reporterId: ME,
     assigneeId: "user-solver",
-    severity: "high" as Severity,
     status: "resolved",
     isDeleted: false,
     duplicateOfId: null,

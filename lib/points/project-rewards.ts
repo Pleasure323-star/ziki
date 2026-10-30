@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { Severity } from "@prisma/client";
 import {
   POINT_AWARD_MAX,
   SOLVER_POINTS,
@@ -9,30 +8,13 @@ import {
 
 export const projectRewardConfigSchema = z
   .object({
-    solver: z
-      .object({
-        low: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS.low),
-        medium: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS.medium),
-        high: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS.high),
-        critical: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS.critical),
-      })
-      .default({
-        low: SOLVER_POINTS.low,
-        medium: SOLVER_POINTS.medium,
-        high: SOLVER_POINTS.high,
-        critical: SOLVER_POINTS.critical,
-      }),
+    solver: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS),
     reporter: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(REPORTER_POINTS),
     reviewer: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(REVIEWER_POINTS),
     guidelines: z.string().trim().max(2000).optional().nullable().default(null),
   })
   .default({
-    solver: {
-      low: SOLVER_POINTS.low,
-      medium: SOLVER_POINTS.medium,
-      high: SOLVER_POINTS.high,
-      critical: SOLVER_POINTS.critical,
-    },
+    solver: SOLVER_POINTS,
     reporter: REPORTER_POINTS,
     reviewer: REVIEWER_POINTS,
     guidelines: null,
@@ -50,20 +32,14 @@ export function parseProjectRewardConfig(
   const result = projectRewardConfigSchema.safeParse({
     ...fallback,
     ...(raw as object),
-    solver: {
-      ...fallback.solver,
-      ...((raw as { solver?: object }).solver ?? {}),
-    },
+    solver: (raw as { solver?: unknown }).solver ?? fallback.solver,
   });
   return result.success ? result.data : fallback;
 }
 
-export function calculateSolverPoints(
-  severity: Severity,
-  config?: ProjectRewardConfig | null,
-): number {
-  if (!config) return SOLVER_POINTS[severity];
-  return config.solver[severity] ?? SOLVER_POINTS[severity];
+export function calculateSolverPoints(config?: ProjectRewardConfig | null): number {
+  if (!config) return SOLVER_POINTS;
+  return config.solver ?? SOLVER_POINTS;
 }
 
 export function calculateReporterPoints(config?: ProjectRewardConfig | null): number {

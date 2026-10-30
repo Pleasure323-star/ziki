@@ -20,14 +20,13 @@ describe("createBugSchema", () => {
     const result = createBugSchema.safeParse({
       title: "Login button broken",
       description: "Clicking sign in does nothing on mobile.",
-      severity: "high",
       assigneeId: validCuid,
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.severity).toBe("high");
       expect(result.data.title).toBe("Login button broken");
+      expect(result.data.assigneeId).toBe(validCuid);
     }
   });
 
@@ -54,7 +53,7 @@ describe("createBugSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("defaults severity to medium", () => {
+  it("has no severity in its output", () => {
     const result = createBugSchema.safeParse({
       title: "Missing favicon",
       description: "Browser tab shows the default Next icon.",
@@ -62,7 +61,7 @@ describe("createBugSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.severity).toBe("medium");
+      expect(result.data).not.toHaveProperty("severity");
     }
   });
 
@@ -98,11 +97,11 @@ describe("createBugSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects an invalid severity", () => {
+  it("rejects any severity, since issues no longer have one", () => {
     const result = createBugSchema.safeParse({
       title: "Valid title here",
       description: "Long enough description for the schema.",
-      severity: "urgent",
+      severity: "high",
     });
 
     expect(result.success).toBe(false);

@@ -19,11 +19,11 @@ describe("Bug detail header responsive layout (#698)", () => {
     expect(header).not.toContain("<SelfAssignButton");
   });
 
-  it("shows status and severity together in the rail's Status box, and no separate stage or opened line", () => {
+  it("shows the status alone in the rail's Status box: no severity chip, stage or opened line", () => {
     const rail = pageSource.slice(pageSource.indexOf("{/* SIDE RAIL */}"));
     const statusBox = rail.slice(rail.indexOf('aria-label="Status"'), rail.indexOf(">People<"));
     expect(statusBox).toContain("issueStatusChipClass[bug.status]");
-    expect(statusBox).toContain("issueSeverityChipClass[bug.severity]");
+    expect(statusBox).not.toMatch(/severity/i);
     // #requires-confirmation: Requires confirmation is the status, so no stage chip repeats it.
     expect(statusBox).not.toContain("issueStageLabels");
     expect(statusBox).not.toContain("Opened");
@@ -53,7 +53,7 @@ describe("Bug detail header hierarchy (#687)", () => {
   it("keeps the taxonomy chips in the header, away from the workflow badges", () => {
     const header = pageSource.slice(0, pageSource.indexOf("{/* SIDE RAIL */}"));
     expect(header).toMatch(/bug\.type\.name[\s\S]*?bug\.category\.name/);
-    expect(header).not.toContain("issueSeverityChipClass[bug.severity]");
+    expect(header).not.toMatch(/severity/i);
   });
 
   it("drops the redundant score pill so only VoteButton shows the vote total", () => {

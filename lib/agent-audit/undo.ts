@@ -16,7 +16,7 @@ import { isConfirmed } from "@/lib/agent-api/confirmations";
  *
  * Supported reversible actions:
  * - `issue.confirmation` — an agent's confirmation entry: it stops counting,
- *   the severity it set is restored, the issue goes back to Requires
+ *   the issue goes back to Requires
  *   confirmation if it is no longer confirmed, and the reporter points the
  *   confirmation awarded are reversed.
  */
@@ -149,7 +149,7 @@ export async function undoAuditEvent(
 /**
  * Reverse an `issue.confirmation` audit event: the agent's confirmation entry
  * (#issue-confirmations). The entry stays, marked undone, so it stops counting; it
- * restores the severity it set, reverses the reporter points if it confirmed
+ * reverses the reporter points if it confirmed
  * the issue, and an Open issue that is no longer confirmed goes back to
  * Requires confirmation. If the entry was given again since, the newer entry
  * is left alone.
@@ -171,8 +171,6 @@ async function undoConfirmation(tx: Db, event: AuditEvent): Promise<UndoResult> 
       id: true,
       bugId: true,
       verdict: true,
-      severity: true,
-      previousSeverity: true,
       undoneAt: true,
       updatedAt: true,
     },
@@ -185,18 +183,6 @@ async function undoConfirmation(tx: Db, event: AuditEvent): Promise<UndoResult> 
   }
 
   await tx.issueConfirmation.update({ where: { id: confirmation.id }, data: { undoneAt: new Date() } });
-
-  // Restore the severity this entry set, if it changed the issue.
-  if (
-    confirmation.previousSeverity !== null &&
-    confirmation.severity !== null &&
-    confirmation.previousSeverity !== confirmation.severity
-  ) {
-    await tx.bug.update({
-      where: { id: confirmation.bugId },
-      data: { severity: confirmation.previousSeverity },
-    });
-  }
 
   // If this entry was the one that confirmed the issue, reverse the reporter
   // points it awarded. The correction reuses idempotency, so a second undo

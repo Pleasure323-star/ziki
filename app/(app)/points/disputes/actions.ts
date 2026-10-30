@@ -114,7 +114,6 @@ export async function resolveDisputeAction(
         tenantId: true,
         reporterId: true,
         assigneeId: true,
-        severity: true,
         projectId: true,
       },
     });

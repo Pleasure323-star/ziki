@@ -57,9 +57,9 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
 const AGENT_LAYER_FIELDS = new Set(["attachmentIds", "acknowledgeSimilar"]);
 
 // Fields on the shared schema that the agent route deliberately does not take (it picks only some of
-// them, and severity is set by reviewers), so a tool must not offer them.
+// them), so a tool must not offer them.
 const NOT_OFFERED_TO_AGENTS: Record<string, readonly string[]> = {
-  ziki_create_idea: ["severity", "typeId", "assigneeId"],
+  ziki_create_idea: ["typeId", "assigneeId"],
   // `action` is the older name for `verdict`, kept for old clients only.
   ziki_merge_fix: ["action"],
 };

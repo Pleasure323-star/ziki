@@ -27,8 +27,8 @@ function field(formData: FormData, name: string): string | undefined {
 /**
  * A person gives an issue at Requires confirmation their confirmation entry
  * from the web app (#issue-confirmations): confirm, reject or neutral, a
- * summary of two sentences at most and a full description; severity on
- * confirm, "duplicate of #" on reject. A newer entry replaces their earlier one.
+ * summary of two sentences at most and a full description; "duplicate of #"
+ * on reject. A newer entry replaces their earlier one.
  */
 export async function giveConfirmationAction(
   bugId: string,
@@ -54,7 +54,6 @@ export async function giveConfirmationAction(
     verdict,
     summary: formData.get("summary") ?? "",
     description: formData.get("description") ?? "",
-    ...(verdict === "confirm" && field(formData, "severity") ? { severity: field(formData, "severity") } : {}),
     ...(verdict === "reject" && field(formData, "duplicateOfId") ? { duplicateOfId: field(formData, "duplicateOfId") } : {}),
   };
 

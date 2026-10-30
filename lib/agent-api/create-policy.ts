@@ -21,7 +21,6 @@ import {
  *   returns the idea it already made instead of inserting another.
  * - Open issues with a similar title in the same project are a `409` with the
  *   matches, until the agent repeats the same key with `acknowledgeSimilar`.
- * - Any severity the client sends is ignored (#433).
  * - `typeId`, when given, must be an active issue type.
  *
  * It also exports the `(createdAt, id)` cursor #429 pages lists with.
@@ -33,9 +32,6 @@ export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 /** How long a key keeps returning the idea it made. */
 export const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const IDEMPOTENCY_KEY_MAX = 255;
-
-/** Agents never choose severity on create (#441, #433). */
-export const AGENT_CREATE_SEVERITY = "medium" as const;
 
 /** Stable JSON serialization so equivalent request objects hash consistently. */
 function stableJson(value: unknown): string {
@@ -146,8 +142,6 @@ export type CreatePolicyInput = {
   /** Already validated by the route; used for the similar-issue check. */
   title: string;
   typeId?: unknown;
-  /** Read and ignored, so a client can't pick severity. */
-  severity?: unknown;
   acknowledgeSimilar?: unknown;
   /** Inserts the idea inside the policy's transaction and returns its id. */
   insert: (tx: Prisma.TransactionClient, fields: PolicyFields) => Promise<{ id: string }>;

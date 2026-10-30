@@ -14,7 +14,7 @@ describe("IssueAgentActivity (#448)", () => {
     expect(screen.queryByText("Agent decisions")).not.toBeInTheDocument();
   });
 
-  it("shows both reviewers and the severity they set on a confirmed issue", () => {
+  it("shows both reviewers on a confirmed issue, and no severity", () => {
     const decisions: AgentDecision[] = [
       {
         id: "v1",
@@ -22,7 +22,6 @@ describe("IssueAgentActivity (#448)", () => {
         kind: "confirmed",
         agentName: "reviewer-one",
         personName: "Ada",
-        severity: "high",
       },
       {
         id: "v2",
@@ -30,7 +29,6 @@ describe("IssueAgentActivity (#448)", () => {
         kind: "confirmed",
         agentName: "reviewer-two",
         personName: "Tenant Owner",
-        severity: "medium",
       },
     ];
 
@@ -39,8 +37,8 @@ describe("IssueAgentActivity (#448)", () => {
     expect(screen.getByText("Agent decisions")).toBeInTheDocument();
     expect(screen.getByText("reviewer-one")).toBeInTheDocument();
     expect(screen.getByText("reviewer-two")).toBeInTheDocument();
-    expect(screen.getByText("High")).toBeInTheDocument();
-    expect(screen.getByText("Medium")).toBeInTheDocument();
+    expect(screen.getAllByText("Confirmed")).toHaveLength(2);
+    expect(screen.queryByText(/High|Medium|severity/i)).not.toBeInTheDocument();
   });
 
   it("shows who a claim was for, the test verdicts, and the accepted fix", () => {
@@ -133,7 +131,6 @@ describe("IssueAgentActivity (#448)", () => {
         kind: "confirmed",
         agentName: "reviewer-one",
         personName: "Ada",
-        severity: "medium",
       },
       {
         id: "validation-v2",
@@ -191,7 +188,6 @@ describe("IssueAgentActivity (#448)", () => {
         kind: "confirmed",
         agentName: "reviewer-one",
         personName: "Ada",
-        severity: "high",
       },
     ];
 

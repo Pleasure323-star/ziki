@@ -43,7 +43,6 @@ export const createIdeaSchema = createBugSchema
     // #494: no beneficiaryUserId. The reporter is always the agent's owner.
     projectId: idSchema.optional(),
     typeId: z.unknown().optional(),
-    severity: z.unknown().optional(),
     acknowledgeSimilar: z.unknown().optional(),
     attachmentIds: attachmentIdsSchema,
   })
@@ -203,7 +202,6 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
     categoryId: input.categoryId || null,
     proofLinks: input.proofLinks,
     typeId: input.typeId ?? null,
-    severity: input.severity ?? null,
     acknowledgeSimilar: input.acknowledgeSimilar ?? null,
     ...(input.attachmentIds?.length ? { attachmentIds: [...new Set(input.attachmentIds)].sort() } : {}),
     ...(input.areaId ? { areaId: input.areaId } : {}),
@@ -215,7 +213,6 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
     requestHash,
     title: input.title,
     typeId: input.typeId,
-    severity: input.severity,
     acknowledgeSimilar: input.acknowledgeSimilar,
     insert: async (tx, policy) => {
       const member = await tx.membership.findUnique({

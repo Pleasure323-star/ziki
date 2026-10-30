@@ -65,10 +65,10 @@ describe("publishWebEvent (#600)", () => {
 describe("issueChangePayload (#600)", () => {
   it("names what changed and gives the triage values", () => {
     expect(
-      issueChangePayload({ status: "resolved", severity: "high", assigneeId: null, updatedAt: new Date() }),
+      issueChangePayload({ status: "resolved", typeId: "type-fix", assigneeId: null, updatedAt: new Date() }),
     ).toEqual({
-      changed: ["assigneeId", "severity", "status"],
-      values: { status: "resolved", severity: "high", assigneeId: null },
+      changed: ["assigneeId", "status", "typeId"],
+      values: { status: "resolved", typeId: "type-fix", assigneeId: null },
     });
   });
 

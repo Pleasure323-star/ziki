@@ -1,5 +1,5 @@
-import type { Prisma, PrismaClient, Severity } from "@prisma/client";
-import { pointSourceKey, roundPoints, solverPoints, type PointRole } from "./rules";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import { pointSourceKey, roundPoints, type PointRole } from "./rules";
 import { calculateSolverPoints, type ProjectRewardConfig } from "./project-rewards";
 import { getPlatformRewardConfig, getProjectRewardConfig } from "./platform-rewards";
 import { isPullRequestClosedUnmerged } from "@/lib/github/merge-pr";
@@ -56,8 +56,6 @@ export type ResolvedIssue = {
   id: string;
   tenantId: string;
   projectId?: string | null;
-  /** The severity stored on the issue at resolution time. */
-  severity: Severity;
   /** Who it was assigned to at resolution time; nobody earns points without one. */
   assigneeId: string | null;
   rewardConfig?: ProjectRewardConfig | null;
@@ -67,9 +65,7 @@ export type ResolvedIssue = {
 /** The solver award for resolving `issue`, or null when nobody is assigned. */
 export function solverAward(issue: ResolvedIssue): PointAward | null {
   if (!issue.assigneeId) return null;
-  const points = issue.rewardConfig
-    ? calculateSolverPoints(issue.severity, issue.rewardConfig)
-    : solverPoints(issue.severity);
+  const points = calculateSolverPoints(issue.rewardConfig);
 
   return {
     tenantId: issue.tenantId,

@@ -7,7 +7,7 @@ import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
-import { commentSchema, statusSchema, severitySchema } from "@/lib/validations/issue";
+import { commentSchema, statusSchema } from "@/lib/validations/issue";
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
@@ -137,7 +137,7 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, description: true, status: true, severity: true,
+  id: true, number: true, title: true, description: true, status: true,
   categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
   createdByAgentId: true, projectId: true, areaId: true, createdAt: true, updatedAt: true, proofLinks: true,
   voteCount: true,
@@ -166,7 +166,6 @@ export function requireKnownFilter(name: "platform" | "area", raw: string | null
 
 export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const status = enumFilter("status", params.get("status"), statusSchema.options);
-  const severity = enumFilter("severity", params.get("severity"), severitySchema.options);
   const assignee = params.get("assignee");
   let assigneeId: string | null | undefined;
   if (assignee) {
@@ -201,7 +200,6 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const filtered: Prisma.BugWhereInput = {
     ...scope, isDeleted: false, ...search,
     ...(status ? { status } : {}),
-    ...(severity ? { severity } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
     ...platformFilterWhere(requireKnownFilter("platform", params.get("platform"), parsePlatformFilter(params.get("platform"), platforms))),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
@@ -222,7 +220,6 @@ const confirmationSelect = {
   verdict: true,
   summary: true,
   description: true,
-  severity: true,
   duplicateOfId: true,
   agentId: true,
   onBehalfOfUserId: true,

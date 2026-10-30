@@ -19,7 +19,6 @@ export const approvalRuleSchema = z
   .object({
     stage: z.enum(["before_offer", "before_merge"]),
     issueTypeId: z.string().trim().min(1).optional().nullable(),
-    severity: z.enum(["low", "medium", "high", "critical"]).optional().nullable(),
     fileGlob: z.string().trim().min(1).max(500).optional().nullable(),
   })
   .strict();
@@ -67,7 +66,6 @@ export type ApprovalRuleLike = {
   id?: string;
   stage: string;
   issueTypeId?: string | null;
-  severity?: string | null;
   fileGlob?: string | null;
 };
 
@@ -75,7 +73,6 @@ export type MatchContext = {
   stage: ApprovalStage;
   issueTypeId?: string | null;
   issueTypeName?: string | null;
-  severity?: string | null;
   files?: string[];
 };
 
@@ -91,13 +88,6 @@ export function ruleMatches(rule: ApprovalRuleLike, context: MatchContext): bool
     const matchId = context.issueTypeId && context.issueTypeId.toLowerCase() === target;
     const matchName = context.issueTypeName && context.issueTypeName.toLowerCase() === target;
     if (!matchId && !matchName) return false;
-  }
-
-  // Match on severity if rule specifies one
-  if (rule.severity) {
-    if (!context.severity || rule.severity.toLowerCase() !== context.severity.toLowerCase()) {
-      return false;
-    }
   }
 
   // Match on file glob if rule specifies one
@@ -132,7 +122,6 @@ export async function assertApprovalOpen(
       tenantId: string;
       projectId: string;
       typeId: string | null;
-      severity: string | null;
       type?: { id: string; name: string } | null;
     } | null;
   } = {},
@@ -153,7 +142,6 @@ export async function assertApprovalOpen(
             tenantId: true,
             projectId: true,
             typeId: true,
-            severity: true,
             type: { select: { id: true, name: true } },
           },
         })
@@ -166,7 +154,6 @@ export async function assertApprovalOpen(
               tenantId: true,
               projectId: true,
               typeId: true,
-              severity: true,
               type: { select: { id: true, name: true } },
             },
           })
@@ -183,7 +170,6 @@ export async function assertApprovalOpen(
     stage,
     issueTypeId: bug.typeId,
     issueTypeName: bug.type?.name ?? null,
-    severity: bug.severity,
     files: options.files,
   };
 
@@ -471,7 +457,6 @@ export async function createApprovalRule(
       projectId,
       stage: input.stage,
       issueTypeId: input.issueTypeId ?? null,
-      severity: input.severity ?? null,
       fileGlob: input.fileGlob ?? null,
     },
   });

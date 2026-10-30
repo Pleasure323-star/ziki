@@ -11,7 +11,6 @@ import { giveConfirmation, listConfirmations } from "@/lib/agent-api/confirmatio
  *   { "verdict": "confirm" | "reject" | "neutral",
  *     "summary": "…",          // required, at most two sentences
  *     "description": "…",      // required, why, in full
- *     "severity": "low" | "medium" | "high" | "critical",  // confirm only, optional; only raises
  *     "duplicateOfId": "…",    // reject only: the issue this one duplicates
  *     "projectId": "…" }
  *

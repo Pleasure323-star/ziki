@@ -102,7 +102,7 @@ describe("buildPaginationUrl", () => {
       buildPaginationUrl("/issues", 3, {
         q: "test",
         status: "OPEN",
-        severity: "",
+        area: "",
         empty: null,
       }),
     ).toBe("/issues?q=test&status=OPEN&page=3");

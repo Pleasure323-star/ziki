@@ -65,7 +65,7 @@ describe("manual issue offers (#590)", () => {
   it("blocks with 409 waiting_for_human when human approval is required before offer (#598)", async () => {
     (db as Record<string, unknown>).approvalRule = {
       findMany: vi.fn(async () => [
-        { id: "rule-1", stage: "before_offer", issueTypeId: null, severity: null, fileGlob: null },
+        { id: "rule-1", stage: "before_offer", issueTypeId: null, fileGlob: null },
       ]),
     };
     (db as Record<string, unknown>).issueApproval = {

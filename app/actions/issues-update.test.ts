@@ -93,7 +93,6 @@ function issue(assigneeId: string | null, extra: Record<string, unknown> = {}) {
     areaId: null,
     title: "A bug",
     status: "open",
-    severity: "medium",
     typeId: null,
     categoryId: null,
     assigneeId,
@@ -172,11 +171,13 @@ describe("updateBugAction authorization (#218)", () => {
     ["user", OTHER, { assigneeId: ME }, TICKET_ASSIGN_ERRORS.needsAgentClaim, null],
     // Ziki #713: nobody sets a status by hand, the assignee and admins included.
     ["user", ME, { status: "resolved" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
-    ["user", ME, { status: "in_progress", severity: "critical", typeId: "t1", categoryId: "c1" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
+    ["user", ME, { status: "in_progress", typeId: "t1", categoryId: "c1" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
     ["user", ME, { assigneeId: OTHER }, TICKET_ASSIGN_ERRORS.unauthorized, null],
     ["user", ME, { assigneeId: "" }, null, { assigneeId: null }],
-    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical", status: "closed" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
-    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical" }, null, { severity: "critical", assigneeId: SOMEONE }],
+    ["admin", OTHER, { assigneeId: SOMEONE, status: "closed" }, TICKET_TRIAGE_ERRORS.statusUnauthorized, null],
+    ["admin", OTHER, { assigneeId: SOMEONE }, null, { assigneeId: SOMEONE }],
+    // Issues have no severity: a stray one in the form is never written.
+    ["admin", OTHER, { assigneeId: SOMEONE, severity: "critical" }, null, { assigneeId: SOMEONE }],
     ["admin", null, { typeId: "t1", categoryId: "c1" }, null, { typeId: "t1", categoryId: "c1" }],
   ] as const)(
     "%s on an issue assigned to %s, sending %j → %s",
@@ -346,7 +347,7 @@ describe("no solver points from a person resolving by hand (Ziki #713)", () => {
   });
 
   it("refuses an admin resolving it, so nothing is paid", async () => {
-    expect(await run("admin", OTHER, { status: "resolved", severity: "critical" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
+    expect(await run("admin", OTHER, { status: "resolved" })).toEqual({ error: TICKET_TRIAGE_ERRORS.statusUnauthorized });
     expect(awarded).toEqual([]);
   });
 });

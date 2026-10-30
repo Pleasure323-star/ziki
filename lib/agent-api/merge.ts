@@ -67,7 +67,6 @@ const mergeBugSelect = {
   projectId: true,
   pullRequestUrl: true,
   pullRequestHeadSha: true,
-  severity: true,
   status: true,
   assigneeId: true,
   beneficiaryUserId: true,
@@ -649,7 +648,7 @@ async function reviewFix(
         userId: solverUserId,
         bugId: bug.id,
         role: "solver",
-        points: calculateSolverPoints(bug.severity, rewardConfig),
+        points: calculateSolverPoints(rewardConfig),
         sourceKey: pointSourceKey("solver", bug.id, solverUserId),
       });
     }

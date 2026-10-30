@@ -4,10 +4,8 @@ import { BCRYPT_MAX_PASSWORD_BYTES } from "@/lib/password";
 import { isGitHubUrl, splitProofLinkLines } from "@/lib/proof-links";
 import { stripGitHubMarkup } from "@/lib/github-paste";
 
-export const severities = ["low", "medium", "high", "critical"] as const;
 export const statuses = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"] as const;
 
-export const severitySchema = z.enum(severities);
 export const statusSchema = z.enum(statuses);
 
 const MAX_PROOF_LINKS = 20;
@@ -73,7 +71,6 @@ export const createBugSchema = z
       .refine((val) => val.length <= 5000, {
         message: "Description cannot exceed 5000 characters",
       }),
-    severity: severitySchema.default("medium"),
     typeId: z.string().optional().nullable().or(z.literal("")),
     assigneeId: userIdSchema.optional().or(z.literal("")),
     categoryId: z.string().optional().or(z.literal("")),
@@ -86,7 +83,6 @@ export const updateBugSchema = z.object({
   status: statusSchema.optional(),
   typeId: z.string().nullable().optional().or(z.literal("")),
   assigneeId: userIdSchema.nullable().optional().or(z.literal("")),
-  severity: severitySchema.optional(),
   categoryId: z.string().nullable().optional().or(z.literal("")),
   areaId: z.string().nullable().optional().or(z.literal("")),
 });

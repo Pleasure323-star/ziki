@@ -7,7 +7,6 @@ const bug = (overrides: Partial<HistoricalBug>): HistoricalBug => ({
   id: "bug-1",
   tenantId: "tenant-zedu",
   status: "resolved",
-  severity: "medium",
   assigneeId: "solver-1",
   reporterId: "reporter-1",
   duplicateOfId: null,
@@ -68,7 +67,7 @@ describe("backfill points (#435)", () => {
 
     it("uses platform/project reward amounts when provided", () => {
       const rewardConfig = {
-        solver: { low: 7, medium: 10, high: 20, critical: 40 },
+        solver: 10,
         reporter: 7,
         reviewer: 12,
         guidelines: null,
@@ -79,10 +78,10 @@ describe("backfill points (#435)", () => {
       ]);
     });
 
-    it("counts closed like resolved, by the issue's severity", () => {
-      expect(backfillEntries(bug({ status: "closed", severity: "critical" }))[0]).toMatchObject({
+    it("counts closed like resolved, with the same flat solver amount", () => {
+      expect(backfillEntries(bug({ status: "closed" }))[0]).toMatchObject({
         role: "solver",
-        points: 1800,
+        points: 750,
       });
     });
 

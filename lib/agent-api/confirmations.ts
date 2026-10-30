@@ -1,4 +1,4 @@
-import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient, Severity } from "@prisma/client";
+import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -10,7 +10,6 @@ import { award, type PointAward } from "@/lib/points/award";
 import { confirmationReviewerSourceKey, duplicateMarkerSourceKey, pointSourceKey, reviewerPointsAt, triagerClearSourceKey } from "@/lib/points/rules";
 import { calculateReporterPoints } from "@/lib/points/project-rewards";
 import { getPlatformRewardConfig, getProjectRewardConfig } from "@/lib/points/platform-rewards";
-import { severities } from "@/lib/validations/issue";
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { statusChangedSummary } from "@/lib/activity-log";
@@ -30,7 +29,6 @@ import { readConfirmations, type ReadConfirmation } from "@/lib/issue-stage";
  * - The agent that filed the issue may not, and neither may anyone who is not
  *   independent of it (lib/agents/independence.ts): the reporter, the person
  *   it is for, the owner of the filing agent, or whoever works on it.
- * - A confirm may set severity. Severity only ever rises (#528).
  * - The issue is confirmed once the project's `confirmationsNeeded` distinct
  *   independent people confirmed it (`readConfirmations`, the one rule). It
  *   then moves from Requires confirmation to Open and the reporter earns their
@@ -53,15 +51,11 @@ export const confirmationSchema = z
     verdict: z.enum(CONFIRMATION_VERDICTS),
     summary: entrySummary,
     description: entryDescription,
-    severity: z.enum(severities).optional(),
     /** With reject: the issue this one duplicates, by id or number. */
     duplicateOfId: ref.optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
-    if (body.severity && body.verdict !== "confirm") {
-      ctx.addIssue({ code: "custom", path: ["severity"], message: "Severity only goes with confirm." });
-    }
     if (body.duplicateOfId && body.verdict !== "reject") {
       ctx.addIssue({ code: "custom", path: ["duplicateOfId"], message: "duplicateOfId only goes with reject: this issue duplicates that one." });
     }
@@ -75,12 +69,6 @@ export type ConfirmationGiver = { tenantId: string; userId: string; agent?: { id
 type Db = PrismaClient | Prisma.TransactionClient;
 type Scope = { tenantId: string; projectId: string };
 
-const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3, critical: 4 };
-
-function severityRank(severity: Severity | null): number {
-  return severity ? SEVERITY_RANK[severity] : 0;
-}
-
 /** What the independence rule needs about the issue. */
 const bugSelect = {
   id: true,
@@ -88,7 +76,6 @@ const bugSelect = {
   tenantId: true,
   projectId: true,
   status: true,
-  severity: true,
   isDeleted: true,
   reporterId: true,
   beneficiaryUserId: true,
@@ -190,7 +177,6 @@ export type GivenConfirmation = {
     verdict: ConfirmationVerdict;
     summary: string;
     description: string;
-    severity: Severity | null;
     duplicateOfId: string | null;
     onBehalfOfUserId: string;
     agentId: string | null;
@@ -266,12 +252,6 @@ export async function giveConfirmation(
     const before = await confirmationStateOf(bug.id, tx);
     const wasConfirmed = before?.confirmed ?? false;
 
-    const severity = input.verdict === "confirm" ? input.severity ?? null : null;
-    // Confirmers who disagree only ever raise severity: a second one cannot
-    // quietly downgrade an issue someone else called critical (#528).
-    const escalates = severity !== null && severityRank(severity) > severityRank(bug.severity);
-    const severityDisagreement = severity !== null && !escalates && severity !== bug.severity;
-
     const existing = await tx.issueConfirmation.findUnique({
       where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: giver.userId } },
       select: { id: true },
@@ -281,8 +261,6 @@ export async function giveConfirmation(
       verdict: input.verdict,
       summary: input.summary,
       description: input.description,
-      severity,
-      previousSeverity: severity ? bug.severity : null,
       duplicateOfId,
       // Giving it again after an undo is a new entry.
       undoneAt: null,
@@ -292,11 +270,10 @@ export async function giveConfirmation(
       create: { bugId: bug.id, onBehalfOfUserId: giver.userId, ...data },
       update: data,
       select: {
-        id: true, verdict: true, summary: true, description: true, severity: true, duplicateOfId: true,
+        id: true, verdict: true, summary: true, description: true, duplicateOfId: true,
         onBehalfOfUserId: true, agentId: true, createdAt: true, updatedAt: true,
       },
     });
-    if (escalates) await tx.bug.update({ where: { id: bug.id }, data: { severity: severity! } });
 
     const after = await confirmationStateOf(bug.id, tx);
     const confirmed = after?.confirmed ?? false;
@@ -374,8 +351,6 @@ export async function giveConfirmation(
       // Lets an undo tell whether the entry was given again since.
       entryAt: confirmation.updatedAt.toISOString(),
       ...(existing ? { replaced: true } : {}),
-      ...(severity ? { severity, previousSeverity: bug.severity, effectiveSeverity: escalates ? severity : bug.severity } : {}),
-      ...(severityDisagreement ? { severityDisagreement: true } : {}),
       ...(duplicateOfId ? { duplicateOfId } : {}),
       ...(newlyConfirmed ? { confirmed: true } : {}),
     };
@@ -421,7 +396,6 @@ export type ConfirmationView = {
   verdict: ConfirmationVerdict;
   summary: string;
   description: string;
-  severity: Severity | null;
   duplicateOf: { id: string; number: number } | null;
   onBehalfOfUserId: string;
   by: string;
@@ -460,7 +434,7 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
       where: { bugId: bug.id },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select: {
-        id: true, verdict: true, summary: true, description: true, severity: true, duplicateOfId: true,
+        id: true, verdict: true, summary: true, description: true, duplicateOfId: true,
         onBehalfOfUserId: true, agentId: true, undoneAt: true, createdAt: true, updatedAt: true,
         onBehalfOf: { select: { name: true } },
         agent: { select: { name: true } },

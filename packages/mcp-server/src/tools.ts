@@ -90,14 +90,13 @@ export const TOOLS: readonly ToolDef[] = [
     method: "GET",
     route: "/issues",
     projectScoped: true,
-    query: ["status", "severity", "assignee", "platform", "area", "limit", "cursor"],
+    query: ["status", "assignee", "platform", "area", "limit", "cursor"],
     input: {
       projectId,
       status: z
         .enum(["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"])
         .optional()
         .describe("Only issues in this status. `resolved` is Live."),
-      severity: z.enum(["low", "medium", "high", "critical"]).optional().describe("Only issues of this severity."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
       platform: z.string().optional().describe("A platform (category) id, or `none` for issues with no platform."),
       area: z.string().optional().describe("A project area id, or `none` for issues without an area."),
@@ -369,17 +368,13 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/confirmations",
     projectScoped: true,
-    body: ["verdict", "summary", "description", "severity", "duplicateOfId"],
+    body: ["verdict", "summary", "description", "duplicateOfId"],
     input: {
       id: issueId,
       projectId,
       verdict: z.enum(["confirm", "reject", "neutral"]).describe("confirm, reject or neutral."),
       summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
       description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found."),
-      severity: z
-        .enum(["low", "medium", "high", "critical"])
-        .optional()
-        .describe("With confirm only: the severity you would give it. Severity is only ever raised."),
       duplicateOfId: z.string().optional().describe("With reject only: the issue (id or number) this one duplicates."),
     },
   },

@@ -34,7 +34,9 @@ describe("the CLI itself", () => {
     const result = await ziki("help", "confirm-issue");
     expect(result.code).toBe(0);
     expect(result.out).toMatch(/--verdict <confirm\|reject\|neutral>\s+\(required\)/);
-    expect(result.out).toMatch(/--severity <low\|medium\|high\|critical>\n/);
+    expect(result.out).toMatch(/--duplicate-of-id\b/);
+    // Confirmations take no severity.
+    expect(result.out).not.toMatch(/--severity/);
   });
 
   it("rejects unknown commands, unknown flags and missing required flags as usage errors (exit 2)", async () => {

@@ -20,7 +20,7 @@ export function ProjectRewardRulesSection({
 }: ProjectRewardRulesSectionProps) {
   const [open, setOpen] = useState(false);
   const fallback = defaults ?? {
-    solver: { ...SOLVER_POINTS },
+    solver: SOLVER_POINTS,
     reporter: REPORTER_POINTS,
     reviewer: REVIEWER_POINTS,
     guidelines: null,
@@ -46,67 +46,23 @@ export function ProjectRewardRulesSection({
 
       {open ? (
         <div className="mt-4 space-y-4 border-t border-zk-border pt-3">
-          <div>
-            <span className="block text-xs font-semibold uppercase tracking-wider text-zk-text2">
-              Solver points by severity
-            </span>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div>
-                <label htmlFor="solverPointsLow" className="block text-xs text-zk-muted">Low</label>
-                <Input
-                  id="solverPointsLow"
-                  type="number"
-                  name="solverPointsLow"
-                  defaultValue={initialConfig?.solver?.low ?? fallback.solver.low}
-                  min={0}
-                  max={1_000_000}
-                  disabled={disabled}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label htmlFor="solverPointsMedium" className="block text-xs text-zk-muted">Medium</label>
-                <Input
-                  id="solverPointsMedium"
-                  type="number"
-                  name="solverPointsMedium"
-                  defaultValue={initialConfig?.solver?.medium ?? fallback.solver.medium}
-                  min={0}
-                  max={1_000_000}
-                  disabled={disabled}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label htmlFor="solverPointsHigh" className="block text-xs text-zk-muted">High</label>
-                <Input
-                  id="solverPointsHigh"
-                  type="number"
-                  name="solverPointsHigh"
-                  defaultValue={initialConfig?.solver?.high ?? fallback.solver.high}
-                  min={0}
-                  max={1_000_000}
-                  disabled={disabled}
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <label htmlFor="solverPointsCritical" className="block text-xs text-zk-muted">Critical</label>
-                <Input
-                  id="solverPointsCritical"
-                  type="number"
-                  name="solverPointsCritical"
-                  defaultValue={initialConfig?.solver?.critical ?? fallback.solver.critical}
-                  min={0}
-                  max={1_000_000}
-                  disabled={disabled}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="solverPoints" className="block text-xs font-semibold uppercase tracking-wider text-zk-text2">
+                Solver points
+              </label>
+              <p className="text-xs text-zk-muted">Points awarded when an issue is resolved.</p>
+              <Input
+                id="solverPoints"
+                type="number"
+                name="solverPoints"
+                defaultValue={initialConfig?.solver ?? fallback.solver}
+                min={0}
+                max={1_000_000}
+                disabled={disabled}
+                className="mt-1"
+              />
+            </div>
             <div>
               <label htmlFor="reporterPoints" className="block text-xs font-semibold uppercase tracking-wider text-zk-text2">
                 Reporter bounty

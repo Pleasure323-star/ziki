@@ -5,7 +5,6 @@ export type ApprovalRuleView = {
   id: string;
   stage: string;
   issueTypeId: string | null;
-  severity: string | null;
   fileGlob: string | null;
   issueType?: { id: string; name: string } | null;
 };
@@ -38,7 +37,6 @@ export function ProjectApprovalRulesSection({
             const stageLabel =
               rule.stage === "before_merge" ? "Before merge" : "Before offer";
             const typeLabel = rule.issueType?.name ?? "Any type";
-            const sevLabel = rule.severity ? `Severity: ${rule.severity}` : "Any severity";
             const fileLabel = rule.fileGlob ? `Files: ${rule.fileGlob}` : null;
 
             return (
@@ -54,7 +52,6 @@ export function ProjectApprovalRulesSection({
                     <span className="text-sm font-medium text-zk-text">
                       {typeLabel}
                     </span>
-                    <span className="text-xs text-zk-muted">· {sevLabel}</span>
                   </div>
                   {fileLabel ? (
                     <p className="text-xs text-zk-text2 font-mono">
@@ -91,7 +88,7 @@ export function ProjectApprovalRulesSection({
           <input type="hidden" name="projectId" value={projectId} />
           <input type="hidden" name="slug" value={slug} />
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label
                 htmlFor="rule-stage"
@@ -129,27 +126,6 @@ export function ProjectApprovalRulesSection({
                     {type.name}
                   </option>
                 ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="rule-severity"
-                className="block text-xs font-medium text-zk-text2 mb-1"
-              >
-                Severity
-              </label>
-              <select
-                id="rule-severity"
-                name="severity"
-                defaultValue=""
-                className="w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-1.5 text-xs text-zk-text shadow-2xs focus:border-electric-blue focus:outline-hidden"
-              >
-                <option value="">Any severity</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
               </select>
             </div>
           </div>

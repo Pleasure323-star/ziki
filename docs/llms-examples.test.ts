@@ -63,9 +63,12 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
 
   it("documents the confirmation fields the route requires", () => {
     const confirmations = section("POST /api/v1/issues/{id}/confirmations");
-    for (const needle of ["`verdict`", "`confirm`", "`reject`", "`neutral`", "`summary`", "`description`", "`severity`", "`duplicateOfId`"]) {
+    for (const needle of ["`verdict`", "`confirm`", "`reject`", "`neutral`", "`summary`", "`description`", "`duplicateOfId`"]) {
       expect(confirmations).toContain(needle);
     }
+    // Confirmations take no severity, and the route refuses one.
+    expect(confirmations).not.toContain("`severity`");
+    expect(confirmationSchema.safeParse({ verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps.", severity: "high" }).success).toBe(false);
     expect(requestBody("POST /api/v1/issues/{id}/confirmations")).toMatchObject({ verdict: "confirm" });
     // A bare verdict is refused, as the route refuses it.
     expect(confirmationSchema.safeParse({ verdict: "confirm" }).success).toBe(false);

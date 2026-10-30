@@ -47,7 +47,6 @@ describe("exportUserData (#571)", () => {
         title: "Test issue",
         description: "Steps to reproduce",
         status: "open",
-        severity: "medium",
         createdAt: new Date("2026-01-02T00:00:00.000Z"),
         updatedAt: new Date("2026-01-02T00:00:00.000Z"),
         tenantId: "tenant-zedu",

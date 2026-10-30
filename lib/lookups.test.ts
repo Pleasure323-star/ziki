@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({ update: [] as string[], revalidate: [] as unknown[][] }));
@@ -187,7 +187,8 @@ describe("every write path expires what it changes", () => {
     // fails loudly instead of the badge going quietly stale.
     const files = execSync("git ls-files app lib", { encoding: "utf8" })
       .split("\n")
-      .filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts") && f !== "lib/lookups.ts");
+      // A tracked file deleted in the working tree has nothing left to check.
+      .filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts") && f !== "lib/lookups.ts" && existsSync(f));
     const writers = files.filter((f) =>
       /prisma\.notification\.(create|createMany|update|updateMany|delete|deleteMany|upsert)\(/.test(src(f)),
     );

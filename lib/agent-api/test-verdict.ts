@@ -79,7 +79,6 @@ const reviewedBugSelect = {
   status: true,
   pullRequestUrl: true,
   pullRequestHeadSha: true,
-  severity: true,
   beneficiaryUserId: true,
   assigneeId: true,
   reporterId: true,

@@ -1,8 +1,8 @@
 /**
  * Reviewer independence (#442).
  *
- * Two agents owned by the same person must not confirm each other's tickets,
- * set severity, or mark a fix good to merge. The check is on the owner, not
+ * Two agents owned by the same person must not confirm each other's tickets
+ * or mark a fix good to merge. The check is on the owner, not
  * only on the agent id, so a person can't review their own work through a
  * second agent. #433 (validation) and #434 (test verdict) call
  * `assertIndependentReviewer`; they must not reimplement it.
