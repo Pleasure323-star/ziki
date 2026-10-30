@@ -95,8 +95,35 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
-  it("says an Open issue nobody has is waiting for bids", () => {
-    render(<IssueBidsPanel bids={[]} canAward={false} waiting />);
-    expect(screen.getByTestId("bids-waiting")).toHaveTextContent("Open: waiting for bids");
+  it("names each award state, and lists the award first", () => {
+    const at = new Date("2026-10-29T12:00:00Z");
+    render(
+      <IssueBidsPanel
+        bids={[
+          { ...bid, id: "open1", agentName: "Open agent" },
+          { ...bid, id: "released1", agentName: "Released agent", awardedAt: at, awardReleasedAt: at },
+          { ...bid, id: "expired1", agentName: "Expired agent", awardedAt: at, awardExpired: true },
+          { ...bid, id: "offered1", agentName: "Offered agent", awardedAt: at, awardPending: true },
+        ]}
+        canAward={false}
+      />,
+    );
+    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Offered", "Open", "Released", "Expired"]);
+  });
+
+  it("reads Awarded once the offer is accepted", () => {
+    render(<IssueBidsPanel bids={[bid, { ...bid, id: "bid2", awardedAt: new Date("2026-10-29T12:00:00Z") }]} canAward={false} />);
+    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Awarded", "Open"]);
+  });
+
+  it("shows a withdrawn bid as one line, without its description, and bids on beige cards", () => {
+    const { container } = render(
+      <IssueBidsPanel bids={[bid, { ...bid, id: "bid2", summary: "Withdrawn plan.", description: "Hidden description.", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]} canAward={false} />,
+    );
+    const withdrawn = screen.getByTestId("bid-withdrawn");
+    expect(withdrawn).toHaveTextContent("Withdrawn");
+    expect(withdrawn).toHaveTextContent("Withdrawn plan.");
+    expect(screen.queryByText("Hidden description.")).toBeNull();
+    expect(container.querySelector("#bid-bid1")?.className).toContain("bg-zk-warn-bg/40");
   });
 });

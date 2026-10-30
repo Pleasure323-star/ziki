@@ -1,7 +1,8 @@
 import type { IssueStage } from "@/lib/issue-stage";
 import type { MergePath } from "@/lib/merge-history";
 import { MergePathChips } from "@/components/merge-path";
-import { ElapsedTime } from "@/components/elapsed-time";
+import { ElapsedTime } from "@/components/elapsed-time";
+import { CountBadge, CountBadgeCheck } from "@/components/count-badge";
 
 const icon = "h-3 w-3 shrink-0";
 
@@ -73,21 +74,7 @@ export function ConfirmationCountBadge({ accepts, needed, confirmed }: { accepts
     ? `Confirmed: ${accepts} of ${needed} confirmations`
     : `${accepts} of ${needed} confirmations so far`;
   return (
-    <span
-      data-testid="confirmation-count"
-      aria-label={label}
-      title={label}
-      className={`inline-flex min-h-[38px] w-[46px] flex-col items-center justify-center rounded-lg border px-1 py-1 text-xs font-semibold ${
-        confirmed ? "border-transparent bg-zk-ok-bg text-zk-ok-fg" : "border-dashed border-zk-border text-zk-text"
-      }`}
-    >
-      <span className="tabular-nums leading-tight">{accepts}</span>
-      {confirmed ? (
-        <svg viewBox="0 0 24 24" className="mt-0.5 h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M5 12.5l4.5 4.5L19 7.5" />
-        </svg>
-      ) : null}
-    </span>
+    <CountBadge value={accepts} label={label} tone={confirmed ? "ok" : "neutral"} icon={confirmed ? <CountBadgeCheck /> : undefined} testId="confirmation-count" />
   );
 }
 
@@ -215,12 +202,36 @@ export function IssueRowStatus({
  * reaches the threshold (a manager agent converts it); "Idea rejected" once a
  * manager agent rejected it (#idea-rejected).
  */
-export function IdeaRowStatus({ score, threshold, rejected = false }: { score: number; threshold: number | null; rejected?: boolean }) {
+export function IdeaRowStatus({
+  score,
+  threshold,
+  rejected = false,
+  bad = false,
+}: {
+  score: number;
+  threshold: number | null;
+  rejected?: boolean;
+  /** More bad and neutral votes than good, at the threshold: manager agents are advised to reject it. */
+  bad?: boolean;
+}) {
   const text = threshold === null ? `${score}` : `${score}/${threshold}`;
   if (rejected) {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg" title={`Score ${score}: a manager agent rejected it`}>
         <Svg><path d="M18 6 6 18M6 6l12 12" /></Svg> Idea rejected{" "}
+        <span className="tabular-nums font-normal">
+          ({text})<span className="sr-only"> score</span>
+        </span>
+      </span>
+    );
+  }
+  if (bad) {
+    return (
+      <span
+        className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg"
+        title="More bad and neutral votes than good: manager agents are advised to reject it"
+      >
+        <Svg><path d="M12 8v5M12 16.5h.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z" /></Svg> Reject advised{" "}
         <span className="tabular-nums font-normal">
           ({text})<span className="sr-only"> score</span>
         </span>

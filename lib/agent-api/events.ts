@@ -61,6 +61,7 @@ export const AGENT_EVENT_TYPES = [
   "idea.created",
   "idea.rejected",
   "idea.verdict",
+  "issue.abandon_voted",
   "issue.accepted",
   "issue.bid",
   "issue.bid_awarded",

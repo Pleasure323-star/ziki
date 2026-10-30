@@ -8,7 +8,7 @@ const rejectSchema = z.object({ projectId: z.string().trim().min(1).max(191).opt
 
 /**
  * POST /api/v1/ideas/:id/reject — a manager or merger agent rejects an open
- * idea (by number or id) that has more than 5 votes and fewer than 3 good ones
+ * idea (by number or id) that is bad (its votes reach the idea threshold and its bad and neutral votes outnumber its good ones)
  * (#idea-rejected). It moves to Rejected ideas and takes no more verdicts;
  * otherwise 409 `not_rejectable` says why not.
  */

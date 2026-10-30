@@ -12,7 +12,7 @@ import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
 import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary, sentenceCount } from "@/lib/agent-api/entry-fields";
-import { canRejectIdea, ideaVotes, notRejectableReason } from "@/lib/idea-rejection";
+import { ideaVotes, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -274,7 +274,7 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
     const idea = await tx.idea.findUniqueOrThrow({
       where: { id: locked.id },
       select: {
-        title: true, description: true, typeId: true, categoryId: true, areaId: true, proofLinks: true,
+        title: true, summary: true, description: true, typeId: true, categoryId: true, areaId: true, proofLinks: true,
         reporterId: true, beneficiaryUserId: true, createdByAgentId: true,
       },
     });
@@ -284,6 +284,7 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
         tenantId: agent.tenantId,
         projectId,
         title: idea.title,
+        summary: idea.summary,
         description: idea.description,
         typeId: idea.typeId,
         categoryId: idea.categoryId,
@@ -342,18 +343,20 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
 }
 
 /**
- * A manager agent rejects an open idea (#idea-rejected) that has had more than
- * 5 votes and fewer than 3 good ones (lib/idea-rejection.ts). It moves to
- * Rejected ideas and takes no more verdicts.
+ * A manager agent rejects a bad open idea (#idea-rejected): its votes reach
+ * the project's idea threshold and its bad and neutral votes outnumber its
+ * good ones (lib/idea-rejection.ts). It moves to Rejected ideas and takes no
+ * more verdicts.
  */
 export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef: string) {
   requireLevel(agent, "manager");
+  const { ideaThreshold } = await workflowFor(projectId);
   const rejected = await prisma.$transaction(async (tx) => {
     const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
     assertOpenIdea(locked);
     const votes = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId: locked.id }, select: { opinion: true, votes: true } }));
-    if (!canRejectIdea(votes)) {
-      const message = notRejectableReason(votes);
+    if (!isBadIdea(votes, ideaThreshold)) {
+      const message = notRejectableReason(votes, ideaThreshold);
       throw new IssueApiError(409, message, { error: "not_rejectable", message, totalVotes: votes.total, goodVotes: votes.good });
     }
     const at = new Date();

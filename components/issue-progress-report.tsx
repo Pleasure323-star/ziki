@@ -211,10 +211,17 @@ function entryCount(n: number, [one, many]: readonly [string, string]) {
  */
 export function IssueProgressReport({
   decisions,
+  entryCounts = {},
   currentStage,
   setback = false,
 }: {
   decisions: ReadonlyArray<AgentDecision>;
+  /**
+   * Each stage's own entries (#595): idea verdicts, confirmations, bids,
+   * deliveries, judgements, merge reviews. A stage left out counts its
+   * decisions instead (deployments, logs).
+   */
+  entryCounts?: Partial<Record<DecisionStage, number>>;
   /** Where the issue is now; marked "now" in the stepper. */
   currentStage: DecisionStage;
   /** The current stage went backwards, e.g. a merger asked for changes. */
@@ -243,7 +250,7 @@ export function IssueProgressReport({
           {steps.map((stage, index) => {
             const state = stageState(stage, currentStage, setback);
             const tally = tallies[stage];
-            const logs = tally.positive + tally.negative;
+            const logs = entryCounts[stage] ?? tally.positive + tally.negative;
             const on = stage === selected;
             const icon: IconName = state === "done" ? "check" : state === "warn" ? "undo" : stageIconName[stage];
             return (

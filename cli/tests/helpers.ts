@@ -81,6 +81,7 @@ export async function fileIdea(agent: Agent, label: string): Promise<string> {
   // Scenario titles look alike on purpose, so skip the similar-title check (tested on its own).
   const created = await ok(agent, "create-idea", {
     title: unique(label),
+    summary: "Pressing Save on the page does nothing.\nThe change is lost when you leave.",
     description: "Steps: open the page and press Save. Expected: it saves. Actual: nothing happens.",
     idempotencyKey: randomUUID(),
     acknowledgeSimilar: true,

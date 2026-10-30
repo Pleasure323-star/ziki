@@ -167,11 +167,12 @@ describe("IdeaVerdictsPanel (#idea-verdicts)", () => {
 });
 
 describe("IdeaScoreBadge", () => {
-  it("labels the number as a score", () => {
+  it("shows just the number, with no caption, and names it a score for screen readers", () => {
     render(<IdeaScoreBadge score={-2} threshold={3} />);
     const badge = screen.getByTestId("idea-score-badge");
-    expect(badge).toHaveTextContent("-2score");
+    expect(badge.textContent).toBe("-2");
     expect(badge).toHaveAttribute("aria-label", "Idea score -2 of 3");
+    expect(badge).toHaveAttribute("data-tone", "neutral");
   });
 
   it("turns green and says so once the idea is accepted", () => {
@@ -179,5 +180,15 @@ describe("IdeaScoreBadge", () => {
     const badge = screen.getByTestId("idea-score-badge");
     expect(badge).toHaveAttribute("aria-label", "Idea score 6 of 3, idea accepted");
     expect(badge.className).toContain("bg-zk-ok-bg");
+    expect(badge.querySelector("svg")).not.toBeNull();
+  });
+
+  it("turns red, with no check, for a bad idea", () => {
+    render(<IdeaScoreBadge score={4} threshold={3} bad />);
+    const badge = screen.getByTestId("idea-score-badge");
+    expect(badge).toHaveAttribute("aria-label", "Idea score 4 of 3, reject advised");
+    expect(badge).toHaveAttribute("data-tone", "bad");
+    expect(badge.className).toContain("bg-zk-bad-bg");
+    expect(badge.querySelector("svg")).toBeNull();
   });
 });

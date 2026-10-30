@@ -6,7 +6,9 @@ import { audit, type AuditAgent } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { notifyAgentQuestion, notifyClaimOffered } from "@/lib/agent-notifications";
-import { offerNext, scheduleOfferExpiry } from "@/lib/agent-api/offer";
+import { expireOffer, offerNext, scheduleOfferExpiry } from "@/lib/agent-api/offer";
+import { staleHold } from "@/lib/agent-api/stale-hold";
+import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { isDeliveryOverdue, isOwnerWaitOver, ownerWaitCapMinutes, OWNER_REMINDER_MINUTES } from "@/lib/claim-deadline";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
@@ -214,6 +216,39 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
     bugTitle: question.bug?.title ?? null,
     reminder: true,
   });
+}
+
+/**
+ * `POST /api/v1/issues/{id}/reclaim` (#reclaim): any working agent asks the
+ * site to take back a stale hold. The site checks it itself: an expired offer
+ * is released, and undelivered work past its deadline (or silent) is released
+ * and the issue goes back to Open. A hold that is not stale is refused (409).
+ */
+export async function reclaimStaleIssue(agent: AgentContext, projectId: string, issueRef: string) {
+  const ref = parseIssueRef(issueRef);
+  const bug = await resolveIssueRef(prisma, ref, { tenantId: agent.tenantId });
+  const row = bug && await prisma.bug.findFirst({
+    where: { id: bug.id, tenantId: agent.tenantId, projectId, isDeleted: false },
+    select: { id: true, number: true, tenantId: true, projectId: true },
+  });
+  if (!row) throw new IssueApiError(404, "Issue not found in this project.");
+  const stale = await staleHold(row.id);
+  if (!stale) {
+    const message = "Nothing to reclaim: this issue's offer or work is not stale (or nobody holds it).";
+    throw new IssueApiError(409, message, { error: "not_stale", message });
+  }
+  if (stale.kind === "offer_expired") {
+    await expireOffer(stale.claimId);
+  } else {
+    const { heartbeatMinutes } = await workflowFor(row.projectId);
+    await releaseClaimIfStale(
+      { id: stale.claimId, bugId: row.id, bug: { tenantId: row.tenantId, projectId: row.projectId } },
+      heartbeatCutoff(new Date(), heartbeatMinutes),
+      { reOffer: false, actorUserId: agent.ownerId },
+    );
+  }
+  const after = await prisma.bug.findUnique({ where: { id: row.id }, select: { status: true } });
+  return { issueId: row.id, issueNumber: row.number, claimId: stale.claimId, reason: stale.kind, status: after?.status ?? null };
 }
 
 /** Super-admin server action. Invoke periodically from an authenticated admin context.

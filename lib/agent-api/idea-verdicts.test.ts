@@ -35,6 +35,7 @@ const idea = (overrides: Record<string, unknown> = {}) => ({
 
 const report = {
   title: "Show an icon for the activity log",
+  summary: "The activity list is long and hard to scan without an icon.",
   description: "The activity list is long.",
   typeId: null,
   categoryId: "web",
@@ -159,6 +160,7 @@ describe("convertIdea", () => {
         tenantId: "t1",
         projectId: "p1",
         title: report.title,
+        summary: report.summary,
         description: report.description,
         categoryId: "web",
         reporterId: "ada",
@@ -206,7 +208,7 @@ describe("rejectIdea (#idea-rejected)", () => {
     ...Array.from({ length: bad }, () => ({ opinion: "bad", votes: 1 })),
   ];
 
-  it("rejects an idea with more than 5 votes and fewer than 3 good, and says so", async () => {
+  it("rejects a bad idea (votes reach the threshold, more bad than good), and says so", async () => {
     db.ideaVerdict.findMany.mockResolvedValue(verdicts(2, 4));
     const result = await rejectIdea(manager("manager"), "p1", "7");
     expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, status: "rejected", totalVotes: 6, goodVotes: 2 });
@@ -222,17 +224,26 @@ describe("rejectIdea (#idea-rejected)", () => {
     expect(audit).toHaveBeenCalledWith(expect.anything(), "idea.rejected", "idea:i1", { totalVotes: 6, goodVotes: 2 });
   });
 
+  it("uses the project's idea threshold", async () => {
+    // Its own project id, so the cached workflow can't leak into other cases.
+    db.projectWorkflow.findUnique.mockResolvedValue({ ideaThreshold: 8 });
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 6));
+    await expect(rejectIdea(manager("manager"), "p8", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 6, goodVotes: 0 } });
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+
   it("needs a manager agent", async () => {
     db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 6));
     await expect(rejectIdea(manager("working"), "p1", "i1")).rejects.toMatchObject({ name: "AgentLevelError" });
     expect(db.idea.update).not.toHaveBeenCalled();
   });
 
-  it("refuses an idea without enough votes, or with 3 good, as not_rejectable", async () => {
-    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 5));
-    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 5, goodVotes: 0 } });
-    db.ideaVerdict.findMany.mockResolvedValue(verdicts(3, 4));
-    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 7, goodVotes: 3 } });
+  it("refuses an idea below the idea threshold, or with as many good votes as others, as not_rejectable", async () => {
+    // The project's idea threshold is the default, 3.
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(0, 2));
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 2, goodVotes: 0 } });
+    db.ideaVerdict.findMany.mockResolvedValue(verdicts(2, 2));
+    await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "not_rejectable", totalVotes: 4, goodVotes: 2 } });
     expect(db.idea.update).not.toHaveBeenCalled();
   });
 

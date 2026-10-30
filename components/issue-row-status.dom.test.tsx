@@ -63,12 +63,14 @@ describe("IssueRowStatus", () => {
 });
 
 describe("ConfirmationCountBadge", () => {
-  it("shows just the count, dashed, while the issue is not confirmed", () => {
+  it("shows just the count in the plain CountBadge while the issue is not confirmed", () => {
     const { getByTestId } = render(<ConfirmationCountBadge accepts={1} needed={2} confirmed={false} />);
     const badge = getByTestId("confirmation-count");
     expect(badge.textContent).toBe("1");
     expect(badge).toHaveAttribute("aria-label", "1 of 2 confirmations so far");
-    expect(badge).toHaveClass("border-dashed");
+    expect(badge).toHaveAttribute("data-tone", "neutral");
+    expect(badge).toHaveClass("border-zk-border");
+    expect(badge).not.toHaveClass("border-dashed");
     expect(badge.querySelector("svg")).toBeNull();
   });
 

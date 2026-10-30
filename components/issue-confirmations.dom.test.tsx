@@ -47,9 +47,20 @@ describe("IssueConfirmationsPanel past Requires confirmation", () => {
     expect(screen.getByText("Ada reproduced it.")).toBeVisible();
   });
 
-  it("shows the full cards and the banner while the issue requires confirmation", () => {
+  it("shows the full cards, and no Not confirmed banner, while the issue requires confirmation", () => {
     render(<IssueConfirmationsPanel bugId="bug1" data={data} viewerId="viewer" block={null} summaryMaxChars={200} confirmed={false} />);
     expect(screen.queryByTestId("confirmations-collapsed")).toBeNull();
-    expect(screen.getByTestId("confirmation-banner")).toBeInTheDocument();
+    expect(screen.getByText("Ada reproduced it.")).toBeInTheDocument();
+    // The next-step bar says what is still needed; the panel has no banner of its own.
+    expect(screen.queryByTestId("confirmation-banner")).toBeNull();
+    expect(screen.queryByText(/Not confirmed yet/)).toBeNull();
+  });
+
+  it("shows the green Confirmed banner, naming who confirmed it, once confirmed", () => {
+    render(<IssueConfirmationsPanel bugId="bug1" data={data} viewerId="viewer" block={null} summaryMaxChars={200} confirmed />);
+    const banner = screen.getByTestId("confirmation-banner");
+    expect(banner).toHaveAttribute("data-confirmed", "true");
+    expect(banner).toHaveTextContent("Confirmed");
+    expect(banner).toHaveTextContent("By Ada, Bob");
   });
 });

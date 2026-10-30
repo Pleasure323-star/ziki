@@ -12,6 +12,8 @@ const findMany = vi.hoisted(() => vi.fn());
 // #idea-table: ideas come from their own table, on the Ideas tab.
 const ideaCount = vi.hoisted(() => vi.fn());
 const ideaFindMany = vi.hoisted(() => vi.fn());
+// Each idea's votes by opinion, to mark bad ideas red (#idea-rejected).
+const ideaVerdictGroupBy = vi.hoisted(() => vi.fn());
 const groupBy = vi.hoisted(() => vi.fn(async (_args: { by: string[]; where?: Record<string, unknown> }) => {
   void _args;
   return [];
@@ -65,6 +67,7 @@ vi.mock("@/lib/prisma", () => ({
     project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })) },
     bug: { count, findMany, groupBy },
     idea: { count: ideaCount, findMany: ideaFindMany },
+    ideaVerdict: { groupBy: ideaVerdictGroupBy },
     milestone: { findMany: vi.fn(async () => []) },
     projectArea: { findMany: vi.fn(async () => []) },
     user: { findUnique: vi.fn(async () => ({ keyboardShortcuts: true })) },
@@ -132,6 +135,7 @@ beforeEach(() => {
   findMany.mockResolvedValue([BUG]);
   ideaCount.mockResolvedValue(4);
   ideaFindMany.mockResolvedValue([IDEA]);
+  ideaVerdictGroupBy.mockResolvedValue([]);
 });
 
 describe("issue list layout", () => {
@@ -220,6 +224,26 @@ describe("issue list layout", () => {
     expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
   });
 
+  it("marks a bad idea red with Reject advised (#idea-rejected)", async () => {
+    // Threshold 4: 1 good and 3 bad votes reach it, and bad outnumber good.
+    ideaVerdictGroupBy.mockResolvedValue([
+      { ideaId: "idea-1", opinion: "good", _sum: { votes: 1 } },
+      { ideaId: "idea-1", opinion: "bad", _sum: { votes: 3 } },
+    ]);
+    const html = await renderList();
+    expect(ideaVerdictGroupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { ideaId: { in: ["idea-1"] } } }));
+    expect(html).toContain('aria-label="Idea score 2 of 4, reject advised"');
+    expect(html).toMatch(/data-testid="idea-score-badge" data-tone="bad"/);
+    expect(clean(html)).toContain("Reject advised");
+  });
+
+  it("does not mark an idea bad below the threshold", async () => {
+    ideaVerdictGroupBy.mockResolvedValue([{ ideaId: "idea-1", opinion: "bad", _sum: { votes: 3 } }]);
+    const html = await renderList();
+    expect(html).toContain('aria-label="Idea score 2 of 4"');
+    expect(clean(html)).not.toContain("Reject advised");
+  });
+
   it("lists a person's ideas without the standard headings under Drafted", async () => {
     ideaFindMany.mockImplementation(async (args: { where: { createdByAgentId?: null; id?: { in: string[] } } }) =>
       args.where.createdByAgentId === null && !args.where.id
@@ -238,7 +262,8 @@ describe("issue list layout", () => {
     const html = await renderList({ status: "all" });
     expect(html).not.toContain('data-testid="idea-score-badge"');
     expect(html).not.toMatch(/click to mark important/);
-    expect(html).toMatch(new RegExp(`data-testid="importance-count"[^>]*aria-label="Importance ${BUG.voteCount}"[^>]*>${BUG.voteCount}<`));
+    // The same CountBadge as the idea score and the confirmations.
+    expect(html).toMatch(new RegExp(`data-testid="importance-count"[^>]*aria-label="Importance ${BUG.voteCount}"[^>]*><span>${BUG.voteCount}</span></span>`));
     expect(html).toContain('<span class="w-[76px] shrink-0 text-center">Importance</span>');
     expect(html).not.toContain(">Imp.</abbr>");
     // A number to read: no vote button, so no voters or the viewer's own votes are fetched.
@@ -433,7 +458,7 @@ describe("issue list layout", () => {
     vi.mocked(openIssueConfirmations).mockResolvedValueOnce(new Map([["bug-1", { stage: "confirming", accepts: 2, rejects: 0, needed: 2, confirmed: true }]]));
     const html = await renderList({ status: "requires_confirmation" });
     expect(html).toContain('aria-label="Confirmed: 2 of 2 confirmations"');
-    expect(html).toMatch(/data-testid="confirmation-count"[^>]*bg-zk-ok-bg[^>]*><span[^>]*>2<\/span><svg/);
+    expect(html).toMatch(/data-testid="confirmation-count"[^>]*bg-zk-ok-bg[^>]*><span[^>]*>2<\/span><span[^>]*><svg/);
     expect(clean(html)).toMatch(/class="issue-row-status[^"]*text-zk-ok-fg"[^>]*>[\s\S]*?Confirmed<\/span>/);
     expect(clean(html)).not.toContain("Not confirmed");
   });

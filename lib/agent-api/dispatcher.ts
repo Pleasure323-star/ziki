@@ -226,8 +226,7 @@ export async function dispatchReadyIssues(
             !autoAwardAfterHours ||
             oldest.createdAt.getTime() <= Date.now() - autoAwardAfterHours * 3_600_000;
           if (policy === "auto_award" && waitedLongEnough) {
-            if (!oldest.bug.reporterId) throw new IssueApiError(409, "Issue has no reporter to award the bid.");
-            await awardBid({ id: oldest.bug.reporterId }, oldest.id, agent);
+            await awardBid({ id: agent.ownerId }, oldest.id, agent);
             result.awarded++;
           } else {
             result.skipped++;

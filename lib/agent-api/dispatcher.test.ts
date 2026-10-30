@@ -224,7 +224,7 @@ describe("dispatchReadyIssues", () => {
     expect(awardBid).not.toHaveBeenCalled();
   });
 
-  it("awards the oldest bid as the reporter in auto_award mode", async () => {
+  it("awards the oldest bid as the dispatcher's owner in auto_award mode", async () => {
     db.issueBid.findMany.mockResolvedValue([
       { id: "bid-1", createdAt: new Date(), bug: { reporterId: "reporter" } },
     ]);
@@ -232,7 +232,7 @@ describe("dispatchReadyIssues", () => {
     const result = await dispatchReadyIssues(dispatcher, "project-1", { policy: "auto_award" });
 
     expect(result.awarded).toBe(1);
-    expect(awardBid).toHaveBeenCalledWith({ id: "reporter" }, "bid-1", dispatcher);
+    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-1", dispatcher);
     expect(offerNext).not.toHaveBeenCalled();
   });
 
@@ -287,7 +287,7 @@ describe("dispatchReadyIssues", () => {
       maxOffersPerRun: 1,
     });
     expect(autoAwardResult).toMatchObject({ awarded: 1, offered: 0, skipped: 0 });
-    expect(awardBid).toHaveBeenCalledWith({ id: "reporter" }, "bid-aged", dispatcher);
+    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-aged", dispatcher);
 
     // 2. offer_only leaves the pending bid for the reporter and offers the unbid issue instead
     vi.clearAllMocks();
@@ -336,7 +336,7 @@ describe("dispatchReadyIssues", () => {
     });
 
     expect(result).toMatchObject({ awarded: 1, offered: 1, skipped: 0 });
-    expect(awardBid).toHaveBeenCalledWith({ id: "reporter" }, "bid-aged", dispatcher);
+    expect(awardBid).toHaveBeenCalledWith({ id: dispatcher.ownerId }, "bid-aged", dispatcher);
     expect(offerNext).toHaveBeenCalledWith(db, dispatcher, expect.objectContaining({ id: "bug-unbid" }));
   });
 });

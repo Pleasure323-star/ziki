@@ -17,6 +17,8 @@ export type IdeaListRow = {
   verdicts: number;
   /** A manager agent rejected it (#idea-rejected). */
   rejected?: boolean;
+  /** Bad: manager agents are advised to reject it (lib/idea-rejection.ts). */
+  bad?: boolean;
 };
 
 /**
@@ -54,7 +56,7 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                 }`}
               >
                 <div className="issues-vote w-[52px] shrink-0">
-                  <IdeaScoreBadge score={idea.score} threshold={idea.threshold} />
+                  <IdeaScoreBadge score={idea.score} threshold={idea.threshold} bad={idea.bad} />
                 </div>
                 <Link
                   href={ideaPath(idea.number)}
@@ -70,12 +72,12 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                     {idea.platform ? <span>{idea.platform}</span> : null}
                     <LocalTime date={idea.createdAt} />
                     <span className="inline-flex min-w-0 md:sr-only">
-                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} />
+                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} bad={idea.bad} />
                     </span>
                   </span>
                 </Link>
                 <span className="issues-status-cell" aria-hidden="true">
-                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} />
+                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} bad={idea.bad} />
                 </span>
               </li>
             ))}

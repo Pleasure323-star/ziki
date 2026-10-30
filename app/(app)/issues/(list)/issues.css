@@ -63,9 +63,7 @@
 .issues-status-cell { display: flex; width: 176px; flex: 0 0 176px; align-items: center; font-size: 12px; line-height: 16px; }
 /* Requires confirmation: the importance votes sit at the end of the row (#confirmations-column). */
 .issues-vote-end { display: flex; justify-content: center; width: 76px; flex: 0 0 76px; }
-/* Importance in the list: a number, not a button (#confirmations-column). */
 .issues-vote { display: flex; justify-content: center; }
-.issues-importance { min-width: 32px; text-align: center; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 13px; font-weight: 600; color: var(--zk-text2); }
 .issues-results-summary h2 { display: none; }
 .issues-results-summary { order: 1; }
 .issues-results > nav { order: 2; }
@@ -94,8 +92,8 @@
   .issues-table { border-radius: 8px; }
   .issues-table-heading { padding: 8px 10px; gap: 10px; font-size: 12px; }
   .issues-row { min-height: 0; gap: 10px; padding: 12px 10px; }
-  .issues-vote { width: 40px; }
-  .issues-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .issues-vote { width: 44px; }
+    .issues-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .issues-row-meta { gap: 6px; flex-wrap: wrap; }
   .issues-row-meta time { white-space: nowrap; }
   /* Status tabs, compact like a mobile segmented bar: text only, the selected one a white pill. */

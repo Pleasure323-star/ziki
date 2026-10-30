@@ -10,8 +10,12 @@ import { IdeaVerdictsPanel, type IdeaVerdictBlock } from "@/components/idea-verd
 import { AttachmentList } from "@/components/attachment-list";
 import { RichText } from "@/components/rich-text";
 import { LocalTime } from "@/components/local-time";
+import { ReportSummary } from "@/components/report-summary";
+import { NextStepBar } from "@/components/next-step-bar";
+import { BackToList } from "@/components/back-to-list";
+import { ideaNextStep } from "@/lib/next-step";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
-import { canRejectIdea, IDEA_REJECT_GOOD_BELOW, IDEA_REJECT_MORE_THAN_VOTES } from "@/lib/idea-rejection";
+import { isBadIdea } from "@/lib/idea-rejection";
 
 export const metadata: Metadata = { title: "Idea" };
 
@@ -31,6 +35,7 @@ function legacyComments(value: unknown): LegacyComment[] {
 const STATUS_CHIP: Record<string, { label: string; className: string }> = {
   open: { label: "Idea", className: "bg-zk-tint text-zk-accent" },
   accepted: { label: "Idea accepted", className: "bg-zk-ok-bg text-zk-ok-fg" },
+  bad: { label: "Reject advised", className: "bg-zk-bad-bg text-zk-bad-fg" },
   converted: { label: "Converted to an issue", className: "bg-zk-ok-bg text-zk-ok-fg" },
   rejected: { label: "Idea rejected", className: "bg-zk-bad-bg text-zk-bad-fg" },
 };
@@ -54,6 +59,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       id: true,
       number: true,
       title: true,
+      summary: true,
       description: true,
       status: true,
       projectId: true,
@@ -81,10 +87,21 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const verdicts = await listIdeaVerdicts({ tenantId, projectId: idea.projectId }, idea.id);
   const own = idea.reporterId === user.id || idea.beneficiaryUserId === user.id || idea.createdByAgent?.ownerUserId === user.id;
   const block: IdeaVerdictBlock = idea.status !== "open" ? "closed" : own ? "own" : null;
-  // An open idea at the threshold is accepted: a manager agent converts it.
-  const chip = STATUS_CHIP[idea.status === "open" && verdicts.convertible ? "accepted" : idea.status] ?? STATUS_CHIP.open;
   const votes = { total: verdicts.votes.good + verdicts.votes.bad + verdicts.votes.neutral, good: verdicts.votes.good };
-  const rejectable = idea.status === "open" && canRejectIdea(votes);
+  // A bad open idea is red and manager agents are advised to reject it; one at the threshold is accepted.
+  const rejectable = idea.status === "open" && isBadIdea(votes, verdicts.ideaThreshold);
+  const chip =
+    STATUS_CHIP[idea.status !== "open" ? idea.status : rejectable ? "bad" : verdicts.convertible ? "accepted" : "open"] ?? STATUS_CHIP.open;
+  // The next step, always shown at the top (#next-step).
+  const nextStep = ideaNextStep({
+    status: idea.status,
+    score: verdicts.ideaScore,
+    threshold: verdicts.ideaThreshold,
+    totalVotes: votes.total,
+    bad: rejectable,
+    convertible: idea.status === "open" && verdicts.convertible,
+    issueNumber: idea.issue?.number ?? null,
+  });
   const earlier = legacyComments(idea.legacyComments);
   const authors = earlier.length
     ? new Map(
@@ -98,16 +115,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       {/* Header like an issue's: back to the Ideas tab, number + title. */}
       <div className="flex flex-col gap-3">
         <div className="flex items-start gap-2">
-          <Link
-            href={NEW_IDEAS_HREF}
-            aria-label="Back to ideas"
-            title="Back to ideas"
-            className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zk-accent hover:bg-zk-chip print:hidden"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-          </Link>
+          {/* Back to the list it was opened from; otherwise New ideas or Rejected ideas. */}
+          <BackToList fallback={idea.status === "rejected" ? "/issues?status=rejected_ideas" : NEW_IDEAS_HREF} label="Back to ideas" />
           <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
             <span className="font-bold tabular-nums text-zk-muted">Idea #{idea.number}</span> {idea.title}
           </h1>
@@ -117,6 +126,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       <div className="flex flex-wrap items-start gap-5">
         {/* MAIN COLUMN */}
         <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-5">
+          <NextStepBar step={nextStep} />
+          <ReportSummary summary={idea.summary} />
           <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">
             <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Description</h2>
             <RichText content={idea.description} className="mt-3 text-sm text-zk-text" />
@@ -199,7 +210,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
             </p>
             {rejectable ? (
               <p className="m-0 text-xs text-zk-bad-fg" data-testid="idea-rejectable">
-                More than {IDEA_REJECT_MORE_THAN_VOTES} votes and fewer than {IDEA_REJECT_GOOD_BELOW} good: a manager agent can reject it.
+                More bad and neutral votes than good ones: manager agents are advised to reject it.
               </p>
             ) : null}
           </section>

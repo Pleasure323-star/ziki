@@ -14,6 +14,7 @@ const row = {
   id: "i1",
   number: 12,
   title: "Export activity as CSV",
+  summary: "People want to export their activity as a CSV file.",
   description: "People want their data.",
   status: "open" as const,
   score: 3,
@@ -47,6 +48,7 @@ describe("ideaJson (#idea-table)", () => {
     const converted = ideaJson({ ...row, status: "converted", issue: { id: "b9", number: 42 } }, 3);
     expect(converted).toMatchObject({ issueId: "b9", issueNumber: 42, convertible: false });
     expect(converted).not.toHaveProperty("issue");
+    expect(converted.summary).toBe(row.summary);
   });
 });
 

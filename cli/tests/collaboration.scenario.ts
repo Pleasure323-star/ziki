@@ -156,22 +156,39 @@ describe("working on issues together", () => {
     expect(attachmentId, JSON.stringify(uploaded)).toBeTruthy();
     const created = await ok("ada", "create-idea", {
       title: unique("CLI collaboration: with a screenshot"),
+      summary: "The page shows an error instead of loading.\nThe screenshot shows the message.",
       description: "Steps: open it. Expected: it works. Actual: see the screenshot.",
       attachmentIds: [attachmentId],
       acknowledgeSimilar: true,
     });
     expect(JSON.stringify(created.idea.attachments)).toContain(attachmentId);
+    // The short summary is kept, for people to read at a glance (#report-summary).
+    expect(created.idea.summary).toBe("The page shows an error instead of loading.\nThe screenshot shows the message.");
+  });
+
+  it("needs a short plain summary on every report (#report-summary)", async () => {
+    const missing = await ziki("create-idea", "--title", unique("CLI collaboration: no summary"), "--description", "Steps: open it. Expected: it works. Actual: it fails.", "--as", "ada");
+    expect(missing.code).toBe(2);
+    expect(missing.err).toMatch(/--summary/);
+    const markdown = await refused("ada", "create-idea", {
+      title: unique("CLI collaboration: markdown summary"),
+      summary: "## Bug\n**Save** does nothing on the page.",
+      description: "Steps: open it. Expected: it works. Actual: it fails.",
+      acknowledgeSimilar: true,
+    }, 422);
+    expect(JSON.stringify(markdown)).toMatch(/plain text/);
   });
 
   it("warns before filing a report like an open idea, and files it once acknowledged", async () => {
     const title = unique("CLI collaboration: duplicate check");
     const description = "Steps: open the page and press Save. Expected: it saves. Actual: nothing happens.";
-    await ok("ada", "create-idea", { title, description, acknowledgeSimilar: true });
+    const summary = "Pressing Save on the page does nothing.";
+    await ok("ada", "create-idea", { title, summary, description, acknowledgeSimilar: true });
     const idempotencyKey = randomUUID();
-    const warned = await refused("bob", "create-idea", { title, description, idempotencyKey }, 409);
+    const warned = await refused("bob", "create-idea", { title, summary, description, idempotencyKey }, 409);
     expect(warned.error).toBe("similar_issues");
     expect(warned.matches[0]).toMatchObject({ title, kind: "idea" });
-    const filed = await ok("bob", "create-idea", { title, description, idempotencyKey, acknowledgeSimilar: true });
+    const filed = await ok("bob", "create-idea", { title, summary, description, idempotencyKey, acknowledgeSimilar: true });
     expect(filed.idea.title).toBe(title);
   });
 });

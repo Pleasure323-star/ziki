@@ -88,6 +88,14 @@ import { SelfAssignButton } from "@/components/self-assign-button";
 import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { EditableIssueDescription } from "@/components/editable-issue-description";
 import { IssueLinks } from "@/components/issue-links";
+import { ReportSummary } from "@/components/report-summary";
+import { NextStepBar } from "@/components/next-step-bar";
+import { BackToList } from "@/components/back-to-list";
+import { ownsManagerAgent } from "@/lib/bid-award-permission";
+import { issueNextStep } from "@/lib/next-step";
+import { staleHold } from "@/lib/agent-api/stale-hold";
+import { senseCheck } from "@/lib/agent-api/abandon";
+import { workflowFor } from "@/lib/workflow";
 import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
 import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
@@ -276,7 +284,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         type: { select: { id: true, name: true, isActive: true } },
         reporter: { select: { name: true, email: true, role: true, image: true } },
         createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
-        idea: { select: { id: true, number: true, convertedAt: true } },
+        idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
         milestone: { select: { id: true, title: true, dueDate: true, isClosed: true } },
         assignee: { select: { id: true, name: true, role: true, image: true } },
         category: { select: { id: true, name: true, isActive: true } },
@@ -311,7 +319,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           type: { select: { id: true, name: true, isActive: true } },
           reporter: { select: { name: true, email: true, role: true, image: true } },
           createdByAgent: { select: { id: true, name: true, ownerUserId: true } },
-          idea: { select: { id: true, number: true, convertedAt: true } },
+          idea: { select: { id: true, number: true, convertedAt: true, _count: { select: { verdicts: true } } } },
           assignee: { select: { id: true, name: true, role: true, image: true } },
           category: { select: { id: true, name: true, isActive: true } },
           area: { select: { id: true, name: true } },
@@ -386,7 +394,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
       ])
     : [null as IssueHold | null, [] as BidEntryView[]];
-  const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
+  // A person who owns a manager agent awards bids by hand; none while someone holds it or an offer waits.
+  const canAwardBid = bug.status === "open" && !bug.isDeleted && !hold && bidList.length > 0
+    && await ownsManagerAgent(user.id, bug.tenantId);
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
     await Promise.all([
@@ -782,9 +792,24 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // What a delete keeps, shown the same way in every delete/restore message (#692).
   const keptCounts = deletionCounts(comments.visibleCount, voterSummary);
 
-  // The Conversation card shows only when it has something in it: no empty boxes.
+  // The next step, always shown under the progress report (#next-step).
+  const { verdictsNeeded } = await workflowFor(bug.projectId);
+  const nextStep = issueNextStep({
+    status: bug.status,
+    isDeleted: bug.isDeleted,
+    confirmations: confirmationsData?.confirmations ?? 0,
+    confirmationsNeeded: confirmationsData?.confirmationsNeeded ?? 0,
+    holder: hold ? { agentName: hold.agentName, personName: hold.personName, status: hold.status } : null,
+    openBids: bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length,
+    goodToMerge: testVerdictList.filter((verdict) => verdict.goodToMerge).length,
+    verdictsNeeded,
+    stale: bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null,
+    senseCheck: bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id)),
+  });
+
+  // The Conversation card shows only when it has entries in it: no empty boxes.
+  // Its Dispute award button alone is not enough (nothing to dispute before an award).
   const conversationHasContent =
-    disputeRoles.length > 0 ||
     deliveryList.length > 0 ||
     testing ||
     testVerdictList.length > 0 ||
@@ -936,16 +961,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-[1_1_600px] space-y-3">
             <div className="flex items-start gap-2">
-              <Link
-                href="/issues"
-                aria-label="Back to issues"
-                title="Back to issues"
-                className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zk-accent hover:bg-zk-chip print:hidden"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="M19 12H5M12 19l-7-7 7-7" />
-                </svg>
-              </Link>
+              {/* Back to the list it was opened from; otherwise the list for its status. */}
+              <BackToList fallback={`/issues?status=${bug.status}`} label="Back to issues" />
               <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
                 <span className="font-bold tabular-nums text-zk-muted">
                   {formatIssueNumber(bug.number)}
@@ -999,6 +1016,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-5">
           {/* #1446: the progress report's stage filters the Conversation (#186). */}
           <IssueStageProvider initialStage={currentStage}>
+          <ReportSummary summary={bug.summary} />
           <EditableIssueDescription
             bugId={bug.id}
             initialTitle={bug.title}
@@ -1043,9 +1061,19 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           {/* Progress report (#1446), where the summary strip was; its stage drives the Conversation card. */}
           <IssueProgressReport
             decisions={agentDecisions}
+            entryCounts={{
+              idea: sourceIdea?._count.verdicts ?? 0,
+              confirm: confirmationsData?.entries.length ?? 0,
+              open: bidList.length,
+              progress: deliveryList.length,
+              delivered: testVerdictList.length,
+              done: mergeReviewList.length,
+            }}
             currentStage={currentStage}
             setback={stageSetback(currentStage, sentBack)}
           />
+
+          <NextStepBar step={nextStep} />
 
               {/* Who has the issue (the award or the offer), on its own once it is past Requires confirmation. */}
               {pastConfirmation && (hold || bug.status !== "open") ? <AwardBox hold={hold} /> : null}
@@ -1074,8 +1102,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       bids={bidList}
                       canAward={canAwardBid && intakeStage === "ready"}
                       collapsed={bug.status !== "open"}
-                      waiting={bug.status === "open" && !hold}
-                    />
+                      />
                   ) : null}
                 </section>
               ) : null}

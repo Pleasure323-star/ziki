@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { reportSummarySchema } from "@/lib/validations/report-summary";
 import { z } from "zod";
 import type { IdeaStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -45,6 +46,8 @@ export const createIdeaSchema = createBugSchema
     typeId: z.unknown().optional(),
     acknowledgeSimilar: z.unknown().optional(),
     attachmentIds: attachmentIdsSchema,
+    // Up to three plain lines a person can read at a glance (#report-summary).
+    summary: reportSummarySchema,
   })
   .strict();
 
@@ -54,6 +57,7 @@ export const ideaSelect = {
   id: true,
   number: true,
   title: true,
+  summary: true,
   description: true,
   status: true,
   score: true,
@@ -198,6 +202,7 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
     projectId: scope.projectId,
     beneficiaryUserId,
     title: input.title,
+    summary: input.summary,
     description: input.description,
     categoryId: input.categoryId || null,
     proofLinks: input.proofLinks,
@@ -236,6 +241,7 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
           ...scope,
           typeId: policy.typeId,
           title: input.title,
+          summary: input.summary,
           description,
           categoryId,
           areaId,

@@ -47,6 +47,8 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     ideas: [],
     toConvert: [],
     toReject: [],
+    toReclaim: [],
+    toSenseCheck: [],
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
@@ -116,6 +118,36 @@ describe("itemsFor", () => {
     const forManager = itemsFor(agent("manager"), project, nothingMine).find((item) => item.kind === "convert_idea");
     expect(forManager).toMatchObject({ canAct: true });
     expect(forManager!.actions.map((a) => a.name)).toEqual(["list_idea_verdicts", "convert_idea"]);
+  });
+
+  it("lists a bad idea as a manager task to reject (#idea-rejected)", () => {
+    const project = work({ toReject: [{ id: "i1", number: 4, title: "x", totalVotes: 3, goodVotes: 1 }] });
+    const forWorking = itemsFor(agent("working"), project, nothingMine).find((item) => item.kind === "reject_idea");
+    expect(forWorking).toMatchObject({ key: "reject_idea:i1", minimumRole: "manager", canAct: false });
+    const forManager = itemsFor(agent("manager"), project, nothingMine).find((item) => item.kind === "reject_idea");
+    expect(forManager).toMatchObject({ canAct: true });
+    expect(forManager!.actions.map((a) => a.name)).toEqual(["list_idea_verdicts", "reject_idea"]);
+  });
+
+  it("asks other agents for a sense check on stale in-progress work, not its holder or a past voter (#abandon)", () => {
+    const since = new Date("2026-10-30T06:00:00Z");
+    const check = { id: "b5", number: 5, title: "x", votes: 1, threshold: 3, holderOwners: ["owner-ada"], voters: ["owner-cara"], since };
+    const items = itemsFor(agent("working"), work({ toSenseCheck: [check] }), nothingMine).filter((item) => item.kind === "sense_check");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ key: "sense_check:b5", minimumRole: "working", canAct: true });
+    expect(items[0].detail).toContain("1 of 3 Abandoned votes");
+    expect(items[0].actions[0]).toMatchObject({ name: "vote_abandoned", method: "POST", path: expect.stringContaining("/api/v1/issues/b5/abandon-votes") });
+
+    for (const ownerId of ["owner-ada", "owner-cara"]) {
+      expect(itemsFor(agent("working", ownerId), work({ toSenseCheck: [check] }), nothingMine).some((item) => item.kind === "sense_check")).toBe(false);
+    }
+  });
+
+  it("lists a stale hold for any agent to reclaim (#reclaim)", () => {
+    const items = itemsFor(agent("working"), work({ toReclaim: [{ id: "b6", number: 6, title: "x", reason: "offer_expired" }] }), nothingMine);
+    const item = items.find((i) => i.kind === "reclaim_issue");
+    expect(item).toMatchObject({ key: "reclaim_issue:b6:offer_expired", minimumRole: "working", canAct: true });
+    expect(item!.actions[0]).toMatchObject({ name: "reclaim_issue", method: "POST", path: expect.stringContaining("/api/v1/issues/b6/reclaim") });
   });
 
   it("leaves out fixes the owner already tested at this pull request", () => {
