@@ -26,7 +26,7 @@ const ACTION_LABELS: Record<string, string> = {
   "issue.bid": "Bid on",
   "issue.bid_withdrawn": "Withdrew its bid on",
   "issue.bid_awarded": "Was awarded",
-  "issue.pr_linked": "Linked a pull request to",
+  "issue.delivered": "Delivered work on",
   "issue.merge_rejected": "Had a merge rejected on",
   "comment.created": "Commented on",
   "comment.edited": "Edited a comment on",

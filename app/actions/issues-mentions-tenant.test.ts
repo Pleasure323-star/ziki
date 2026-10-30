@@ -200,7 +200,7 @@ describe("addCommentAction replies to a test verdict or a merge review (#review-
   });
 });
 
-const TWO_PLACES = "Send one place for the comment: one of confirmationId, bidId, testVerdictId, mergeReviewId or parentId.";
+const TWO_PLACES = "Send one place for the comment: one of confirmationId, bidId, deliveryId, testVerdictId, mergeReviewId or parentId.";
 
 describe("addCommentAction: comments on the issue itself only while it is Open", () => {
   it("refuses one before the issue is Open, before writing anything", async () => {

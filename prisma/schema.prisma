@@ -21,7 +21,10 @@ enum Status {
   requires_confirmation
   open
   in_progress
-  /// The fix is tested: enough independent reviewers said it is good to merge.
+  /// The agent holding the claim delivered its work (a Delivery entry):
+  /// independent agents judge it, which moves it to Done or back to Open.
+  delivered
+  /// The delivered work passed: enough independent agents judged it good to merge.
   done
   /// A manager accepted the fix; it waits for the merge (a blocked or failed
   /// merge stays here, the reason in the activity log).
@@ -239,6 +242,7 @@ model User {
   claims                    IssueClaim[]
   dispatchedClaims          IssueClaim[]            @relation("ClaimDispatcher")
   issueBids                 IssueBid[]              @relation("IssueBidBeneficiary")
+  deliveries                Delivery[]              @relation("DeliveryBeneficiary")
   confirmations             IssueConfirmation[]
   testVerdicts              TestVerdict[]
   mergeReviews              MergeReview[]           @relation("MergeReviewOnBehalfOf")
@@ -367,6 +371,7 @@ model Bug {
   claims             IssueClaim[]
   approvals          IssueApproval[]
   bids               IssueBid[]
+  deliveries         Delivery[]
   confirmations      IssueConfirmation[]
   /// The idea this issue was converted from (#idea-table). Every issue starts as one.
   idea               Idea?
@@ -503,6 +508,9 @@ model Comment {
   /// Set on a reply to a bid (#issue-bids).
   bidId          String?
   bid            IssueBid?          @relation(fields: [bidId], references: [id], onDelete: Cascade)
+  /// Set on a reply to a delivery (#delivered-step).
+  deliveryId     String?
+  delivery       Delivery?          @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
   /// Set on a reply to a test verdict (#review-entries).
   testVerdictId  String?
   testVerdict    TestVerdict?       @relation(fields: [testVerdictId], references: [id], onDelete: Cascade)
@@ -515,6 +523,7 @@ model Comment {
   @@index([parentId])
   @@index([confirmationId])
   @@index([bidId])
+  @@index([deliveryId])
   @@index([testVerdictId])
   @@index([mergeReviewId])
 }
@@ -939,6 +948,7 @@ model Agent {
   comments             Comment[]
   claims               IssueClaim[]
   bids                 IssueBid[]
+  deliveries           Delivery[]
   confirmations        IssueConfirmation[]
   testVerdicts         TestVerdict[]
   mergeReviews         MergeReview[]
@@ -1113,6 +1123,40 @@ model IssueBid {
   agent             Agent       @relation(fields: [agentId], references: [id], onDelete: Cascade)
   beneficiary       User        @relation("IssueBidBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Cascade)
   claim             IssueClaim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  replies           Comment[]
+
+  @@unique([bugId, agentId])
+  @@index([bugId, createdAt])
+}
+
+/// "Work delivered" (#delivered-step): the In progress step's entry. The agent
+/// holding the claim says its work is done: a summary of at most two sentences,
+/// a full description, the pull request and the evidence. Delivering moves the
+/// issue to Delivered, where independent agents judge it (test verdicts). One
+/// per agent per issue: delivering again replaces it. People reply to it.
+model Delivery {
+  id                String   @id @default(cuid())
+  bugId             String
+  agentId           String
+  /// The person the agent works for: the claim's beneficiary.
+  beneficiaryUserId String
+  /// At most two sentences: what was done.
+  summary           String
+  /// What changed, how it was checked, and anything left open.
+  description       String
+  pullRequestUrl    String
+  /// The pull request's head commit when it was delivered, when GitHub said.
+  headSha           String?
+  /// Links to screenshots of the fix.
+  screenshots       String[] @default([])
+  /// Test output or a verification summary.
+  testResults       String?
+  createdAt         DateTime @default(now())
+  /// When it was last delivered. Delivering again replaces it.
+  updatedAt         DateTime @updatedAt
+  bug               Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent             Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  beneficiary       User     @relation("DeliveryBeneficiary", fields: [beneficiaryUserId], references: [id], onDelete: Cascade)
   replies           Comment[]
 
   @@unique([bugId, agentId])

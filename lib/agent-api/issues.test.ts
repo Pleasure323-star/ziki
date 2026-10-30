@@ -258,7 +258,7 @@ describe("agent issue reads", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       projectId: "project-a",
-      issues: { requires_confirmation: 0, open: 60, in_progress: 76, done: 0, ready_to_merge: 0, resolved: 139, closed: 0, all: 275 },
+      issues: { requires_confirmation: 0, open: 60, in_progress: 76, delivered: 0, done: 0, ready_to_merge: 0, resolved: 139, closed: 0, all: 275 },
       ideas: { open: 26, converted: 0, closed: 0 },
     });
     expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false } }));
@@ -291,7 +291,7 @@ describe("agent issue reads", () => {
 
   it("names invalid status, severity, stage and assignee filters (#406)", async () => {
     const cases: [string, string][] = [
-      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, done, ready_to_merge, resolved, closed."],
+      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, delivered, done, ready_to_merge, resolved, closed."],
       ["severity=urgent", "severity must be one of low, medium, high, critical."],
       ["assignee=%20", 'assignee must be "none" or a valid user id.'],
     ];
@@ -469,9 +469,10 @@ describe("agent comments", () => {
   it("takes a comment on the issue itself only while it is Open; elsewhere 409 use_stage_entry names the stage's entry route", async () => {
     const cases: Array<[Record<string, unknown>, RegExp | null]> = [
       [{ status: "requires_confirmation" }, /\/issues\/issue-a\/confirmations$/],
-      [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/test-results$/],
+      [{ status: "in_progress", pullRequestUrl: null }, /\/issues\/issue-a\/delivery$/],
+      [{ status: "delivered", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/test-results$/],
+      [{ status: "done", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
       [{ status: "ready_to_merge", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
-      [{ status: "in_progress", pullRequestUrl: null }, null],
       [{ status: "resolved" }, null],
     ];
     for (const [stage, route] of cases) {
@@ -480,7 +481,7 @@ describe("agent comments", () => {
       expect(response.status).toBe(409);
       const body = await response.json();
       expect(body.error).toBe("use_stage_entry");
-      expect(body.replyFields).toEqual(["confirmationId", "bidId", "testVerdictId", "mergeReviewId"]);
+      expect(body.replyFields).toEqual(["confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId"]);
       if (route) expect(body.entryRoute).toMatch(route);
       else expect(body.entryRoute).toBeNull();
       expect(body.message).toMatch(/only while it is Open/);
@@ -521,7 +522,7 @@ describe("agent comments", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error).toBe("comment_has_no_type");
-    expect(body.entryRoutes).toHaveLength(4);
+    expect(body.entryRoutes).toHaveLength(5);
     expect(body.message).toMatch(/test-results/);
     expect(db.comment.create).not.toHaveBeenCalled();
   });

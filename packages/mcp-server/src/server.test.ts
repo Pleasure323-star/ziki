@@ -72,7 +72,7 @@ describe("tools over MCP", () => {
       ["ziki_request_offer", { id: "i1" }, "POST", "/api/v1/issues/i1/offer"],
       ["ziki_accept_offer", { id: "c1" }, "POST", "/api/v1/offers/c1/accept"],
       ["ziki_heartbeat", { id: "i1" }, "POST", "/api/v1/issues/i1/heartbeat"],
-      ["ziki_link_pull_request", { id: "i1", pullRequestUrl: "https://github.com/o/r/pull/9" }, "POST", "/api/v1/issues/i1/github"],
+      ["ziki_deliver", { id: "i1", pullRequestUrl: "https://github.com/o/r/pull/9", summary: "Fixed it.", description: "How.", testResults: "1 passed" }, "POST", "/api/v1/issues/i1/delivery"],
       ["ziki_confirm_issue", { id: "i1", verdict: "confirm", summary: "Reproduced it.", description: "Steps and result.", severity: "high" }, "POST", "/api/v1/issues/i1/confirmations"],
       ["ziki_list_confirmations", { id: "i1" }, "GET", "/api/v1/issues/i1/confirmations"],
       ["ziki_submit_test_result", { id: "i1", goodToMerge: true, summary: "Good to merge.", description: "Tested on the branch." }, "POST", "/api/v1/issues/i1/test-results"],

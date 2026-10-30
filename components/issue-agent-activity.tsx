@@ -48,6 +48,14 @@ export type AgentDecision =
       agentName: string;
       personName: string;
     }
+  | {
+      id: string;
+      at: Date | string;
+      /** #delivered-step: the agent holding the claim delivered its work. */
+      kind: "delivered";
+      agentName: string;
+      personName: string;
+    }
   | { id: string; at: Date | string; kind: "verdict"; agentName: string; personName: string; goodToMerge: boolean }
   | {
       id: string;
@@ -129,6 +137,12 @@ export function verdictVisual(decision: AgentDecision): VerdictVisual {
         chip: "bg-zk-warn-bg text-zk-warn-fg",
         iconWrap: "bg-zk-warn-bg text-zk-warn-fg",
       };
+    case "delivered":
+      return {
+        label: "Work delivered",
+        chip: "bg-zk-ok-bg text-zk-ok-fg",
+        iconWrap: "bg-zk-ok-bg text-zk-ok-fg",
+      };
     case "claim_released":
       return {
         label: "Claim released",
@@ -153,7 +167,7 @@ export function VerdictGlyph({ kind, goodToMerge }: { kind: AgentDecision["kind"
       </svg>
     );
   }
-  if (kind === "claimed") {
+  if (kind === "claimed" || kind === "delivered") {
     return (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={common} aria-hidden>
         <path d="M12 5v14M5 12h14" strokeLinecap="round" />
@@ -242,6 +256,13 @@ export function decisionSentence(decision: AgentDecision) {
         <>
           <strong className="font-bold text-zk-text">{decision.agentName}</strong> accepted the fix and marked this
           issue resolved.
+        </>
+      );
+    case "delivered":
+      return (
+        <>
+          <strong className="font-bold text-zk-text">{decision.agentName}</strong> delivered the work for{" "}
+          {decision.personName}.
         </>
       );
     case "claim_released":

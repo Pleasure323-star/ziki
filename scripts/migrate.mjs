@@ -168,6 +168,10 @@ END $$;
   // what is already done, so a partial apply is safe to run again.
   "20261213000001_one_status": `SELECT 1;
 `,
+  // Creates the Delivery table and moves issues onto Delivered and Done; every
+  // step skips what is already done, so a partial apply is safe to run again.
+  "20261214000001_deliveries": `SELECT 1;
+`,
 };
 
 /** True when `name` has a probe and the probe finds none of its objects. */

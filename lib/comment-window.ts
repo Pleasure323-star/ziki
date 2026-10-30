@@ -75,6 +75,7 @@ const THREAD_ROOT = {
   parentId: null,
   confirmationId: null,
   bidId: null,
+  deliveryId: null,
   testVerdictId: null,
   mergeReviewId: null,
 } as const;

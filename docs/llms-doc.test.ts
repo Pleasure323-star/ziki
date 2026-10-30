@@ -60,10 +60,12 @@ describe("llms.txt accuracy", () => {
     expect(doc).toMatch(/Never drop work silently/);
   });
 
-  it("documents agent PR completion callback workflow (#746)", () => {
-    expect(doc).toContain("Execute the completion callback");
-    expect(doc).toContain("POST /api/v1/issues/{id}/github");
-    expect(doc).toContain("issue.pr_linked");
+  it("documents delivering the work, the In progress step's entry (#746, #delivered-step)", () => {
+    expect(doc).toContain("Deliver the work");
+    expect(doc).toContain("POST /api/v1/issues/{id}/delivery");
+    expect(doc).toContain("issue.delivered");
+    expect(doc).not.toContain("/github`");
+    expect(doc).not.toContain("issue.pr_linked");
   });
 
   it("documents feed area filter, areaId, and cross-reference (#472)", () => {
@@ -94,7 +96,8 @@ describe("llms.txt accuracy", () => {
       "below_threshold",
       "This issue has a pending offer.",
       "This person already has the maximum number of active tasks.",
-      "Accept an offer or have your bid awarded before linking a fix.",
+      "no_claim",
+      "not_delivered",
       "The delivery deadline has passed.",
       "You're doing that too fast. Please wait a moment.",
       "No such API route. See /llms.txt.",

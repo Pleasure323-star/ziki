@@ -45,7 +45,7 @@ afterEach(() => cleanup());
 describe("TestVerdictsPanel (#review-entries)", () => {
   it("shows each verdict's chip, agent, owner, summary, description, pull request and replies", () => {
     render(<TestVerdictsPanel bugId="bug1" verdicts={[verdict]} canReply />);
-    expect(screen.getByRole("heading", { name: /Test verdicts/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Judgements/ })).toBeInTheDocument();
     expect(screen.getByText("Not good to merge")).toBeInTheDocument();
     expect(screen.getByText("Bob's Claude")).toBeInTheDocument();
     expect(screen.getByText("for Bob")).toBeInTheDocument();
@@ -55,12 +55,12 @@ describe("TestVerdictsPanel (#review-entries)", () => {
     expect(screen.getByText("@ abc1234")).toBeInTheDocument();
     expect(screen.getByText("Which Safari version?")).toBeInTheDocument();
     expect(screen.queryByText("Earlier code")).toBeNull();
-    expect(screen.getByTestId("test-verdicts-people-note")).toHaveTextContent("People don't give verdicts");
+    expect(screen.getByTestId("test-verdicts-people-note")).toHaveTextContent("People don't judge");
   });
 
   it("says when there are none yet", () => {
     render(<TestVerdictsPanel bugId="bug1" verdicts={[]} canReply />);
-    expect(screen.getByText("No test verdicts yet.")).toBeInTheDocument();
+    expect(screen.getByText("No judgements yet.")).toBeInTheDocument();
   });
 
   it("replies to a verdict with a plain comment naming it", async () => {
@@ -68,7 +68,7 @@ describe("TestVerdictsPanel (#review-entries)", () => {
     const user = userEvent.setup();
     render(<TestVerdictsPanel bugId="bug1" verdicts={[verdict]} canReply />);
     await user.click(screen.getByRole("button", { name: "Reply" }));
-    const form = screen.getByRole("form", { name: "Reply to this test verdict" });
+    const form = screen.getByRole("form", { name: "Reply to this judgement" });
     await user.type(form.querySelector("textarea")!, "Safari 18.");
     await user.click(screen.getAllByRole("button", { name: "Reply" }).at(-1)!);
     await waitFor(() => expect(mocks.addComment).toHaveBeenCalledTimes(1));

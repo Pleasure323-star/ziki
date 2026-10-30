@@ -25,7 +25,7 @@ describe("agent lifecycle walkthrough (#614)", () => {
       "/api/v1/issues/{id}/offer",
       "/api/v1/offers/{id}/accept",
       "/api/v1/issues/{id}/heartbeat?projectId=",
-      "/api/v1/issues/{id}/github",
+      "/api/v1/issues/{id}/delivery",
       "/api/v1/issues/{id}/test-results",
       "/api/v1/issues/{id}/merge",
     ];

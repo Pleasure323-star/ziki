@@ -7,6 +7,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 export type CommentPlacementInput = {
   confirmationId?: string;
   bidId?: string;
+  deliveryId?: string;
   testVerdictId?: string;
   mergeReviewId?: string;
   parentId?: string;
@@ -15,6 +16,7 @@ export type CommentPlacementInput = {
 export type CommentPlacement = {
   confirmationId: string | null;
   bidId: string | null;
+  deliveryId: string | null;
   testVerdictId: string | null;
   mergeReviewId: string | null;
   parentId: string | null;
@@ -37,8 +39,8 @@ export class CommentPlacementError extends Error {
 /**
  * The one rule for where a comment may go, for people and agents alike:
  *
- * - A reply to one stage entry (a confirmation, a bid, a test verdict or a
- *   merge review), at any stage.
+ * - A reply to one stage entry (a confirmation, a bid, a delivery, a test
+ *   verdict or a merge review), at any stage.
  * - A comment on the issue itself, or a reply to one, only while the issue is
  *   Open (status `open`). At every other stage what anyone says is an entry.
  */
@@ -50,17 +52,18 @@ export async function placeComment(
   const placement: CommentPlacement = {
     confirmationId: input.confirmationId ?? null,
     bidId: input.bidId ?? null,
+    deliveryId: input.deliveryId ?? null,
     testVerdictId: input.testVerdictId ?? null,
     mergeReviewId: input.mergeReviewId ?? null,
     parentId: input.parentId ?? null,
     parentAuthorId: null,
   };
-  const entries = [placement.confirmationId, placement.bidId, placement.testVerdictId, placement.mergeReviewId].filter(Boolean);
+  const entries = [placement.confirmationId, placement.bidId, placement.deliveryId, placement.testVerdictId, placement.mergeReviewId].filter(Boolean);
   if (entries.length > 1 || (entries.length === 1 && placement.parentId)) {
     throw new CommentPlacementError(
       422,
       "one_place",
-      "Send one place for the comment: one of confirmationId, bidId, testVerdictId, mergeReviewId or parentId.",
+      "Send one place for the comment: one of confirmationId, bidId, deliveryId, testVerdictId, mergeReviewId or parentId.",
     );
   }
 
@@ -73,6 +76,11 @@ export async function placeComment(
     const bid = await db.issueBid.findFirst({ where: { id: placement.bidId, bugId: bug.id }, select: { beneficiaryUserId: true } });
     if (!bid) throw new CommentPlacementError(422, "not_found", "That bid is not on this issue.");
     return { ...placement, parentAuthorId: bid.beneficiaryUserId };
+  }
+  if (placement.deliveryId) {
+    const delivery = await db.delivery.findFirst({ where: { id: placement.deliveryId, bugId: bug.id }, select: { beneficiaryUserId: true } });
+    if (!delivery) throw new CommentPlacementError(422, "not_found", "That delivery is not on this issue.");
+    return { ...placement, parentAuthorId: delivery.beneficiaryUserId };
   }
   if (placement.testVerdictId) {
     const verdict = await db.testVerdict.findFirst({ where: { id: placement.testVerdictId, bugId: bug.id }, select: { onBehalfOfUserId: true } });
@@ -106,6 +114,7 @@ export async function placeComment(
         parentId: null,
         confirmationId: null,
         bidId: null,
+        deliveryId: null,
         testVerdictId: null,
         mergeReviewId: null,
       },

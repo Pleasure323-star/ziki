@@ -5,7 +5,7 @@ import { isGitHubUrl, splitProofLinkLines } from "@/lib/proof-links";
 import { stripGitHubMarkup } from "@/lib/github-paste";
 
 export const severities = ["low", "medium", "high", "critical"] as const;
-export const statuses = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"] as const;
+export const statuses = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"] as const;
 
 export const severitySchema = z.enum(severities);
 export const statusSchema = z.enum(statuses);
@@ -153,6 +153,13 @@ export const commentSchema = z.object({
     .transform((value) => (value && value.length > 0 ? value : undefined)),
   /** A reply to a bid (#issue-bids) names it here. */
   bidId: z
+    .string()
+    .trim()
+    .max(191)
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+  /** A reply to a delivery (#delivered-step) names it here. */
+  deliveryId: z
     .string()
     .trim()
     .max(191)

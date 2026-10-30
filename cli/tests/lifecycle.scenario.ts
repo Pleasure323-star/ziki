@@ -154,19 +154,37 @@ describe("a report from idea to merge", () => {
     await refused(solver, "extend-deadline", { id, reason: "Again, please." }, 409);
   });
 
-  it("gets the fix linked by the claim holder only", async () => {
+  const delivery = {
+    pullRequestUrl: "https://github.com/emerjent/ziki/pull/4242",
+    summary: "Fixed Save on the second click.",
+    description: "Save now waits for the pending request; added a regression test for the double click.",
+    testResults: "42 passed",
+  };
+
+  it("gets its work delivered by the claim holder only, as In progress's entry, and moves to Delivered", async () => {
     const other = solver === "cara" ? "bob" : "cara";
-    // Evidence is checked first, so the attempt carries it and reaches the ownership check.
-    await refused(other, "link-pull-request", { id, pullRequestUrl: "https://github.com/emerjent/ziki/pull/4242", testResults: "1 passed" }, 409);
-    const linked = await ok(solver, "link-pull-request", {
-      id,
-      pullRequestUrl: "https://github.com/emerjent/ziki/pull/4242",
-      testResults: "42 passed",
-    });
-    expect(linked.linked).toBe(true);
+    // Nothing to judge before the work is delivered.
+    expect((await refused(other, "submit-test-result", { id, goodToMerge: false, summary: "Too early.", description: "Nothing delivered." }, 409)).error).toBe("not_delivered");
+    // A delivery explains itself: a bare one is refused by the API (sent raw; the CLI asks for the flags itself).
+    const { projectId } = (await ok(solver, "get-issue", { id })).issue;
+    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/delivery?projectId=${projectId}`, "--body", JSON.stringify({ pullRequestUrl: delivery.pullRequestUrl, testResults: "1 passed" }), "--as", solver);
+    expect(bare.code).toBe(1);
+    expect(bare.json?.status).toBe(400);
+    expect(bare.out + bare.err).toMatch(/summary/);
+    // Only the agent holding the claim delivers.
+    expect((await refused(other, "deliver", { id, ...delivery }, 409)).error).toBe("no_claim");
+    const delivered = await ok(solver, "deliver", { id, ...delivery });
+    expect(delivered).toMatchObject({ replaced: false, delivery: { summary: delivery.summary, pullRequestUrl: delivery.pullRequestUrl, current: true } });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "delivered", pullRequestUrl: delivery.pullRequestUrl });
+    // People reply to a delivery, like any entry.
+    const reply = await ok("ada", "comment", { id, body: "Does it cover the keyboard shortcut too?", deliveryId: delivered.delivery.id });
+    expect(reply.comment).toMatchObject({ deliveryId: delivered.delivery.id, parentId: null });
+    const listed = await ok("dana", "list-deliveries", { id });
+    expect(listed).toMatchObject({ status: "delivered", deliveries: [{ id: delivered.delivery.id, current: true }] });
+    expect(JSON.stringify(listed)).toContain("keyboard shortcut");
   });
 
-  it("is tested by independent owners, not by the solver, once its PR is ready on GitHub", async () => {
+  it("is judged by independent owners, not by the solver, once its PR is ready on GitHub", async () => {
     const verdict = { summary: "Good to merge.", description: "Verified on the branch: Save works again." };
     await refused(solver, "submit-test-result", { id, goodToMerge: true, ...verdict }, 403);
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
@@ -193,6 +211,8 @@ describe("a report from idea to merge", () => {
     expect(listed.verdicts).toHaveLength(1);
     expect(listed.verdicts[0]).toMatchObject({ id: fail.verdict.id, goodToMerge: false, current: true });
     expect(JSON.stringify(listed)).toContain("Which browser was this in?");
+    // One not-good judgement of the two needed: still Delivered.
+    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("delivered");
   });
 
   it("is reviewed only by a manager or merger agent, with a written review", async () => {
@@ -227,5 +247,19 @@ describe("a report from idea to merge", () => {
       return;
     }
     expect((await refused("eli", "admin-merge", { id }, 409)).error).toBe("not_ready");
+  });
+
+  it("goes back to Open, the claim released, when enough independent agents judge the delivered work not good", async () => {
+    // Sent back by the manager, the solver delivers again: Delivered once more.
+    const again = await ok(solver, "deliver", { id, ...delivery, summary: "Delivered again after the review." });
+    expect(again).toMatchObject({ replaced: true, delivery: { summary: "Delivered again after the review." } });
+    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("delivered");
+    // The second independent not-good judgement reaches the two needed.
+    const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
+    await ok(testers[0], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge.", description: "The second click still fails here too." });
+    const issue = (await ok("ada", "get-issue", { id })).issue;
+    expect(issue).toMatchObject({ status: "open", pullRequestUrl: null, holder: null });
+    // The deliveries stay on the issue as its history.
+    expect((await ok("ada", "list-deliveries", { id })).deliveries).toHaveLength(1);
   });
 });

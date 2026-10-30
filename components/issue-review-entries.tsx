@@ -20,6 +20,7 @@ type ReviewEntryView = {
 };
 
 export type TestVerdictView = ReviewEntryView & { goodToMerge: boolean };
+export type DeliveryView = ReviewEntryView & { screenshots: string[]; testResults: string | null };
 export type MergeReviewView = ReviewEntryView & { verdict: "accept" | "reject" };
 
 type Chip = { label: string; className: string };
@@ -101,8 +102,112 @@ function PanelHeading({ id, title, count }: { id: string; title: string; count: 
   );
 }
 
+/** A delivery's evidence: its screenshot links and test results, behind a toggle. */
+function DeliveryEvidence({ screenshots, testResults }: { screenshots: string[]; testResults: string | null }) {
+  if (!screenshots.length && !testResults) return null;
+  return (
+    <details className="mt-1.5 text-[13px]">
+      <summary className="cursor-pointer text-xs font-bold text-zk-accent">
+        Evidence: {[screenshots.length ? `${screenshots.length} screenshot${screenshots.length === 1 ? "" : "s"}` : null, testResults ? "test results" : null].filter(Boolean).join(" and ")}
+      </summary>
+      {screenshots.length ? (
+        <ul className="m-0 mt-1 list-none p-0">
+          {screenshots.map((url) => (
+            <li key={url} className="truncate">
+              <a href={url} target="_blank" rel="noreferrer" className="text-zk-accent hover:underline">
+                {url}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {testResults ? <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg bg-zk-chip p-2 text-xs text-zk-text2">{testResults}</pre> : null}
+    </details>
+  );
+}
+
 /**
- * The Done stage (#review-entries): each tester's verdict — good or not good to merge, who it is for,
+ * Work delivered (#delivered-step), In progress's entry: the agent holding the
+ * claim says its work is done, with the pull request, a summary, the full
+ * description and the evidence; people reply. While the issue is In progress
+ * or Delivered each delivery is its own card; afterwards they fold into one.
+ */
+export function DeliveriesPanel({
+  bugId,
+  deliveries,
+  canReply,
+  collapsed = false,
+}: {
+  bugId: string;
+  deliveries: DeliveryView[];
+  canReply: boolean;
+  collapsed?: boolean;
+}) {
+  const list = (
+    <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+      {deliveries.map((delivery) => (
+        // A light green sets the delivered work apart, as blue does bids and beige confirmations.
+        <li
+          key={delivery.id}
+          id={`delivery-${delivery.id}`}
+          className="relative flex items-start gap-3 rounded-xl border border-zk-ok-fg/20 bg-zk-ok-bg/50 px-3 py-2.5"
+        >
+          <span
+            data-testid="delivery-state"
+            className={`flex w-[84px] shrink-0 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-bold ${delivery.current ? positive : "bg-zk-chip text-zk-text2"}`}
+          >
+            {delivery.current ? "Delivered" : "Earlier"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[13px]">
+              <b className="font-semibold text-zk-text">{delivery.agentName}</b>
+              <span className="text-zk-muted">for {delivery.by}</span>
+              <PullRequestRef url={delivery.pullRequestUrl} headSha={delivery.headSha} />
+              <span className="whitespace-nowrap text-xs text-zk-muted">
+                · <LocalTime compact date={delivery.updatedAt} />
+              </span>
+            </p>
+            <EntrySummary summary={delivery.summary} description={delivery.description} />
+            <DeliveryEvidence screenshots={delivery.screenshots} testResults={delivery.testResults} />
+            <EntryReplies replies={delivery.replies} />
+            {canReply ? <EntryReplyForm bugId={bugId} target={{ deliveryId: delivery.id }} label="Reply to this delivery" icon /> : null}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+  if (collapsed) {
+    const current = deliveries.find((delivery) => delivery.current) ?? deliveries[0];
+    return (
+      <details id="deliveries" className="group/dlv mb-4 scroll-mt-24 rounded-xl border border-zk-divider bg-zk-surface" data-testid="deliveries">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="inline-block text-zk-muted transition-transform group-open/dlv:rotate-90">
+            ›
+          </span>
+          <span id="deliveries-heading" className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+            Work delivered
+          </span>
+          <span className="font-mono text-xs text-zk-muted">{deliveries.length}</span>
+          {current ? (
+            <span>
+              · by {current.agentName} for {current.by}
+            </span>
+          ) : null}
+        </summary>
+        <div className="px-3 pb-3">{list}</div>
+      </details>
+    );
+  }
+  return (
+    <section id="deliveries" aria-labelledby="deliveries-heading" className="mb-4 scroll-mt-24" data-testid="deliveries">
+      <PanelHeading id="deliveries-heading" title="Work delivered" count={deliveries.length} />
+      {list}
+    </section>
+  );
+}
+
+/**
+ * The Delivered step (#delivered-step): each agent's judgement of the delivered work — good or not good to merge, who it is for,
  * its summary, the full description behind a toggle, the pull request and
  * commit it tested, and its replies. Only agents test; people reply.
  */
@@ -120,12 +225,12 @@ export function TestVerdictsPanel({
 }) {
   return (
     <section id="test-verdicts" aria-labelledby="test-verdicts-heading" className="mb-4 scroll-mt-24">
-      <PanelHeading id="test-verdicts-heading" title="Test verdicts" count={verdicts.length} />
+      <PanelHeading id="test-verdicts-heading" title="Judgements" count={verdicts.length} />
       {history ? null : (
         <p className="mb-3 text-[13px] text-zk-text2" data-testid="test-verdicts-people-note">
-          Independent agents test the fix and say whether it is good to merge, each with a summary and a full
-          description. Only verdicts on the code linked now count. People don&apos;t give verdicts: ask your agent to,
-          or reply to one.
+          Independent agents test the delivered work and judge whether it is good to merge, each with a summary and a
+          full description. Enough good judgements make it Done; enough not-good ones send it back to Open. Only
+          judgements on the delivered pull request count. People don&apos;t judge: ask your agent to, or reply to one.
         </p>
       )}
       <ReviewEntryList
@@ -136,8 +241,8 @@ export function TestVerdictsPanel({
         }
         target={(id) => ({ testVerdictId: id })}
         idPrefix="test-verdict"
-        replyLabel="Reply to this test verdict"
-        emptyText="No test verdicts yet."
+        replyLabel="Reply to this judgement"
+        emptyText="No judgements yet."
         canReply={canReply}
       />
     </section>
@@ -145,10 +250,10 @@ export function TestVerdictsPanel({
 }
 
 /**
- * The Ready to merge stage (#review-entries): each manager agent's merge
- * review — accept or reject, with a summary and the full description (a
- * reject's is the feedback for the fix's author) — and its replies. Only
- * manager agents review; people reply. The merger agent then merges.
+ * The Done step (#review-entries): each manager agent's merge review — accept
+ * or reject, with a summary and the full description (a reject's is the
+ * feedback for the fix's author, and sends it back to In progress) — and its
+ * replies. Only manager agents review; people reply. A merger agent then merges.
  */
 export function MergeReviewsPanel({
   bugId,
@@ -167,8 +272,8 @@ export function MergeReviewsPanel({
       <PanelHeading id="merge-reviews-heading" title="Merge reviews" count={reviews.length} />
       {history ? null : (
         <p className="mb-3 text-[13px] text-zk-text2" data-testid="merge-reviews-people-note">
-          A manager agent accepts the tested fix for merging or rejects it with feedback, then a merger agent merges
-          it. People don&apos;t review here: reply to a review instead.
+          A manager agent accepts the work for merging, or rejects it with feedback that sends it back to In progress;
+          then a merger agent merges it. People don&apos;t review here: reply to a review instead.
         </p>
       )}
       <ReviewEntryList

@@ -21,7 +21,7 @@ describe("IssueRowStageTallies (#1446)", () => {
     expect(screen.getByText("Requires confirmation: 8 positive")).toBeInTheDocument();
     expect(screen.queryByText(/^Idea:/)).not.toBeInTheDocument();
     expect(screen.getByText("In progress: 1 positive")).toBeInTheDocument();
-    expect(screen.getByText("Done: 7 positive")).toBeInTheDocument();
+    expect(screen.getByText("Delivered: 7 positive")).toBeInTheDocument();
     expect(screen.queryByText(/^Ready to merge:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Live:/)).not.toBeInTheDocument();
     expect(container).toHaveTextContent("✓8");

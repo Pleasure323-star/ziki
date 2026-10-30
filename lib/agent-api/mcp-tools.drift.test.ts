@@ -13,6 +13,7 @@ import { extendSchema } from "./deadline";
 import { releaseSchema } from "./offer";
 import { structureInputSchema } from "./structure";
 import { testVerdictBodySchema } from "./test-verdict";
+import { deliveryBodySchema } from "./delivery";
 import { confirmationSchema } from "./confirmations";
 import { ideaVerdictFields } from "./idea-verdicts";
 import { recordMistakeSchema } from "./mistakes";
@@ -25,6 +26,7 @@ import { assignSchema } from "./assign";
  * from the API (#612).
  */
 const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
+  ziki_deliver: deliveryBodySchema,
   ziki_assign_issue: assignSchema,
   ziki_create_idea: createBugSchema,
   ziki_comment: commentSchema,
@@ -113,7 +115,6 @@ describe("MCP tools match the route body schemas", () => {
     expect(unchecked.sort()).toEqual([
       "ziki_collect_pairing_token",
       "ziki_create_webhook",
-      "ziki_link_pull_request",
       "ziki_mark_inbox_read",
       "ziki_pair",
       "ziki_update_webhook",

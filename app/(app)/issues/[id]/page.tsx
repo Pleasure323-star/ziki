@@ -55,8 +55,9 @@ import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
+import { deliveryEntries } from "@/lib/agent-api/delivery";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
-import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
+import { DeliveriesPanel, MergeReviewsPanel, TestVerdictsPanel, type DeliveryView, type MergeReviewView, type TestVerdictView } from "@/components/issue-review-entries";
 import { GoalBudgetSection } from "@/components/goal-budgets";
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
@@ -478,7 +479,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         "agent decisions",
         [],
         async () => {
-          const [confirmations, claims, verdicts, reviews, accepted] = await Promise.all([
+          const [confirmations, deliveries, claims, verdicts, reviews, accepted] = await Promise.all([
             // #issue-confirmations: confirm and reject entries; neutral decides nothing.
             prisma.issueConfirmation.findMany({
               where: { bugId: id, verdict: { in: ["confirm", "reject"] }, undoneAt: null },
@@ -492,6 +493,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 agent: { select: { name: true } },
                 onBehalfOf: { select: { name: true } },
               },
+            }),
+            // #delivered-step: each delivery of the work.
+            prisma.delivery.findMany({
+              where: { bugId: id },
+              orderBy: { updatedAt: "asc" },
+              select: { id: true, updatedAt: true, agent: { select: { name: true } }, beneficiary: { select: { name: true } } },
             }),
             // #1446: released claims too; a claim released for any reason but
             // the fix landing counts as a rejected claim at the Open stage.
@@ -613,6 +620,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 },
               ];
             }),
+            ...deliveries.map<AgentDecision>((d) => ({
+              id: `delivery-${d.id}`,
+              at: d.updatedAt,
+              kind: "delivered",
+              agentName: d.agent.name,
+              personName: d.beneficiary.name ?? "A member",
+            })),
             ...verdicts.map<AgentDecision>((v) => ({
               id: `verdict-${v.id}`,
               at: v.createdAt,
@@ -721,20 +735,23 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
     .at(-1);
   const sentBack = latestMergeDecision?.kind === "merge_rejected";
-  // #review-entries: at Done the issue takes test verdicts, at Ready to merge
-  // merge reviews, not comments.
+  // #delivered-step: In progress takes the delivery, Delivered the judgements,
+  // Done (and Ready to merge) the merge reviews; not comments.
   const reviewBug = { id: bug.id, pullRequestUrl: bug.pullRequestUrl ?? null, pullRequestHeadSha: bug.pullRequestHeadSha ?? null };
-  // Testers test a delivered fix while the issue is in progress, and until it is accepted.
-  const testing = !bug.isDeleted && ((currentStage === "progress" && Boolean(bug.pullRequestUrl)) || currentStage === "done");
-  // Managers review a tested fix (Done) and an accepted one (Ready to merge).
+  // Agents judge delivered work, and may change a judgement until a manager accepts it.
+  const testing = !bug.isDeleted && (currentStage === "delivered" || currentStage === "done");
+  // Managers review judged work (Done) and accepted work (Ready to merge).
   const mergeReviewing = !bug.isDeleted && (currentStage === "done" || currentStage === "ready");
+  // Deliveries take replies while the work is being made or judged; they fold once it is past Delivered.
+  const delivering = currentStage === "progress" || currentStage === "delivered";
   // Taken at their own stage; read-only afterwards.
-  const [testVerdictList, mergeReviewList] = pastConfirmation
+  const [deliveryList, testVerdictList, mergeReviewList] = pastConfirmation
     ? await Promise.all([
+        loadOptional<DeliveryView[]>("deliveries", [], () => deliveryEntries(reviewBug)),
         loadOptional<TestVerdictView[]>("test verdicts", [], () => testVerdictEntries(reviewBug)),
         loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)),
       ])
-    : [[] as TestVerdictView[], [] as MergeReviewView[]];
+    : [[] as DeliveryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
   // Comments on the issue itself: taken only while it is Open (lib/comment-placement.ts).
   const takesComments = !bug.isDeleted && bug.status === "open";
   const commentCount = comments.shownThreads + comments.hiddenThreads;
@@ -1066,6 +1083,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     summaryMaxChars={CONFIRMATION_SUMMARY_MAX_CHARS}
                     confirmed={false}
                   />
+                ) : null}
+                {deliveryList.length > 0 ? (
+                  <DeliveriesPanel bugId={bug.id} deliveries={deliveryList} canReply={!bug.isDeleted && delivering} collapsed={!delivering} />
                 ) : null}
                 {testing || testVerdictList.length > 0 ? (
                   <TestVerdictsPanel bugId={bug.id} verdicts={testVerdictList} canReply={testing} history={!testing} />

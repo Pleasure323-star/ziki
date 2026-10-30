@@ -9,9 +9,9 @@ describe("stageEntryRoute", () => {
     expect(stageEntryRoute({ id: "b", status: "open", pullRequestUrl: pr })?.kind).toBe("bid");
   });
 
-  it("takes test verdicts while a linked fix is in progress, then merge reviews at Done and Ready to merge", () => {
-    expect(stageEntryRoute({ id: "b", status: "in_progress" })).toBeNull();
-    expect(stageEntryRoute({ id: "b", status: "in_progress", pullRequestUrl: pr })?.kind).toBe("test_verdict");
+  it("takes the delivery In progress, judgements once Delivered, then merge reviews at Done and Ready to merge", () => {
+    expect(stageEntryRoute({ id: "b", status: "in_progress" })).toMatchObject({ kind: "delivery", route: "POST /api/v1/issues/b/delivery" });
+    expect(stageEntryRoute({ id: "b", status: "delivered", pullRequestUrl: pr })?.kind).toBe("test_verdict");
     expect(stageEntryRoute({ id: "b", status: "done", pullRequestUrl: pr })?.kind).toBe("merge_review");
     expect(stageEntryRoute({ id: "b", status: "ready_to_merge", pullRequestUrl: pr })?.kind).toBe("merge_review");
     expect(stageEntryRoute({ id: "b", status: "resolved", pullRequestUrl: pr })).toBeNull();

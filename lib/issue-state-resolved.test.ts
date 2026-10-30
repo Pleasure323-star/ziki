@@ -3,7 +3,7 @@ import { defaultStatusWhere, LIVE_STATUS_VALUES, parseShowResolved } from "./iss
 
 describe("hiding resolved issues by default (#1058)", () => {
   it("shows live work only, unless resolved issues are asked for", () => {
-    expect(defaultStatusWhere(false)).toEqual({ in: ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge"] });
+    expect(defaultStatusWhere(false)).toEqual({ in: ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge"] });
     expect(defaultStatusWhere(true)).toBeUndefined();
     expect(LIVE_STATUS_VALUES).not.toContain("resolved");
   });

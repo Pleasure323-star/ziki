@@ -51,7 +51,7 @@ export type IssueRowWork = {
 
 /**
  * One line saying where an issue stands: Idea (with its score), Requires confirmation
- * (bots), Ready for bids, who is working on it and for how long, Done, Ready to merge,
+ * (bots), Ready for bids, who is working on it and for how long, Delivered, Done, Ready to merge,
  * or Live / Closed. A live fix shows its dev → staging → main chips from merge history instead.
  */
 export function IssueRowStatus({
@@ -76,6 +76,13 @@ export function IssueRowStatus({
     return (
       <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
         <CheckIcon /> {status === "resolved" ? "Live" : "Closed"}
+      </span>
+    );
+  }
+  if (status === "delivered") {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300">
+        <CheckIcon /> Delivered
       </span>
     );
   }

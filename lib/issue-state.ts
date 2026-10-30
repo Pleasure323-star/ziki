@@ -31,6 +31,7 @@ const STATUS_FILTER_LABELS: Record<string, string> = {
   ideas: "Ideas",
   open: "Open",
   in_progress: "In progress",
+  delivered: "Delivered",
   done: "Done",
   ready_to_merge: "Ready to merge",
   resolved: "Live",
@@ -85,7 +86,7 @@ export function resultCountText(count: number, status: string | null): string {
  */
 export const SHOW_RESOLVED_PARAM = "resolved";
 export const SHOW_RESOLVED = "1";
-export const LIVE_STATUS_VALUES = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge"] as const;
+export const LIVE_STATUS_VALUES = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge"] as const;
 
 export function parseShowResolved(raw: string | string[] | null | undefined): boolean {
   return (Array.isArray(raw) ? raw[0] : raw) === SHOW_RESOLVED;

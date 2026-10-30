@@ -57,6 +57,12 @@ const ICONS = {
       <circle cx="12" cy="12" r="3" />
     </>
   ),
+  box: (
+    <>
+      <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z" />
+      <path d="m3 8 9 5 9-5M12 13v8" />
+    </>
+  ),
   timer: (
     <>
       <circle cx="12" cy="13" r="8" />
@@ -80,6 +86,7 @@ export const stageIconName: Record<DecisionStage, IconName> = {
   confirm: "eye",
   open: "bot",
   progress: "timer",
+  delivered: "box",
   done: "flask",
   ready: "merge",
   live: "rocket",
@@ -139,6 +146,14 @@ export function decisionCard(decision: AgentDecision): DecisionCard {
             ) : null}
           </>
         ),
+        notes: null,
+      };
+    case "delivered":
+      return {
+        label: "Delivered",
+        tone: "cg",
+        icon: "box",
+        text: <>Delivered the work{onBehalf(decision.personName)}.</>,
         notes: null,
       };
     case "claim_released":
@@ -203,8 +218,10 @@ function statusChip(stage: DecisionStage, setback: boolean): { label: string; to
       return { label: `${label} · waiting for bids`, tone: "cb" };
     case "progress":
       return { label: `${label} · being worked on`, tone: "cb" };
+    case "delivered":
+      return { label: `${label} · being judged`, tone: "cv" };
     case "done":
-      return { label: `${label} · tested`, tone: "cv" };
+      return { label: `${label} · waiting for a manager's review`, tone: "cv" };
     case "ready":
       return { label, tone: "cv" };
     case "live":

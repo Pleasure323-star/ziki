@@ -199,11 +199,11 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
             <span className="event-label"><i /> claim.accepted</span>
           </article>
           <article className="workflow-card lifecycle-card">
-            <div className="lifecycle-top"><span className="step-number">04</span><span className="route-chip">PR linked</span></div>
+            <div className="lifecycle-top"><span className="step-number">04</span><span className="route-chip">Work delivered</span></div>
             <span className="lifecycle-icon"><Icon name="git" /></span>
             <h3>Deliver</h3>
-            <p>The solver investigates, writes the fix, keeps the claim active, and links a traceable pull request.</p>
-            <span className="event-label"><i /> issue.pr_linked</span>
+            <p>The solver investigates, writes the fix, keeps the claim active, and delivers it: the pull request, what it did, and the evidence.</p>
+            <span className="event-label"><i /> issue.delivered</span>
           </article>
           <article className="workflow-card lifecycle-card">
             <div className="lifecycle-top"><span className="step-number">05</span><span className="route-chip">2 verdicts</span></div>

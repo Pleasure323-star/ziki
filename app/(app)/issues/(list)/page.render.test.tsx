@@ -368,13 +368,13 @@ describe("issue list layout", () => {
     expect(current(stages(html))).toEqual(["Ideas"]);
     expect(stages(html)).toContain('href="/issues"');
     expect(stages(html)).toContain('href="/issues?status=open"');
-    expect(stages(html)).toContain('href="/issues?status=done"');
+    expect(stages(html)).toContain('href="/issues?status=delivered"');
     expect(labels(statusList(html))).toEqual(["Ideas", "Requires confirmation"]);
     expect(current(statusList(html))).toEqual(["Ideas"]);
     expect(html.indexOf('aria-label="Stages"')).toBeLessThan(html.indexOf('<div class="issues-page'));
   });
 
-  it("puts Open, In progress and Closed under Working, and Done, Ready to merge and Live under Delivered", async () => {
+  it("puts Open, In progress and Closed under Working, and Delivered, Done, Ready to merge and Live under Delivered", async () => {
     let html = await renderList({ status: "in_progress" });
     expect(current(stages(html))).toEqual(["Working"]);
     expect(labels(statusList(html))).toEqual(["Open", "In progress", "Closed"]);
@@ -382,7 +382,7 @@ describe("issue list layout", () => {
 
     html = await renderList({ status: "ready_to_merge" });
     expect(current(stages(html))).toEqual(["Delivered"]);
-    expect(labels(statusList(html))).toEqual(["Done", "Ready to merge", "Live"]);
+    expect(labels(statusList(html))).toEqual(["Delivered", "Done", "Ready to merge", "Live"]);
     expect(current(statusList(html))).toEqual(["Ready to merge"]);
   });
   it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
@@ -423,7 +423,7 @@ describe("issue list layout", () => {
     html = await renderList({ q: "login", status: "all" });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
     expect(current(stages(html))).toEqual([]);
-    expect(stages(html)).toContain('href="/issues?q=login&amp;status=done"');
+    expect(stages(html)).toContain('href="/issues?q=login&amp;status=delivered"');
     expect(html).not.toContain('aria-label="Status"');
   });
   it("searches across All when no stage is picked, so a just-reported issue can be found", async () => {
@@ -498,14 +498,15 @@ describe("issue list layout", () => {
           { status: "requires_confirmation", _count: { _all: 4 } },
           { status: "open", _count: { _all: 9 } },
           { status: "in_progress", _count: { _all: 2 } },
+          { status: "delivered", _count: { _all: 5 } },
           { status: "done", _count: { _all: 2 } },
           { status: "ready_to_merge", _count: { _all: 1 } },
           { status: "resolved", _count: { _all: 7 } },
           { status: "closed", _count: { _all: 3 } },
         ]) as never);
     const html = await renderList({ status: "open" });
-    // Ideas: 4 open ideas + 4 requiring confirmation. Working: Open, In progress, Closed. Delivered: Done, Ready to merge, Live.
-    expect(counted(stages(html))).toEqual({ Ideas: 8, Working: 14, Delivered: 10 });
+    // Ideas: 4 open ideas + 4 requiring confirmation. Working: Open, In progress, Closed. Delivered: Delivered, Done, Ready to merge, Live.
+    expect(counted(stages(html))).toEqual({ Ideas: 8, Working: 14, Delivered: 15 });
     expect(counted(statusList(html))).toEqual({ Open: 9, "In progress": 2, Closed: 3 });
   });
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {

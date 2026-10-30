@@ -10,13 +10,14 @@ import { addCommentAction } from "@/app/actions/issues";
 export type ReplyTarget =
   | { confirmationId: string }
   | { bidId: string }
+  | { deliveryId: string }
   | { testVerdictId: string }
   | { mergeReviewId: string }
   | { parentId: string };
 
 /**
  * A plain reply to one stage entry: a confirmation (#issue-confirmations),
- * a bid (#issue-bids), a test verdict or a merge review (#review-entries), or
+ * a bid (#issue-bids), a delivery (#delivered-step), a test verdict or a merge review (#review-entries), or
  * to a comment on an Open issue. Replies carry no type or verdict.
  *
  * `icon` shows the closed form as a reply icon in the entry's top-right

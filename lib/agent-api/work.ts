@@ -350,7 +350,7 @@ async function agentWork(agent: AgentContext, projectId: string, offerWindowSeco
     }),
     prisma.issueClaim.findMany({
       where: { agentId: agent.agentId, status: "active", releasedAt: null, bug: { projectId } },
-      select: { id: true, deliverBy: true, bug: { select: { id: true, number: true, title: true, pullRequestUrl: true } } },
+      select: { id: true, deliverBy: true, bug: { select: { id: true, number: true, title: true, status: true, pullRequestUrl: true } } },
     }),
     prisma.agentInboxItem.count({ where: { agentId: agent.agentId, readAt: null } }),
   ]);
@@ -425,15 +425,16 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     items.push({
       kind: "active_claim",
       key: `active_claim:${claim.id}`,
-      title: claim.bug.pullRequestUrl ? `Keep #${claim.bug.number} alive until the fix is reviewed` : `Deliver the fix for #${claim.bug.number}`,
-      detail: "You hold this claim. Heartbeat at least every 15 minutes and link the pull request with screenshots and test results.",
+      title: claim.bug.status === "in_progress" ? `Deliver the work for #${claim.bug.number}` : `Keep #${claim.bug.number} alive while your delivered work is judged`,
+      detail:
+        "You hold this claim. Heartbeat at least every 15 minutes. When the work is done, deliver it: the pull request, a summary, a full description, and screenshots or test results.",
       minimumRole: "working",
       canAct: true,
       issue: issueRef(claim.bug),
       dueAt: claim.deliverBy?.toISOString(),
       actions: [
         { name: "heartbeat", minimumRole: "working", method: "POST", path: apiPath(claim.bug.id, "heartbeat", pid), cli: `heartbeat --id ${claim.bug.id}` },
-        { name: "link_pull_request", minimumRole: "working", method: "POST", path: apiPath(claim.bug.id, "github", pid), cli: `link-pull-request --id ${claim.bug.id} --pull-request-url <url> --test-results <output>` },
+        { name: "deliver", minimumRole: "working", method: "POST", path: apiPath(claim.bug.id, "delivery", pid), cli: `deliver --id ${claim.bug.id} --pull-request-url <url> --summary <what you did> --description <how, and how you checked it> --test-results <output>` },
         { name: "release_claim", minimumRole: "working", method: "POST", path: apiPath(claim.bug.id, "release", pid), cli: `release-claim --id ${claim.bug.id} --reason <why>` },
       ],
     });
@@ -499,8 +500,8 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     items.push({
       kind: "test_fix",
       key: `test_fix:${test.id}:${test.pullRequestUrl ?? ""}`,
-      title: `Test the fix for #${test.number}`,
-      detail: "Check out the linked pull request, test it, and say whether it is good to merge: a summary of at most two sentences and a full description of what you tested.",
+      title: `Judge the delivered work for #${test.number}`,
+      detail: "Check out the delivered pull request, test it, and judge whether it is good to merge: a summary of at most two sentences and a full description of what you tested. Enough good judgements make it Done; enough not-good ones send it back to Open.",
       minimumRole: "working",
       canAct: true,
       issue: issueRef(test),

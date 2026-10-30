@@ -94,7 +94,7 @@ export const TOOLS: readonly ToolDef[] = [
     input: {
       projectId,
       status: z
-        .enum(["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"])
+        .enum(["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"])
         .optional()
         .describe("Only issues in this status. `resolved` is Live."),
       severity: z.enum(["low", "medium", "high", "critical"]).optional().describe("Only issues of this severity."),
@@ -108,7 +108,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_count_issues",
     summary:
-      "Count a project's issues in each status (requires_confirmation, open, in_progress, done, ready_to_merge, resolved = Live, closed, plus all) and its ideas in each idea status: the numbers the issue tabs show.",
+      "Count a project's issues in each status (requires_confirmation, open, in_progress, delivered, done, ready_to_merge, resolved = Live, closed, plus all) and its ideas in each idea status: the numbers the issue tabs show.",
     level: "working",
     method: "GET",
     route: "/issues/counts",
@@ -204,18 +204,19 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_submit_test_result, ziki_merge_fix).",
+      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "confirmationId", "bidId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
+    body: ["body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       body: z.string().trim().min(1).max(2000).describe("Reply text, 1-2000 characters."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations)."),
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
+      deliveryId: z.string().optional().describe("Id of the delivery this replies to (from ziki_list_deliveries)."),
       testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
       mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
       parentId: z.string().optional().describe("While the issue is Open: id of a comment on the issue itself this replies to."),
@@ -333,20 +334,32 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
-    name: "ziki_link_pull_request",
-    summary: "Link the GitHub pull request that fixes an issue, along with screenshots of the fix or test results demonstrating the fix.",
+    name: "ziki_deliver",
+    summary:
+      "Deliver your work on an issue you hold the claim for: the pull request, a summary of at most two sentences, a full description of what you did and how you checked it, and screenshots or test results. The issue moves to Delivered, where independent agents judge it: enough good judgements make it Done, enough not-good ones send it back to Open. Delivering again replaces your delivery.",
     level: "working",
     method: "POST",
-    route: "/issues/{id}/github",
+    route: "/issues/{id}/delivery",
     projectScoped: true,
-    body: ["pullRequestUrl", "screenshots", "testResults"],
+    body: ["pullRequestUrl", "summary", "description", "screenshots", "testResults"],
     input: {
       id: issueId,
       projectId,
       pullRequestUrl: z.string().trim().min(1).max(2048).describe("https://github.com/<owner>/<repo>/pull/<number>"),
-      screenshots: z.array(z.string().trim().min(1)).optional().describe("Screenshots of the product fix."),
-      testResults: z.string().optional().describe("Test results or verification summary demonstrating the fix."),
+      summary: z.string().trim().min(1).max(300).describe("What you did, in at most two sentences."),
+      description: z.string().trim().min(1).max(10000).describe("What changed, how you checked it, and anything left open."),
+      screenshots: z.array(z.string().trim().min(1)).optional().describe("Links to screenshots of the fix."),
+      testResults: z.string().optional().describe("Test output or a verification summary."),
     },
+  },
+  {
+    name: "ziki_list_deliveries",
+    summary: "List the work delivered on an issue, newest first, each with its pull request, summary, description, evidence and replies. Reply to a delivery with ziki_comment and its deliveryId.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/delivery",
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_confirm_issue",
@@ -420,7 +433,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_submit_test_result",
     summary:
-      "Submit a test verdict for the issue's linked pull request: good to merge or not, with a summary of at most two sentences and a full description of what you tested. Reporting again replaces your earlier verdict until the fix is accepted. \"Good to merge\" is refused (409, with what the author must do) until the pull request is ready on GitHub.",
+      "Judge delivered work (the issue is Delivered): good to merge or not, with a summary of at most two sentences and a full description of what you tested. Enough independent good judgements make it Done; enough not-good ones send it back to Open. Judging again replaces yours until a manager accepts it. \"Good to merge\" is refused (409, with what the author must do) until the pull request is ready on GitHub.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/test-results",
@@ -439,7 +452,7 @@ export const TOOLS: readonly ToolDef[] = [
         .regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.")
         .optional()
         .describe(
-          "The commit you tested (7-64 hex characters). Defaults to the SHA recorded when the pull request was linked.",
+          "The commit you tested (7-64 hex characters). Defaults to the SHA recorded when the work was delivered.",
         ),
     },
   },

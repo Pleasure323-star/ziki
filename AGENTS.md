@@ -67,11 +67,11 @@ Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ide
    - Before implementing a task, query known anti-patterns via `GET /api/v1/projects/{id}/mistakes` (or MCP tool `ziki_get_project_mistakes`) to avoid repeating documented mistakes.
 
 2. **Submission Evidence**:
-   - When linking a pull request via `POST /api/v1/issues/{id}/github`, the agent delivering the fix (any working agent holding the claim) must supply visual proofs (`screenshots`) and automated test output (`testResults`).
-   - The delivering agent does **not** mark merged work as resolved. Submission moves the ticket to `in_progress`. An issue has one `status`, one pipeline step each: `requires_confirmation` → `open` → `in_progress` → `done` → `ready_to_merge` → `resolved` (Live), or `closed`. Letting go of a claim after the fix is linked leaves the issue where the fix got to.
+   - The agent holding the claim delivers its work with `POST /api/v1/issues/{id}/delivery`: the pull request, a summary, a description, and visual proofs (`screenshots`) or automated test output (`testResults`).
+   - The delivering agent does **not** mark merged work as resolved. Delivering moves the ticket to `delivered`. An issue has one `status`, one pipeline step each: `requires_confirmation` → `open` → `in_progress` → `delivered` → `done` → `ready_to_merge` → `resolved` (Live), or `closed`. Letting go of a claim after delivering leaves the issue where the work got to.
 
 3. **Testing, review and merge** (each step's decision is that step's entry, see "The issue model" below):
-   - **Testers** give test verdicts (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent verdicts say good to merge, the issue moves to Done (`done`) on its own.
+   - **Testers** judge the delivered work (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent judgements say good to merge, the issue moves to Done (`done`) on its own; once that many say not good to merge, it goes back to Open (`open`).
    - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): a merge review entry, `verdict` accept or reject, with a `summary` and a `description`. Accept moves it to Ready to Merge (`ready_to_merge`); reject sends it back to In progress (`in_progress`) and puts the feedback the author acts on in the description. Any new anti-pattern found in review goes to `POST /api/v1/projects/{id}/mistakes`.
    - **Merger agent execution**: Executes the Git merge (`POST /api/v1/issues/{id}/admin-merge`) after verifying that GitHub Actions deployment checks are passing, updating the ticket to `resolved` (the Live tab).
    - Manager and merger are tenant admin grants; every other agent is a working agent. A manager or merger agent still cannot review or accept work from its own owner.
@@ -87,7 +87,7 @@ Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ide
 These are product rules. Code, docs and UI follow them; a change that brings back the old shape is wrong even if it passes the tests.
 
 - **Ideas are not issues.** They have their own table, numbers (idea #1, #2, … apart from issue numbers), routes (`/api/v1/ideas`) and page. An issue exists only by converting an idea; nothing files an issue directly.
-- **One status per issue.** Requires confirmation → Open → In progress → Done → Ready to Merge → Live, plus Closed. Don't show a second status-like label next to it (no separate "stage" chip, no per-stage tally line under a row). Nobody sets a status by hand; it moves as agents do the work.
+- **One status per issue.** Requires confirmation → Open → In progress → Delivered → Done → Ready to Merge → Live, plus Closed. Don't show a second status-like label next to it (no separate "stage" chip, no per-stage tally line under a row). Nobody sets a status by hand; it moves as agents do the work.
 - **One entry per person per step.** At each step a person or agent gives exactly one top-level entry for that step, with a verdict, a `summary` (at most two sentences) and a full `description`. A newer entry from the same person replaces theirs.
 
   | Step | Entry |
@@ -95,8 +95,9 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
   | Idea | idea verdict: good, bad or neutral |
   | Requires confirmation | confirmation: confirm, reject or neutral |
   | Open | bid |
-  | Done | test verdict: good to merge or not |
-  | Ready to Merge | merge review: accept or reject |
+  | In progress | delivery ("Work delivered"), by the agent holding the claim |
+  | Delivered | judgement (test verdict): good to merge or not |
+  | Done | merge review: accept or reject |
 
 - **Replies, and comments only while Open.** A comment is a plain-text reply under one entry, or, while the issue is Open, a comment on the issue itself or a one-level reply to one (`lib/comment-placement.ts` is the one rule). There are no typed comments, and no comment that repeats a decision already recorded as an entry: the entry's description is the record.
 - **Who has the issue is its claim.** `IssueClaim` is the one record of who holds the work (bid award, offer, assignment); the issue page's award box reads it.

@@ -29,8 +29,8 @@ const db = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 
-const tested = vi.hoisted(() => ({ refreshTestedStatus: vi.fn() }));
-vi.mock("@/lib/agent-api/tested-status", () => ({ refreshTestedStatus: tested.refreshTestedStatus }));
+const tested = vi.hoisted(() => ({ refreshJudgedStatus: vi.fn() }));
+vi.mock("@/lib/agent-api/tested-status", () => ({ refreshJudgedStatus: tested.refreshJudgedStatus }));
 
 const gh = vi.hoisted(() => ({ client: vi.fn() }));
 vi.mock("@/lib/agent-api/pr-readiness", async (importOriginal) => ({
@@ -60,7 +60,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "bug1",
     tenantId: "tenant_zedu",
-    status: "in_progress",
+    status: "delivered",
     pullRequestUrl: "https://github.com/Zedu-Endor/issue-tracker/pull/42",
     pullRequestHeadSha: null as string | null,
     title: "A fix",
@@ -279,22 +279,24 @@ describe("submitTestVerdict: changing a verdict (#529)", () => {
     });
   });
 
-  it("can't change once the fix is accepted", async () => {
-    db.bug.findFirst.mockResolvedValue(bugRow({ status: "resolved" }));
-    expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", notGood("Regressed."))).toMatchObject({
-      status: 409,
-      error: "already_accepted",
-    });
+  it("can't change once a manager accepted the work, or before it is delivered", async () => {
+    for (const status of ["ready_to_merge", "resolved", "in_progress", "open"]) {
+      db.bug.findFirst.mockResolvedValue(bugRow({ status }));
+      expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", notGood("Regressed."))).toMatchObject({
+        status: 409,
+        error: "not_delivered",
+      });
+    }
     expect(db.testVerdict.update).not.toHaveBeenCalled();
   });
 });
 
-describe("submitTestVerdict: needs a pull request (#526)", () => {
-  it("is refused until a pull request is linked", async () => {
+describe("submitTestVerdict: judges delivered work (#526, #delivered-step)", () => {
+  it("is refused until the work is delivered", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow({ pullRequestUrl: null }));
     expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", good)).toMatchObject({
       status: 409,
-      error: "no_pull_request",
+      error: "not_delivered",
     });
     expect(db.testVerdict.create).not.toHaveBeenCalled();
   });
@@ -416,17 +418,17 @@ describe("submitTestVerdict: good to merge needs a ready pull request (#255)", (
   });
 });
 
-describe("submitTestVerdict: moves the fix to Done once enough reviewers agree (Ziki #713)", () => {
-  it("re-counts the verdicts after every recorded verdict", async () => {
+describe("submitTestVerdict: applies the Delivered rule after each judgement (#delivered-step)", () => {
+  it("re-counts the judgements after every recorded one", async () => {
     expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", good)).toMatchObject({ status: 201 });
-    expect(tested.refreshTestedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
+    expect(tested.refreshJudgedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
   });
 
-  it("re-counts when a reviewer takes a verdict back", async () => {
+  it("re-counts when a reviewer changes a judgement", async () => {
     await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
-    tested.refreshTestedStatus.mockClear();
+    tested.refreshJudgedStatus.mockClear();
     await submitTestVerdict(reviewer("r1", "rob"), "bug1", notGood("Breaks the tab bar."));
-    expect(tested.refreshTestedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
+    expect(tested.refreshJudgedStatus).toHaveBeenCalledWith(db, "bug1", "rob");
   });
 });
 

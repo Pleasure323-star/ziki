@@ -21,7 +21,7 @@ import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
 import { severityLabels } from "@/lib/labels";
-import { severities } from "@/lib/validations/issue";
+import { severities, statuses } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
   hasMatch,
@@ -123,7 +123,7 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
 const STAGE_GROUPS = [
   { label: "Ideas", statuses: [IDEAS_STATUS, "requires_confirmation"] },
   { label: "Working", statuses: ["open", "in_progress", "closed"] },
-  { label: "Delivered", statuses: ["done", "ready_to_merge", "resolved"] },
+  { label: "Delivered", statuses: ["delivered", "done", "ready_to_merge", "resolved"] },
 ] as const;
 
 /** New issue as a 32px + button; the name is kept for screen readers and the tooltip. */

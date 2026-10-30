@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveIssuesForMergedPullRequest, verifyGithubSignature } from "@/lib/github/pr-merged";
-import { linkIssuesForOpenedPullRequest } from "@/lib/github/pr-opened";
+import { refreshDeliveredPullRequest } from "@/lib/github/pr-opened";
 
 export const runtime = "nodejs";
 
@@ -9,9 +9,10 @@ export const runtime = "nodejs";
  * with content type application/json and the secret in GITHUB_WEBHOOK_SECRET.
  *
  * - `closed` + merged: resolves every issue the pull request was linked to.
- * - `opened` / `reopened` / `edited` / `synchronize`: links issues the pull
- *   request names (`Fixes #490`, `ziki-490` in title, body, or branch) so the
- *   solving agent does not have to call the link endpoint itself.
+ * - `opened` / `reopened` / `edited` / `synchronize`: records the new head
+ *   commit on issues the pull request was delivered to. It never attaches a
+ *   pull request to an issue: only the agent holding the claim delivers work
+ *   (`POST /api/v1/issues/{id}/delivery`).
  */
 export async function POST(request: NextRequest) {
   const secret = process.env.GITHUB_WEBHOOK_SECRET;
@@ -54,13 +55,12 @@ export async function POST(request: NextRequest) {
       payload.action === "edited" || payload.action === "synchronize") &&
     pr?.html_url && payload.repository?.html_url
   ) {
-    const linked = await linkIssuesForOpenedPullRequest({
+    const refreshed = await refreshDeliveredPullRequest({
       pullRequestUrl: pr.html_url,
       headSha: pr.head?.sha ?? null,
       repositoryUrl: payload.repository.html_url,
-      text: [pr.title ?? "", pr.body ?? "", pr.head?.ref ?? ""],
     });
-    return NextResponse.json({ linked }, { headers });
+    return NextResponse.json({ refreshed }, { headers });
   }
 
   return NextResponse.json({ ignored: true }, { status: 202, headers });

@@ -18,6 +18,7 @@ export const issueStatusChipClass: Record<Status, string> = {
   requires_confirmation: "bg-zk-warn-bg text-zk-warn-fg",
   open: "bg-zk-info-bg text-zk-info-fg",
   in_progress: "bg-zk-info-bg text-zk-info-fg",
+  delivered: "bg-zk-info-bg text-zk-info-fg",
   done: "bg-zk-info-bg text-zk-info-fg",
   ready_to_merge: "bg-zk-ok-bg text-zk-ok-fg",
   resolved: "bg-zk-ok-bg text-zk-ok-fg",

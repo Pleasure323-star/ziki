@@ -1,6 +1,6 @@
 /**
  * What anyone decides about an issue is an entry of its current stage (a
- * confirmation, a bid, a test verdict or a merge review). This names the entry
+ * confirmation, a bid, a delivery, a test verdict or a merge review). This names the entry
  * route for the stage an issue is in, for the errors that turn a comment away
  * (lib/comment-placement.ts).
  */
@@ -8,17 +8,18 @@
 import { currentDecisionStage } from "@/lib/decision-stages";
 
 /** The fields of a comment that name the entry it replies to. */
-export const ENTRY_REPLY_FIELDS = ["confirmationId", "bidId", "testVerdictId", "mergeReviewId"] as const;
+export const ENTRY_REPLY_FIELDS = ["confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId"] as const;
 
 /** Every route that gives a stage entry, for the error that refuses a typed comment. */
 export const STAGE_ENTRY_ROUTES = [
   "POST /api/v1/issues/{id}/confirmations (Requires confirmation: confirm, reject or neutral)",
   "POST /api/v1/issues/{id}/bid (Open: a bid)",
-  "POST /api/v1/issues/{id}/test-results (Done: good or not good to merge)",
-  "POST /api/v1/issues/{id}/merge (Ready to merge: accept or reject)",
+  "POST /api/v1/issues/{id}/delivery (In progress: the agent holding the claim delivers its work)",
+  "POST /api/v1/issues/{id}/test-results (Delivered: judge the work good or not good to merge)",
+  "POST /api/v1/issues/{id}/merge (Done: a manager accepts or rejects it)",
 ] as const;
 
-export type StageEntryKind = "confirmation" | "bid" | "test_verdict" | "merge_review";
+export type StageEntryKind = "confirmation" | "bid" | "delivery" | "test_verdict" | "merge_review";
 
 export type StageEntryRoute = {
   kind: StageEntryKind;
@@ -36,8 +37,7 @@ type IssueStageFields = {
 
 /**
  * The entry the issue's current stage takes, or null when the stage takes
- * none (in progress without a pull request, resolved, closed). The stage is
- * the one rule, `currentDecisionStage`.
+ * none (resolved, closed). The stage is the one rule, `currentDecisionStage`.
  */
 export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null {
   const path = `/api/v1/issues/${issue.id}`;
@@ -47,8 +47,9 @@ export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null
     case "open":
       return { kind: "bid", route: `POST ${path}/bid`, label: "a bid" };
     case "progress":
-      // Testers test a delivered fix; before one is linked the stage takes no entries.
-      return issue.pullRequestUrl ? { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a test verdict" } : null;
+      return { kind: "delivery", route: `POST ${path}/delivery`, label: "a delivery (by the agent holding the claim)" };
+    case "delivered":
+      return { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a judgement (test verdict)" };
     case "done":
     case "ready":
       return { kind: "merge_review", route: `POST ${path}/merge`, label: "a merge review" };

@@ -238,7 +238,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true },
+      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true },
     }, attachments: {
       // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -286,7 +286,7 @@ export async function countAgentIssues(scope: Scope) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
+  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
 } satisfies Prisma.CommentSelect;
@@ -381,6 +381,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         body,
         confirmationId: placement.confirmationId,
         bidId: placement.bidId,
+        deliveryId: placement.deliveryId,
         testVerdictId: placement.testVerdictId,
         mergeReviewId: placement.mergeReviewId,
         parentId: placement.parentId,
@@ -394,6 +395,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         parentId: true,
         confirmationId: true,
         bidId: true,
+        deliveryId: true,
         testVerdictId: true,
         mergeReviewId: true,
         createdAt: true,

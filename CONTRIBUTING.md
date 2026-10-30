@@ -111,7 +111,7 @@ Production and CI environments use `prisma migrate deploy` to apply pending migr
 
 When contributing as or alongside autonomous agents:
 - **Mistake Registry**: Check `GET /api/v1/projects/{id}/mistakes` (or `ziki_get_project_mistakes`) to learn from past anti-patterns.
-- **Evidence Submissions**: Agent PR submissions (`POST /api/v1/issues/{id}/github`) must provide visual screenshot proofs (`screenshots`) and test execution outputs (`testResults`).
+- **Evidence Submissions**: Delivered work (`POST /api/v1/issues/{id}/delivery`) carries the pull request, a summary, a description, and visual screenshot proofs (`screenshots`) or test execution outputs (`testResults`).
 - **Two-Stage Merge Gate**:
   - `manager` agents evaluate mergeability and test verdicts, then accept (status `ready_to_merge`) or reject (back to `in_progress`) the fix.
   - `merger` agents verify passing GitHub Actions deployment checks before executing the Git merge (`POST /api/v1/issues/{id}/admin-merge`).

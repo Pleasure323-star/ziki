@@ -21,10 +21,11 @@ describe("stageOfDecision and decisionTone (#1446)", () => {
     [{ kind: "rejected" }, "confirm", "negative"],
     [{ kind: "claimed" }, "progress", "positive"],
     [{ kind: "claim_released" }, "progress", "negative"],
-    [{ kind: "verdict", goodToMerge: true }, "done", "positive"],
-    [{ kind: "verdict", goodToMerge: false }, "done", "negative"],
-    [{ kind: "accepted" }, "ready", "positive"],
-    [{ kind: "merge_rejected" }, "ready", "negative"],
+    [{ kind: "delivered" }, "progress", "positive"],
+    [{ kind: "verdict", goodToMerge: true }, "delivered", "positive"],
+    [{ kind: "verdict", goodToMerge: false }, "delivered", "negative"],
+    [{ kind: "accepted" }, "done", "positive"],
+    [{ kind: "merge_rejected" }, "done", "negative"],
     [{ kind: "deploy_failed" }, "ready", "negative"],
     [{ kind: "accepted", merged: true }, "live", "positive"],
   ];
@@ -75,7 +76,8 @@ describe("tallyStages", () => {
       confirm: { positive: 8, negative: 1 },
       open: { positive: 0, negative: 0 },
       progress: { positive: 1, negative: 1 },
-      done: { positive: 7, negative: 2 },
+      delivered: { positive: 7, negative: 2 },
+      done: { positive: 0, negative: 0 },
       ready: { positive: 0, negative: 0 },
       live: { positive: 0, negative: 0 },
       closed: { positive: 0, negative: 0 },
@@ -88,6 +90,7 @@ describe("currentDecisionStage", () => {
     expect(currentDecisionStage({ status: "requires_confirmation" })).toBe("confirm");
     expect(currentDecisionStage({ status: "open" })).toBe("open");
     expect(currentDecisionStage({ status: "in_progress" })).toBe("progress");
+    expect(currentDecisionStage({ status: "delivered" })).toBe("delivered");
     expect(currentDecisionStage({ status: "done" })).toBe("done");
     expect(currentDecisionStage({ status: "ready_to_merge" })).toBe("ready");
     expect(currentDecisionStage({ status: "resolved" })).toBe("live");
@@ -95,7 +98,7 @@ describe("currentDecisionStage", () => {
   });
   it("puts every status on the pipeline, with Closed in Live's place", () => {
     for (const status of statuses) expect(pipelineStages(currentDecisionStage({ status }))).toContain(currentDecisionStage({ status }));
-    expect(pipelineStages("closed")).toEqual(["idea", "confirm", "open", "progress", "done", "ready", "closed"]);
+    expect(pipelineStages("closed")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done", "ready", "closed"]);
     expect(pipelineStages("open")).toEqual(DECISION_STAGES);
   });
   it("is a setback only when a manager sent the fix back to In progress", () => {
@@ -119,8 +122,9 @@ describe("stageStarts and stageAt", () => {
       confirm: Date.parse("2026-10-21T21:00:00.000Z"),
       open: null,
       progress: Date.parse("2026-10-22T16:00:00.000Z"),
-      done: Date.parse("2026-10-22T20:00:00.000Z"),
-      ready: Date.parse("2026-10-25T09:40:00.000Z"),
+      delivered: Date.parse("2026-10-22T20:00:00.000Z"),
+      done: Date.parse("2026-10-25T09:40:00.000Z"),
+      ready: null,
       live: null,
       closed: null,
     });
@@ -129,8 +133,8 @@ describe("stageStarts and stageAt", () => {
     expect(stageAt("2026-10-21T20:00:00.000Z", starts)).toBe("idea");
     expect(stageAt("2026-10-21T22:00:00.000Z", starts)).toBe("confirm");
     expect(stageAt("2026-10-22T16:00:00.000Z", starts)).toBe("progress");
-    expect(stageAt("2026-10-24T00:00:00.000Z", starts)).toBe("done");
-    expect(stageAt("2026-10-26T00:00:00.000Z", starts)).toBe("ready");
+    expect(stageAt("2026-10-24T00:00:00.000Z", starts)).toBe("delivered");
+    expect(stageAt("2026-10-26T00:00:00.000Z", starts)).toBe("done");
   });
 });
 

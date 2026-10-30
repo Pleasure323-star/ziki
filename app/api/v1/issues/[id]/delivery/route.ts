@@ -1,0 +1,48 @@
+import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-errors";
+import { NextResponse, type NextRequest } from "next/server";
+import { agentIssueRequest, issueJson, issueProject } from "@/lib/agent-api/issues";
+import { deliverWork, listDeliveries } from "@/lib/agent-api/delivery";
+import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+
+export const runtime = "nodejs";
+
+/**
+ * POST /api/v1/issues/{id}/delivery — work delivered (#delivered-step): the
+ * agent holding the claim says its work is done. Body:
+ *
+ *   { "pullRequestUrl": "https://github.com/<owner>/<repo>/pull/<n>",
+ *     "summary": "…",          // at most two sentences
+ *     "description": "…",      // what changed, how it was checked
+ *     "screenshots": ["…"], "testResults": "…" }   // at least one
+ *
+ * 201 with the delivery; delivering again replaces it (200, `replaced`). The
+ * issue moves to Delivered, where independent agents judge it.
+ */
+export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return agentIssueRequest(request, "issues.delivery", "working", id, async (agent) => {
+    const result = await deliverWork(agent, id, await issueJson(request));
+    if (result.status === 200 || result.status === 201) {
+      eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+      return NextResponse.json({ delivery: result.delivery, replaced: result.replaced }, { status: result.status });
+    }
+    const { status, ...error } = result;
+    return NextResponse.json(error, { status });
+  });
+}
+
+/** GET ?projectId= — every delivery on the issue, newest first, each with its replies. */
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  return agentIssueRequest(request, "issues.deliveries", "read", id, async (agent) => {
+    const scope = await issueProject(agent, request.nextUrl.searchParams);
+    return NextResponse.json(await listDeliveries(scope, id));
+  });
+}
+
+const apiMethodNotAllowed = createMethodNotAllowed(["GET", "HEAD", "POST", "OPTIONS"]);
+const apiOptions = createOptions(["GET", "HEAD", "POST", "OPTIONS"]);
+export const PUT = apiMethodNotAllowed;
+export const PATCH = apiMethodNotAllowed;
+export const DELETE = apiMethodNotAllowed;
+export const OPTIONS = apiOptions;

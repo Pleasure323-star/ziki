@@ -28,15 +28,15 @@ export async function findReviewableIssues(
 
   const results: ReviewableIssue[] = [];
 
-  // Test candidates: PR linked, needing goodToMerge test verdicts. Issues to
-  // confirm come from openIssueConfirmations() in the work feed (#714).
+  // Delivered work to judge (#delivered-step). Issues to confirm come from
+  // openIssueConfirmations() in the work feed (#714).
   if (reviewType === "test") {
     const testCandidates = await prisma.bug.findMany({
       where: {
         tenantId: agent.tenantId,
         projectId,
         isDeleted: false,
-        status: "in_progress",
+        status: "delivered",
         pullRequestUrl: { not: null },
         testVerdicts: {
           none: {

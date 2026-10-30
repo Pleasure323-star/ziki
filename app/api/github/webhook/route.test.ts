@@ -9,7 +9,7 @@ vi.mock("@/lib/github/pr-merged", async (original) => ({
   ...(await original<typeof import("@/lib/github/pr-merged")>()), resolveIssuesForMergedPullRequest: resolve,
 }));
 vi.mock("@/lib/github/pr-opened", async (original) => ({
-  ...(await original<typeof import("@/lib/github/pr-opened")>()), linkIssuesForOpenedPullRequest: link,
+  ...(await original<typeof import("@/lib/github/pr-opened")>()), refreshDeliveredPullRequest: link,
 }));
 import { POST } from "./route";
 
@@ -39,7 +39,7 @@ describe("POST /api/github/webhook (#474)", () => {
     expect(await response.json()).toEqual({ resolved: ["bug-1"] });
     expect(resolve).toHaveBeenCalledWith("https://github.com/o/r/pull/9");
   });
-  it("links issues named by an opened pull request", async () => {
+  it("refreshes the head commit of issues the pull request was delivered to", async () => {
     link.mockResolvedValue(["bug-2"]);
     const response = await call({
       action: "opened",
@@ -52,12 +52,11 @@ describe("POST /api/github/webhook (#474)", () => {
       repository: { html_url: "https://github.com/o/r" },
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ linked: ["bug-2"] });
+    expect(await response.json()).toEqual({ refreshed: ["bug-2"] });
     expect(link).toHaveBeenCalledWith({
       pullRequestUrl: "https://github.com/o/r/pull/10",
       headSha: "sha-1",
       repositoryUrl: "https://github.com/o/r",
-      text: ["Fixes #490", "", "fix/ziki-490"],
     });
   });
   it("ignores closed-without-merge, other actions and other events", async () => {

@@ -14,7 +14,7 @@ import { publish } from "@/lib/agent-api/events";
 import { handleTestVerdictSubmitted } from "@/lib/agent-api/review-offer";
 import { parsePullRequestUrl, type GitHubClient, type PullRequest } from "@/lib/github/merge-pr";
 import { combineProblems, notifyAuthor, readinessClient, readinessProblems } from "@/lib/agent-api/pr-readiness";
-import { refreshTestedStatus } from "@/lib/agent-api/tested-status";
+import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
@@ -34,10 +34,12 @@ import { parseIssueRef } from "@/lib/issue-ref";
  *   on its own. Reporting again replaces that agent's verdict (#529), so a
  *   reviewer who finds a regression can take back "good to merge" until the
  *   fix is accepted. The audit log keeps every change.
- * - A verdict is the Done stage's entry (#review-entries): good or not good
- *   to merge, with a summary of at most two sentences and a full description
- *   (lib/agent-api/entry-fields.ts). Nobody gives a bare verdict. Replies are
- *   plain comments with `testVerdictId`.
+ * - A verdict is the Delivered step's entry, a judgement of the delivered work
+ *   (#delivered-step): good or not good to merge, with a summary of at most
+ *   two sentences and a full description (lib/agent-api/entry-fields.ts).
+ *   Nobody gives a bare verdict. Replies are plain comments with
+ *   `testVerdictId`. Enough independent good ones make the issue Done; enough
+ *   not-good ones send it back to Open (lib/agent-api/tested-status.ts).
  * - "Good to merge" is only recorded when the pull request is ready: every check
  *   on its head commit is green, CodeRabbit has no unresolved review threads,
  *   and it doesn't conflict with its base branch (#255). Otherwise nothing is
@@ -137,7 +139,7 @@ export type SubmitTestVerdictResult =
   | { status: 400; error: "invalid_request"; message: string; field?: string }
   | { status: 403; error: "insufficient_level" | "fixer_cannot_verdict" | "not_independent"; message: string }
   | { status: 404; error: "not_found"; message: string }
-  | { status: 409; error: "no_pull_request" | "already_accepted" | "already_verdicted"; message: string }
+  | { status: 409; error: "not_delivered" | "already_verdicted"; message: string }
   /** "Good to merge" was not recorded because the pull request isn't ready (#255). */
   | {
       status: 409;
@@ -174,20 +176,15 @@ export async function submitTestVerdict(
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
 
-  // #526: "good to merge" has to be about some code.
-  if (!bug.pullRequestUrl) {
+  // #delivered-step: delivered work is judged at Delivered, and a judgement can
+  // still change at Done (#529); before delivery, and once a manager has
+  // accepted it, there is nothing to judge.
+  if ((bug.status !== "delivered" && bug.status !== "done") || !bug.pullRequestUrl) {
     return {
       status: 409,
-      error: "no_pull_request",
-      message: "Link the fix's pull request (POST /api/v1/issues/{id}/github) before reporting a test verdict.",
-    };
-  }
-  // #529: verdicts can change until the fix is accepted, not after.
-  if (bug.status === "resolved" || bug.status === "closed") {
-    return {
-      status: 409,
-      error: "already_accepted",
-      message: "This fix has already been accepted, so its verdicts can't change.",
+      error: "not_delivered",
+      message:
+        "Judgements are given on delivered work: the issue must be Delivered (or Done, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
     };
   }
   const pullRequestUrl = bug.pullRequestUrl;
@@ -350,9 +347,8 @@ export async function submitTestVerdict(
       await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, tenantId: bug.tenantId, pullRequestUrl }).catch(() => null);
       return { status: 201 as const, verdict };
     });
-    // Ziki #713: the required independent good-to-merge verdicts make the fix
-    // tested (the Done tab); a verdict taken back returns it to In progress.
-    await refreshTestedStatus(prisma, bug.id, agent.ownerId);
+    // #delivered-step: enough independent judgements move it to Done, or back to Open.
+    await refreshJudgedStatus(prisma, bug.id, agent.ownerId);
     return result;
   } catch (error) {
     if (

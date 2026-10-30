@@ -23,7 +23,7 @@ describe("the work feed", () => {
 
   it("counts issues per status and ideas per idea status, the numbers the tabs show", async () => {
     const counts = await ok("bob", "count-issues");
-    const statuses = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"];
+    const statuses = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"];
     expect(Object.keys(counts.issues).sort()).toEqual([...statuses, "all"].sort());
     expect(counts.issues.all).toBe(statuses.reduce((sum, status) => sum + counts.issues[status], 0));
     expect(Object.keys(counts.ideas).sort()).toEqual(["closed", "converted", "open"]);
@@ -106,7 +106,7 @@ describe("the work feed", () => {
     expect(offered?.actions[0].cli).toBe(`accept-offer --id ${offer.offerId}`);
     await ok(offer.agent, "accept-offer", { id: offer.offerId });
     const claim = itemFor((await work(offer.agent)).items, "active_claim", issue);
-    expect(claim?.actions.map((action) => action.name)).toEqual(["heartbeat", "link_pull_request", "release_claim"]);
+    expect(claim?.actions.map((action) => action.name)).toEqual(["heartbeat", "deliver", "release_claim"]);
     await ok(offer.agent, "release-claim", { id: issue, reason: "Done testing the feed." });
   });
 
