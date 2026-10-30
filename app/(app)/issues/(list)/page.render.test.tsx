@@ -207,6 +207,9 @@ describe("issue list layout", () => {
     findMany.mockResolvedValue([]);
     const html = await renderList({ mine: "assigned", status: "all" });
     expect(html).toContain("No issues match these filters.");
+    expect(html).toContain('data-testid="whimsical-empty-state"');
+    expect(html).toContain("Create a new issue");
+    expect(html).toContain("Clear filters");
     expect(html).not.toContain("No issues yet");
   });
 

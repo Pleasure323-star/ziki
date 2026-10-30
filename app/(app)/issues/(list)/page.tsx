@@ -17,6 +17,7 @@ import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
 import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
+import { WhimsicalEmptyState } from "@/components/whimsical-empty-state";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
 import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
@@ -82,7 +83,7 @@ import { logLoadFailure } from "@/lib/load-error";
 import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
 import { issuePath } from "@/lib/issue-ref";
-import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
+import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { CountBadge } from "@/components/count-badge";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
@@ -886,24 +887,30 @@ export default async function BugsPage({
         ) : isFirstRun ? (
           <FirstRunWelcome isAdmin={canDelete} hasTenant={Boolean(tenantId)} />
         ) : bugs.length === 0 ? (
-          <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
-            <p className="font-bold text-zk-text">
-              {isWatchingView && !qParam && !statusParam && !tagsParam && !selectedPlatform && !selectedMilestone
+          <WhimsicalEmptyState
+            title={
+              isWatchingView && !qParam && !statusParam && !tagsParam && !selectedPlatform && !selectedMilestone
                 ? "You're not watching any issues."
                 : emptyPlatform
                   ? "No issues on this platform"
                   : onlyStatusTab
                     ? `No issues in ${statusFilterLabel(statusParam!)}.`
-                    : "No issues match these filters."}
-            </p>
-            {isWatchingView || emptyPlatform ? (
-              <p className="mt-1.5 text-sm text-zk-muted">
-                {isWatchingView
-                  ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
-                  : "Issues tagged for this platform will show up here."}
-              </p>
-            ) : null}
-          </div>
+                    : "No issues match these filters."
+            }
+            description={
+              isWatchingView
+                ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
+                : emptyPlatform
+                  ? "Issues tagged for this platform will show up here."
+                  : onlyStatusTab
+                    ? undefined
+                    : "Maybe the bugs went into hiding, or they've all been squashed! Try clearing your filters or create a new issue."
+            }
+            clearHref="/issues"
+            createHref="/issues/new"
+            showClear={Boolean(!onlyStatusTab && (qParam || statusParam || tagsParam || selectedPlatform || selectedMilestone))}
+            showCreate={true}
+          />
         ) : (
           <section className="issues-results flex flex-col gap-3.5">
             <div className="issues-results-summary flex flex-wrap items-baseline justify-between gap-2.5">
