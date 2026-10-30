@@ -90,9 +90,9 @@ describe("tools over MCP", () => {
     }
   });
 
-  it("files an idea without sending fields the route rejects", async () => {
-    await call("ziki_create_idea", { title: "Bug title", description: "Steps to reproduce it" });
-    expect(JSON.parse(sent().init.body as string)).toEqual({ title: "Bug title", description: "Steps to reproduce it" });
+  it("files an idea, with its required summary, without sending fields the route rejects", async () => {
+    await call("ziki_create_idea", { title: "Bug title", summary: "Pressing Save does nothing on the page.", description: "Steps to reproduce it" });
+    expect(JSON.parse(sent().init.body as string)).toEqual({ title: "Bug title", summary: "Pressing Save does nothing on the page.", description: "Steps to reproduce it" });
     expect((sent().init.headers as Record<string, string>)["Idempotency-Key"]).toBeTruthy();
   });
 
