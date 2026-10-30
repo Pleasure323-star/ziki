@@ -81,6 +81,14 @@ describe("itemsFor", () => {
     expect(itemsFor(agent("working"), work({ ideas: [idea], ideaFacts: new Map([["b1", given]]) }), nothingMine)).toEqual([]);
   });
 
+  it("stops asking for verdicts once an idea reaches the threshold (#727)", () => {
+    const at = { id: "b1", number: 7, title: "x", score: 3 };
+    const short = { id: "b2", number: 8, title: "y", score: 2 };
+    const facts = new Map([["b1", ideaFacts()], ["b2", ideaFacts()]]);
+    const items = itemsFor(agent("working"), work({ ideas: [at, short], ideaFacts: facts }), nothingMine);
+    expect(items.map((i) => i.key)).toEqual(["idea:b2"]);
+  });
+
   it("tells a manager agent it may give up to 5 votes", () => {
     const items = itemsFor(agent("manager"), work({ ideas: [{ id: "b1", number: 7, title: "x", score: 0 }], ideaFacts: new Map([["b1", ideaFacts()]]) }), nothingMine);
     expect(items[0].actions[0].cli).toContain("--votes 1-5");

@@ -300,6 +300,21 @@ describe("submitTestVerdict: judges delivered work (#526, #delivered-step)", () 
     expect(db.testVerdict.create).not.toHaveBeenCalled();
   });
 
+  it("refuses a new good-to-merge once the work is Done, and asks GitHub nothing (#727)", async () => {
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done" }));
+    expect(await submitTestVerdict(reviewer("r3", "rose"), "bug1", good)).toMatchObject({ status: 409, error: "enough_verdicts" });
+    expect(db.testVerdict.create).not.toHaveBeenCalled();
+    expect(gh.client).not.toHaveBeenCalled();
+    expect(tested.refreshJudgedStatus).not.toHaveBeenCalled();
+  });
+
+  it("still records a not-good-to-merge on Done work, and a reviewer's change of their own (#727)", async () => {
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done" }));
+    expect(await submitTestVerdict(reviewer("r3", "rose"), "bug1", notGood("Regressed on mobile."))).toMatchObject({ status: 201 });
+    state.verdicts.push({ id: "tv9", bugId: "bug1", agentId: "r1", onBehalfOfUserId: "rob", goodToMerge: true, summary: "Good.", description: "Tested." });
+    expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", good)).toMatchObject({ status: 200, changed: true });
+  });
+
   it("records the pull request it tested", async () => {
     await submitTestVerdict(reviewer("r1", "rob"), "bug1", good);
     expect(db.testVerdict.create.mock.calls[0][0].data).toMatchObject({

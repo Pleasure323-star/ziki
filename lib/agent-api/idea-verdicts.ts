@@ -161,8 +161,15 @@ export async function giveIdeaVerdict(
     const ideaId = idea.id;
     const existing = await tx.ideaVerdict.findUnique({
       where: { ideaId_onBehalfOfUserId: { ideaId, onBehalfOfUserId: giver.userId } },
-      select: { id: true },
+      select: { id: true, opinion: true },
     });
+    // #727: once the score reaches the threshold, another good verdict changes
+    // nothing. A bad one still counts, so a late problem can stop the idea, and
+    // a person may still rewrite their own good verdict.
+    if (input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
+      const message = `This idea already has the score it needs (${idea.score} of ${ideaThreshold}) and is waiting for a manager to convert it. Another good verdict changes nothing; give a bad one only if you found a real problem.`;
+      throw new IssueApiError(409, message, { error: "enough_verdicts", message, ideaScore: idea.score, ideaThreshold });
+    }
     const data = {
       agentId: giver.agent?.id ?? null,
       opinion: input.opinion,
