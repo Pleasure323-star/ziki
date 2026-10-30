@@ -141,7 +141,7 @@ export function decisionCard(decision: AgentDecision): DecisionCard {
       };
     case "claim_released":
       return {
-        label: "Claim rejected",
+        label: "Released",
         tone: "cr",
         icon: "x",
         text: <>The claim for {decision.personName} was released.</>,

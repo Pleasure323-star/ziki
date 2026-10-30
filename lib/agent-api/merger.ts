@@ -58,7 +58,7 @@ export async function findReadyToMergeIssues(
   const confirmed = await confirmedIssueIds(prisma, {
     tenantId: agent.tenantId,
     projectId,
-    status: { in: ["open", "in_progress"] },
+    status: "in_progress",
     pullRequestUrl: { not: null },
   });
   if (confirmed.size === 0) return [];
@@ -71,7 +71,7 @@ export async function findReadyToMergeIssues(
       tenantId: agent.tenantId,
       projectId,
       isDeleted: false,
-      status: { in: ["open", "in_progress"] },
+      status: "in_progress",
       pullRequestUrl: { not: null },
       AND: [reviewStatusCondition],
       OR: [

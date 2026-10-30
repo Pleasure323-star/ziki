@@ -533,7 +533,7 @@ describe("issue list layout", () => {
   it("lists tested fixes under Done: two independent reviewers said good to merge (Ziki #713)", async () => {
     await renderList({ status: "resolved" });
     const where = findMany.mock.calls.at(-1)![0].where;
-    expect(where).toMatchObject({ status: { in: ["open", "in_progress", "resolved"] }, reviewStatus: "tested" });
+    expect(where).toMatchObject({ status: { in: ["in_progress"] }, reviewStatus: "tested" });
     expect(where).not.toHaveProperty("AND");
     // The tab counts don't inherit the Done clause.
     const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status")![0];
@@ -545,11 +545,8 @@ describe("issue list layout", () => {
       args.by[0] !== "status"
         ? []
         : args.where?.reviewStatus === "ready_to_merge"
-          // Accepted fixes keep their status: one is still in progress, one was resolved.
-          ? [
-              { status: "in_progress", _count: { _all: 1 } },
-              { status: "resolved", _count: { _all: 1 } },
-            ]
+          // An accepted fix waits at Ready to Merge only while its issue is in progress.
+          ? [{ status: "in_progress", _count: { _all: 1 } }]
           : args.where?.reviewStatus === "tested"
             // Two fixes with two good-to-merge verdicts, still in progress.
             ? [{ status: "in_progress", _count: { _all: 2 } }]
@@ -568,23 +565,25 @@ describe("issue list layout", () => {
       [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
     );
     // In progress = 5 - 1 waiting to merge - 2 tested. Done = the 2 tested fixes (Ziki #713).
-    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to Merge": 2, Live: 3, All: 28 });
-    // The other 6 are closed (3) or were resolved without a merge (3): they stay under All only.
-    expect(counts.All - (counts["Requires confirmation"] + counts.Open + counts["In progress"] + counts.Done + counts["Ready to Merge"] + counts.Live)).toBe(6);
+    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to Merge": 1, Live: 3, All: 28 });
+    // The other 7 are closed (3) or were resolved without a merge (4): they stay under All only.
+    expect(counts.All - (counts["Requires confirmation"] + counts.Open + counts["In progress"] + counts.Done + counts["Ready to Merge"] + counts.Live)).toBe(7);
   });
 
-  it("lists an accepted fix on Ready to Merge whatever its status, and keeps it off Open and In progress", async () => {
+  it("lists an accepted fix on Ready to Merge only while its issue is in progress, and keeps it off In progress (#685)", async () => {
     await renderList({ status: "ready_to_merge" });
     expect(findMany.mock.calls.at(-1)![0].where).toMatchObject({
-      status: { in: ["open", "in_progress", "resolved"] },
+      status: { in: ["in_progress"] },
       reviewStatus: "ready_to_merge",
     });
     await renderList({ status: "in_progress" });
+    // Ziki #713: a tested fix is on Done instead.
     expect(findMany.mock.calls.at(-1)![0].where.AND).toEqual([
-      { OR: [{ reviewStatus: null }, { reviewStatus: { not: "ready_to_merge" } }] },
-      // Ziki #713: a tested fix is on Done instead.
-      { OR: [{ reviewStatus: null }, { reviewStatus: { not: "tested" } }] },
+      { OR: [{ reviewStatus: null }, { reviewStatus: { notIn: ["ready_to_merge", "tested"] } }] },
     ]);
+    // The status alone decides Open: a review status never moves an open issue.
+    await renderList({ status: "open" });
+    expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("AND");
   });
 
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {

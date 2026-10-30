@@ -33,9 +33,9 @@ export const decisionStageInfo: Record<
   },
   open: {
     label: "Open",
-    description: "Claims and rejected claims",
+    description: "Claims and released claims",
     emptyTitle: "No claims yet",
-    emptyText: "Claims and rejected claims appear here once the issue is confirmed.",
+    emptyText: "Claims and released claims appear here once the issue is confirmed.",
     notReached: "Starts once the issue is confirmed.",
   },
   done: {
@@ -113,7 +113,7 @@ export function decisionTone(decision: DecisionLike): DecisionTone {
 /**
  * What a claim counts as. Offers never taken up are not claims. A claim
  * released because the issue was resolved or closed did its job; any other
- * release (expired, deadline, silence, revoked, …) is a claim rejected.
+ * release (expired, deadline, silence, revoked, …) is a claim released.
  */
 export function claimDecisionKind(claim: {
   status: string;
@@ -153,10 +153,31 @@ export function tallyStages(decisions: Iterable<DecisionLike & { count?: number 
   return tallies;
 }
 
+/** Review statuses of a fix that waits at Ready to merge, blocked or failed merges included. */
+const READY_REVIEW_STATUSES = new Set(["ready_to_merge", "merge_blocked", "merge_failed"]);
+
+/** Where a fix's review puts an issue that is in progress or closed. */
+function reviewStage(reviewStatus: string | null | undefined, pullRequestUrl: string | null | undefined): DecisionStage | null {
+  if (reviewStatus === "merged") return "live";
+  if (reviewStatus && READY_REVIEW_STATUSES.has(reviewStatus)) return "ready";
+  if (pullRequestUrl || reviewStatus === "submitted" || reviewStatus === "rejected") return "done";
+  return null;
+}
+
 /**
- * The stage the issue is in now, which the issue page opens on. Every issue
- * was converted from an idea (#idea-table), so it starts at Requires
- * confirmation. `ideaAccepted`: the issue is confirmed (stage `ready`).
+ * The stage the issue is in now, which the issue page opens on. This is the
+ * one rule for an issue's stage, and it follows `Bug.status` first:
+ *
+ * - `requires_confirmation`: Requires confirmation.
+ * - `open`: Open.
+ * - `in_progress`: Open, or Done, Ready to merge or Live as the fix's review
+ *   (`reviewStatus` and the linked pull request) has moved it.
+ * - `resolved`: Live.
+ * - `closed`: the furthest stage it reached (its review, a claim, a
+ *   confirmation), else Requires confirmation.
+ *
+ * A pull request or review status on an issue that requires confirmation or is
+ * open never moves its stage. `ideaAccepted`: the issue is confirmed (stage `ready`).
  */
 export function currentDecisionStage(issue: {
   status: string;
@@ -165,15 +186,23 @@ export function currentDecisionStage(issue: {
   hasClaim: boolean;
   ideaAccepted: boolean;
 }): DecisionStage {
-  if (issue.reviewStatus === "merged") return "live";
-  // A blocked or failed merge is still waiting at Ready to merge.
-  if (issue.reviewStatus === "ready_to_merge" || issue.reviewStatus === "merge_blocked" || issue.reviewStatus === "merge_failed") {
-    return "ready";
+  switch (issue.status) {
+    case "requires_confirmation":
+      return "confirm";
+    case "open":
+      return "open";
+    case "in_progress":
+      return reviewStage(issue.reviewStatus, issue.pullRequestUrl) ?? "open";
+    case "resolved":
+      return "live";
+    default:
+      return reviewStage(issue.reviewStatus, issue.pullRequestUrl) ?? (issue.hasClaim || issue.ideaAccepted ? "open" : "confirm");
   }
-  if (issue.pullRequestUrl || issue.reviewStatus === "submitted" || issue.reviewStatus === "rejected") return "done";
-  if (issue.status === "resolved") return "live";
-  if (issue.status === "in_progress" || issue.hasClaim || issue.ideaAccepted) return "open";
-  return "confirm";
+}
+
+/** The current stage went backwards: testing sent the fix back for changes. */
+export function stageSetback(stage: DecisionStage, reviewStatus: string | null | undefined): boolean {
+  return stage === "done" && reviewStatus === "rejected";
 }
 
 /**

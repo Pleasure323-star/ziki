@@ -86,6 +86,7 @@ describe("POST /api/v1/issues/[id]/github (#452)", () => {
     db.bug.findFirst.mockResolvedValue({
       id: "bug1",
       projectId: "proj-1",
+      status: "in_progress",
       pullRequestUrl: null,
       project: { repoUrl: "https://github.com/zedu/web", githubInstallationId: null },
     });
@@ -97,6 +98,22 @@ describe("POST /api/v1/issues/[id]/github (#452)", () => {
     db.agentAuditEvent.create.mockResolvedValue({});
     db.agentEvent.create.mockResolvedValue({ id: "event-1" });
     db.webhookSubscription.findMany.mockResolvedValue([]);
+  });
+
+  it("refuses to link a pull request unless the issue is in progress (#685)", async () => {
+    for (const status of ["requires_confirmation", "open", "resolved"]) {
+      db.bug.findFirst.mockResolvedValueOnce({
+        id: "bug1",
+        projectId: "proj-1",
+        status,
+        pullRequestUrl: null,
+        project: { repoUrl: "https://github.com/zedu/web", githubInstallationId: null },
+      });
+      const response = await POST(request({ pullRequestUrl: PR_URL }), params);
+      expect(response.status).toBe(409);
+      expect((await response.json()).error).toBe("not_in_progress");
+    }
+    expect(db.bug.update).not.toHaveBeenCalled();
   });
 
   it("links the pull request and merges once the fix is accepted", async () => {
@@ -266,6 +283,7 @@ describe("POST /api/v1/issues/[id]/github (#452)", () => {
   it("allows re-linking the accepted pull request, refreshing its head SHA (#489)", async () => {
     db.bug.findFirst.mockResolvedValue({
       id: "bug1",
+      status: "in_progress",
       pullRequestUrl: PR_URL,
       project: { repoUrl: "https://github.com/zedu/web", githubInstallationId: "123" },
     });

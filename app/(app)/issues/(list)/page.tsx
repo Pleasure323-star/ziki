@@ -144,7 +144,8 @@ const AUTO_MERGE_STATUS = "auto_merge";
  */
 const DONE_STATUS = "resolved";
 /** Statuses an accepted fix can have while it waits to be merged. */
-const READY_TO_MERGE_STATUSES = ["open", "in_progress", "resolved"] as const;
+// A fix is reviewed only while its issue is in progress (one rule: currentDecisionStage).
+const READY_TO_MERGE_STATUSES = ["in_progress"] as const;
 
 /** The filters under the All tab. Open, In progress and Done have tabs of their own. */
 const ALL_FILTERS = [ALL_STATUS, "closed", REJECTED_STATUS, DUPLICATE_STATUS].map((value) => ({
@@ -352,16 +353,11 @@ export default async function BugsPage({
   const hidesResolved = statusParam === ESCALATED_STATUS && !isDeletedView && !showResolved;
   if (statusWhere !== undefined) {
     where.status = statusWhere;
-    // An accepted fix waiting to be merged is on the Ready to Merge tab instead.
-    if ((statusParam === "open" || statusParam === "in_progress") && !isDeletedView) {
-      where.AND = [{ OR: [{ reviewStatus: null }, { reviewStatus: { not: "ready_to_merge" } }] }];
-    }
-    // A tested fix (two good-to-merge verdicts) is on the Done tab instead (Ziki #713).
-    if ((statusParam === "open" || statusParam === "in_progress") && !isDeletedView) {
-      where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-        { OR: [{ reviewStatus: null }, { reviewStatus: { not: "tested" } }] },
-      ];
+    // Only an issue in progress has a fix under review: an accepted fix waiting
+    // to be merged is on the Ready to Merge tab, a tested one (two good-to-merge
+    // verdicts) on the Done tab (Ziki #713), not In progress.
+    if (statusParam === "in_progress" && !isDeletedView) {
+      where.AND = [{ OR: [{ reviewStatus: null }, { reviewStatus: { notIn: ["ready_to_merge", "tested"] } }] }];
     }
   } else if (hidesResolved) {
     where.status = defaultStatusWhere(false);

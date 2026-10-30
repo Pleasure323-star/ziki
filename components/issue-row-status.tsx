@@ -82,7 +82,9 @@ export function IssueRowStatus({
       </span>
     );
   }
-  if (reviewStatus === "submitted") {
+  // The review only refines an issue in progress (one rule: currentDecisionStage).
+  const review = status === "in_progress" ? reviewStatus : null;
+  if (review === "submitted") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-400">
         <span className="relative flex h-2 w-2">
@@ -93,32 +95,32 @@ export function IssueRowStatus({
       </span>
     );
   }
-  if (reviewStatus === "tested") {
+  if (review === "tested") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-400">
         <CheckIcon /> Tested
       </span>
     );
   }
-  if (reviewStatus === "ready_to_merge") {
+  if (review === "ready_to_merge") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
         <CheckIcon /> Ready to Merge
       </span>
     );
   }
-  if (reviewStatus === "rejected") {
+  if (review === "rejected") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
         <Svg><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></Svg> Needs Revision
       </span>
     );
   }
-  if (reviewStatus === "merge_blocked" || reviewStatus === "merge_failed") {
+  if (review === "merge_blocked" || review === "merge_failed") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-rose-600 dark:text-rose-400">
         <Svg><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></Svg>{" "}
-        {reviewStatus === "merge_blocked" ? "Merge Blocked" : "Merge Failed"}
+        {review === "merge_blocked" ? "Merge Blocked" : "Merge Failed"}
       </span>
     );
   }

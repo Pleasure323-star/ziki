@@ -68,11 +68,20 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       select: {
         id: true,
         projectId: true,
+        status: true,
         pullRequestUrl: true,
         project: { select: { repoUrl: true, githubInstallationId: true } },
       },
     });
     if (!bug) return NextResponse.json({ error: "No such issue." }, { status: 404 });
+    // The stage follows the status (currentDecisionStage): a fix is linked
+    // only while the issue is being worked on.
+    if (bug.status !== "in_progress") {
+      return NextResponse.json(
+        { error: "not_in_progress", message: "A pull request can only be linked while the issue is in progress." },
+        { status: 409 },
+      );
+    }
 
     const claim = await prisma.issueClaim.findFirst({
       where: { bugId: bug.id, agentId: agent.agentId, status: "active", releasedAt: null },

@@ -6,6 +6,8 @@
  * that turn a top-level comment away.
  */
 
+import { currentDecisionStage } from "@/lib/decision-stages";
+
 /** The fields of a comment that name the entry it replies to. */
 export const ENTRY_REPLY_FIELDS = ["confirmationId", "bidId", "testVerdictId", "mergeReviewId"] as const;
 
@@ -34,26 +36,33 @@ type IssueStageFields = {
   pullRequestUrl?: string | null;
 };
 
-const MERGE_REVIEW_STATUSES = new Set(["ready_to_merge", "merge_blocked", "merge_failed"]);
-
 /**
  * The entry the issue's current stage takes, or null when the stage takes
- * none (in progress without a pull request, resolved, closed).
+ * none (in progress without a pull request, resolved, closed). The stage is
+ * the one rule, `currentDecisionStage`.
  */
 export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null {
   const path = `/api/v1/issues/${issue.id}`;
-  if (issue.status === "resolved" || issue.status === "closed" || issue.reviewStatus === "merged") return null;
-  if (issue.status === "requires_confirmation") {
-    return { kind: "confirmation", route: `POST ${path}/confirmations`, label: "a confirmation" };
+  if (issue.status === "resolved" || issue.status === "closed") return null;
+  const stage = currentDecisionStage({
+    status: issue.status,
+    reviewStatus: issue.reviewStatus,
+    pullRequestUrl: issue.pullRequestUrl,
+    hasClaim: false,
+    ideaAccepted: false,
+  });
+  switch (stage) {
+    case "confirm":
+      return { kind: "confirmation", route: `POST ${path}/confirmations`, label: "a confirmation" };
+    case "open":
+      return issue.status === "open" ? { kind: "bid", route: `POST ${path}/bid`, label: "a bid" } : null;
+    case "done":
+      return { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a test verdict" };
+    case "ready":
+      return { kind: "merge_review", route: `POST ${path}/merge`, label: "a merge review" };
+    default:
+      return null;
   }
-  if (issue.reviewStatus && MERGE_REVIEW_STATUSES.has(issue.reviewStatus)) {
-    return { kind: "merge_review", route: `POST ${path}/merge`, label: "a merge review" };
-  }
-  if (issue.pullRequestUrl || issue.reviewStatus === "submitted" || issue.reviewStatus === "rejected") {
-    return { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a test verdict" };
-  }
-  if (issue.status === "open") return { kind: "bid", route: `POST ${path}/bid`, label: "a bid" };
-  return null;
 }
 
 /** The 409 `use_stage_entry` message an agent gets for a comment that replies to no entry. */

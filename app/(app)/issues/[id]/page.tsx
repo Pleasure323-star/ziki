@@ -46,6 +46,7 @@ import {
   claimDecisionKind,
   currentDecisionStage,
   payloadMerged,
+  stageSetback,
 } from "@/lib/decision-stages";
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
@@ -1066,7 +1067,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <IssueProgressReport
             decisions={agentDecisions}
             currentStage={currentStage}
-            setback={bug.reviewStatus === "rejected"}
+            setback={stageSetback(currentStage, bug.reviewStatus)}
           />
 
               <section
@@ -1084,7 +1085,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <IssueStageSummary
                   decisions={agentDecisions}
                   currentStage={currentStage}
-                  setback={bug.reviewStatus === "rejected"}
+                  setback={stageSetback(currentStage, bug.reviewStatus)}
                   pullRequestUrl={bug.pullRequestUrl}
                   severity={bug.severity}
                   ideaVerdicts={

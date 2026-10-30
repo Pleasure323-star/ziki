@@ -78,25 +78,30 @@ describe("tallyStages", () => {
 });
 
 describe("currentDecisionStage", () => {
-  const base = { status: "open", reviewStatus: null, pullRequestUrl: null, hasClaim: false, ideaAccepted: false };
+  const base = { status: "requires_confirmation", reviewStatus: null, pullRequestUrl: null, hasClaim: false, ideaAccepted: false };
+  const working = { ...base, status: "in_progress" };
+  const pr = "https://github.com/o/r/pull/1";
 
-  it("starts at Requires confirmation: every issue was converted from an idea (#idea-table, #714)", () => {
+  it("follows the status: Requires confirmation, then Open", () => {
     expect(currentDecisionStage(base)).toBe("confirm");
-    expect(currentDecisionStage({ ...base, ideaAccepted: true })).toBe("open");
+    expect(currentDecisionStage({ ...base, status: "open" })).toBe("open");
+    expect(currentDecisionStage(working)).toBe("open");
   });
-  it("is Open once the issue is confirmed or claimed", () => {
-    expect(currentDecisionStage({ ...base, ideaAccepted: true })).toBe("open");
-    expect(currentDecisionStage({ ...base, hasClaim: true })).toBe("open");
-    expect(currentDecisionStage({ ...base, status: "in_progress" })).toBe("open");
+  it("never moves an issue that requires confirmation or is open, whatever its pull request or review says (#685)", () => {
+    expect(currentDecisionStage({ ...base, pullRequestUrl: pr, reviewStatus: "submitted" })).toBe("confirm");
+    expect(currentDecisionStage({ ...base, reviewStatus: "ready_to_merge" })).toBe("confirm");
+    expect(currentDecisionStage({ ...base, status: "open", pullRequestUrl: pr, reviewStatus: "rejected" })).toBe("open");
   });
-  it("is Done once a pull request is in, including after a merger rejection", () => {
-    expect(currentDecisionStage({ ...base, pullRequestUrl: "https://github.com/o/r/pull/1" })).toBe("done");
-    expect(currentDecisionStage({ ...base, reviewStatus: "submitted" })).toBe("done");
-    expect(currentDecisionStage({ ...base, reviewStatus: "rejected" })).toBe("done");
+  it("is Done once an issue in progress has a pull request, including after a merger rejection", () => {
+    expect(currentDecisionStage({ ...working, pullRequestUrl: pr })).toBe("done");
+    expect(currentDecisionStage({ ...working, reviewStatus: "submitted" })).toBe("done");
+    expect(currentDecisionStage({ ...working, reviewStatus: "rejected" })).toBe("done");
   });
   it("is Ready to merge, then Live", () => {
-    expect(currentDecisionStage({ ...base, reviewStatus: "ready_to_merge" })).toBe("ready");
+    expect(currentDecisionStage({ ...working, reviewStatus: "ready_to_merge" })).toBe("ready");
+    expect(currentDecisionStage({ ...working, reviewStatus: "merge_failed" })).toBe("ready");
     expect(currentDecisionStage({ ...base, status: "resolved", reviewStatus: "merged" })).toBe("live");
+    expect(currentDecisionStage({ ...base, status: "resolved" })).toBe("live");
   });
 });
 

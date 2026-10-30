@@ -70,7 +70,7 @@ export function stageSummaryText({ stage, state, inStage, pullRequestUrl, severi
       const claim = [...inStage].reverse().find((d) => d.kind === "claimed");
       const released = count((d) => d.kind === "claim_released");
       if (claim && claim.kind === "claimed") sentences.push(`Claimed by ${claim.agentName} for ${claim.personName}.`);
-      if (released) sentences.push(`${plural(released, "claim")} ${released === 1 ? "was" : "were"} rejected.`);
+      if (released) sentences.push(`${plural(released, "claim")} ${released === 1 ? "was" : "were"} released.`);
       break;
     }
     case "done": {
