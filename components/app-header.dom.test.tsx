@@ -231,14 +231,14 @@ describe("account menu role switch", () => {
     expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("lists Escalations in the account menu, with the pending count (#763)", async () => {
+  it("opens Escalations from an envelope in the bar, with the waiting count, not from the account menu", async () => {
     const user = userEvent.setup({ delay: null });
     renderHeader({ pendingEscalationsCount: 5 });
-    expect(screen.queryByRole("link", { name: /escalation/i })).toBeNull();
-    await user.click(screen.getByRole("button", { name: /account menu/i }));
-    const link = screen.getByRole("link", { name: /escalations/i });
+    const link = screen.getByRole("link", { name: "Escalations, 5 waiting" });
     expect(link.getAttribute("href")).toBe("/escalations");
-    expect(screen.getAllByLabelText("5 pending").length).toBeGreaterThan(0);
+    expect(link.textContent).toBe("5");
+    await user.click(screen.getByRole("button", { name: /account menu/i }));
+    expect(screen.getAllByRole("link", { name: /escalations/i })).toEqual([link]);
   });
 
   it("keeps New issue and the theme toggle out of the bar", () => {
@@ -253,15 +253,17 @@ describe("account menu role switch", () => {
     expect(screen.queryByRole("link", { name: "Workspace" })).toBeNull();
   });
 
-  it("shows the points beside the bell, opening Ranking, and keeps them off the account chip", () => {
+  it("shows the points, then the Escalations envelope, then the bell, and keeps the points off the account chip", () => {
     const { container } = renderHeader({ userId: "ada", points: 128, solvedTasks: 4 });
     const account = screen.getByRole("button", { name: /account menu for ada lovelace/i });
     expect(account.textContent).not.toContain("128");
     const points = screen.getByRole("link", { name: /128 pts of 500, 4 solved.*open ranking/i });
     expect(points.getAttribute("href")).toBe("/workers");
+    const envelope = screen.getByRole("link", { name: "Escalations" });
     const bell = screen.getByRole("button", { name: /notifications/i });
     const controls = [...container.querySelectorAll("header a, header button")];
-    expect(controls.indexOf(bell)).toBe(controls.indexOf(points) + 1);
+    expect(controls.indexOf(envelope)).toBe(controls.indexOf(points) + 1);
+    expect(controls.indexOf(bell)).toBe(controls.indexOf(envelope) + 1);
   });
 
   it("keeps each control's visible text inside its accessible name", () => {

@@ -29,8 +29,8 @@ export default async function EscalationDetailPage({
 
   return (
     <article className="mx-auto max-w-2xl space-y-6">
-      <Link href="/issues?inbox=input" className="inline-flex items-center text-sm font-semibold text-zk-accent hover:underline">
-        ← Back to Inbox (Need your input)
+      <Link href="/escalations" className="inline-flex items-center text-sm font-semibold text-zk-accent hover:underline">
+        ← Back to Escalations
       </Link>
 
       <div className="space-y-4 rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">

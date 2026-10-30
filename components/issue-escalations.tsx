@@ -48,7 +48,7 @@ export function IssueEscalations({
           )}
         </div>
         <Link
-          href="/issues?inbox=input"
+          href="/escalations"
           className="text-xs font-medium text-zk-accent hover:underline"
         >
           View all workspace escalations →

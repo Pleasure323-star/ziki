@@ -11,9 +11,6 @@ import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 
 import { MergeIcon } from "@/components/merge-path";
-import { InboxAgents } from "@/components/inbox-agents";
-import { loadOwnAgents, type DashboardAgent } from "@/lib/dashboard-overview";
-import { agentWorkDone, describeWorkDone, type AgentWorkDone } from "@/lib/agent-work";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
@@ -35,7 +32,6 @@ import { Highlighted, SearchSnippet } from "@/components/search-highlight";
 import { formatIssueNumber, parseIssueNumberQuery } from "@/lib/issue-number";
 import {
   SHOW_RESOLVED_PARAM,
-  defaultStatusWhere,
   isDone,
   parseShowResolved,
   resultCountText,
@@ -97,31 +93,20 @@ import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
 
-/** `?status=all`: every issue. With no `?status=` the page opens on the Inbox. */
+/** `?status=all`: every issue. With no `?status=` the page opens on Ideas. */
 const ALL_STATUS = "all";
-/** `?status=escalated`: the Inbox; kept so older links still open it. */
-const ESCALATED_STATUS = "escalated";
-const ESCALATED_WHERE = { some: { answeredAt: null } } satisfies Prisma.AgentQuestionListRelationFilter;
+/** The Ideas tab, the page with no `?status=`. Ideas are not issues: they read the Idea table (#idea-table). */
+const IDEAS_STATUS = "ideas";
 
-/**
- * The Inbox's three lists, picked with `?inbox=` on the escalated view:
- * agent questions waiting on someone (the default), redesign proposals
- * waiting on a decision, and new ideas (reported, not yet confirmed).
- */
-const INBOX_PARAM = "inbox";
-type InboxView = "input" | "design" | "ideas" | "drafts";
-const INBOX_TABS: { view: InboxView; label: string }[] = [
-  { view: "input", label: "Need your input" },
-  { view: "design", label: "Design feedback needed" },
-  { view: "ideas", label: "New ideas" },
-  { view: "drafts", label: "Drafted ideas" },
+/** The filters under the Ideas tab: new ideas (no `?ideas=`), or `?ideas=drafts`. */
+const IDEAS_PARAM = "ideas";
+type IdeasView = "new" | "drafts";
+const IDEAS_FILTERS: { view: IdeasView; label: string }[] = [
+  { view: "new", label: "New ideas" },
+  { view: "drafts", label: "Drafted" },
 ];
-/** The Inbox's idea lists read the Idea table: ideas are not issues (#idea-table). */
-const IDEA_VIEWS: readonly InboxView[] = ["ideas", "drafts"];
 /** Most ideas a list shows, highest score first. */
 const IDEAS_LIMIT = 100;
-const DESIGN_WHERE = { some: { status: "proposed" } } satisfies Prisma.RedesignProposalListRelationFilter;
-const AGENT_ORDER = { waiting: 0, working: 1, idle: 2, offline: 3 } as const;
 
 /** `?status=rejected`: someone's confirmation entry rejected the issue (#1122, #issue-confirmations). */
 const REJECTED_STATUS = "rejected";
@@ -254,11 +239,11 @@ export default async function BugsPage({
   const canDelete = canDeleteTicket(effectiveRole, membershipRole);
   const params = await searchParams;
   const qParam = toSingleQueryParam(params.q);
-  // No ?status= opens the Inbox (the escalated view); ?status=all is the All tab.
+  // No ?status= opens Ideas; ?status=all is the All tab.
   // A search with no tab picked looks across All, so any issue can be found.
   const statusParam =
     toSingleQueryParam(params.status) ??
-    (toSingleQueryParam(params.deleted) === "true" ? undefined : toSingleQueryParam(params.q)?.trim() ? ALL_STATUS : ESCALATED_STATUS);
+    (toSingleQueryParam(params.deleted) === "true" ? undefined : toSingleQueryParam(params.q)?.trim() ? ALL_STATUS : IDEAS_STATUS);
   const severityParam = toSingleQueryParam(params.severity);
   const sortParam = toSingleQueryParam(params.sort);
   const pageParam = toSingleQueryParam(params.page);
@@ -331,33 +316,13 @@ export default async function BugsPage({
 
   const statusWhere = statusFilterWhere(statusParam);
   // Each status tab filters on its status alone (one status per issue). With no
-  // status filter the All tab shows every issue. Inbox (escalated) keeps to live
-  // work unless resolved issues were asked for (#1058).
+  // status filter the All tab shows every issue.
   const showResolved = parseShowResolved(params[SHOW_RESOLVED_PARAM]);
-  const hidesResolved = statusParam === ESCALATED_STATUS && !isDeletedView && !showResolved;
-  if (statusWhere !== undefined) {
-    where.status = statusWhere;
-  } else if (hidesResolved) {
-    where.status = defaultStatusWhere(false);
-  }
-  // The Escalated tab: live issues with an agent question nobody has
-  // answered, the same rule as the Escalations page.
-  // `?status=ideas` was the Ideas tab for a day; it opens the Inbox's New ideas.
-  const oldIdeasTab = statusParam === "ideas";
-  const isEscalatedView = (statusParam === ESCALATED_STATUS || oldIdeasTab) && !isDeletedView;
-  const inboxParam = oldIdeasTab ? "ideas" : toSingleQueryParam(params[INBOX_PARAM]);
-  const inboxView: InboxView | null = !isEscalatedView
-    ? null
-    : inboxParam === "design" || inboxParam === "ideas" || inboxParam === "drafts"
-      ? inboxParam
-      : "input";
-  if (inboxView === "input") {
-    where.agentQuestions = ESCALATED_WHERE;
-  } else if (inboxView === "design") {
-    where.redesigns = DESIGN_WHERE;
-  }
-  // The Inbox's idea lists read the Idea table, not issues: no issue row matches them.
-  const isIdeasView = inboxView !== null && IDEA_VIEWS.includes(inboxView);
+  if (statusWhere !== undefined) where.status = statusWhere;
+  // The Ideas tab lists ideas from their own table: no issue row matches it.
+  const ideasView: IdeasView | null =
+    statusParam !== IDEAS_STATUS || isDeletedView ? null : toSingleQueryParam(params[IDEAS_PARAM]) === "drafts" ? "drafts" : "new";
+  const isIdeasView = ideasView !== null;
   if (isIdeasView) where.id = { in: [] };
   if (statusParam === REJECTED_STATUS && !isDeletedView) {
     where.confirmations = REJECTED_WHERE;
@@ -444,33 +409,28 @@ export default async function BugsPage({
   // rows its result list shows — tabs, badges and the "Show N resolved" link
   // all follow the stage filter, not the pre-stage row set.
   // Count the same tenant/project and search scope without the selected tab:
-  // its status, and the extra clauses the Inbox lists, Rejected, Duplicates,
+  // its status, and the extra clauses Ideas, Rejected, Duplicates,
   // Ready to Merge and Live add. Left in, those leaked into every other tab's
   // count (on Ready to Merge, "All" only counted ready-to-merge issues).
   const {
     status: _selectedStatus,
     id: _stageIds,
-    agentQuestions: _escalated,
     confirmations: _rejected,
     duplicateOfId: _duplicate,
-    redesigns: _design,
     AND: _notMergeStage,
     ...tabScope
   } = where;
   // Put the default duplicate scope back: the Duplicates filter's override is
   // dropped, but tabs and counts still leave out the duplicates the list hides.
   const statusTabWhere: Prisma.BugWhereInput = { ...tabScope, ...duplicatesWhere(showDuplicates) };
-  void _design;
   void _selectedStatus;
   void _stageIds;
-  void _escalated;
   void _rejected;
   void _duplicate;
   void _notMergeStage;
   // The platform menu counts each platform's issues whatever tab is picked,
   // so its numbers don't move as you switch tabs; the tabs then split the
-  // picked platform's total. (Counting inside the Inbox showed 0 almost
-  // everywhere.) A ?stage= from the URL still narrows it (#626).
+  // picked platform's total. A ?stage= from the URL still narrows it (#626).
   const stageFromUrl = stageView !== null;
   const { categoryId: _platformClause, ...platformTabWhere }: Prisma.BugWhereInput = {
     ...statusTabWhere,
@@ -515,11 +475,12 @@ export default async function BugsPage({
     const next = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (key === "page" || key === PLATFORM_PARAM) continue;
-      if (isEscalatedView && (key === INBOX_PARAM || key === SHOW_RESOLVED_PARAM)) continue;
+      if (isIdeasView && key === IDEAS_PARAM) continue;
       const single = toSingleQueryParam(value);
       if (single) next.set(key, single);
     }
-    if (isEscalatedView) next.set("status", ALL_STATUS);
+    // Platforms filter issues, so picking one from Ideas opens All.
+    if (isIdeasView) next.set("status", ALL_STATUS);
     if (id) next.set(PLATFORM_PARAM, id);
     const qs = next.toString();
     return qs ? `/issues?${qs}` : "/issues";
@@ -605,7 +566,7 @@ export default async function BugsPage({
   }
   const bugs = listed.bugs;
 
-  // #idea-table: the Inbox's New ideas and Drafted ideas read open ideas from
+  // #idea-table: the Ideas tab's New ideas and Drafted read open ideas from
   // their own table, in the same tenant, project and search scope as the
   // issues. A draft is a person's idea not yet written up in the standard
   // headings.
@@ -623,24 +584,24 @@ export default async function BugsPage({
         }
       : {}),
   };
-  // Only while the Inbox is open, like its other lists' counts.
-  const [ideasCount, draftIds] = inboxView && tenantId
-    ? await Promise.all([
-        loadOrEmpty("ideas inbox", () => prisma.idea.count({ where: ideaWhere }), 0),
-        loadOrEmpty(
-          "drafts inbox",
+  // The Ideas tab's count shows on every tab; drafts only while Ideas is open.
+  const [ideasCount, draftIds] = await Promise.all([
+    tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
+    tenantId && isIdeasView
+      ? loadOrEmpty(
+          "drafted ideas",
           async () =>
             (await prisma.idea.findMany({ where: { ...ideaWhere, createdByAgentId: null }, select: { id: true, description: true, createdByAgentId: true } }))
               .filter(isUnstructuredDraft)
               .map((idea) => idea.id),
           [] as string[],
-        ),
-      ])
-    : [0, [] as string[]];
+        )
+      : ([] as string[]),
+  ]);
   const ideaRows: IdeaListRow[] = isIdeasView && tenantId
     ? await loadOrEmpty("ideas list", async () => {
         const rows = await prisma.idea.findMany({
-          where: inboxView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideaWhere,
+          where: ideasView === "drafts" ? { ...ideaWhere, id: { in: draftIds } } : ideaWhere,
           orderBy: [{ score: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: IDEAS_LIMIT,
           select: {
@@ -772,13 +733,10 @@ export default async function BugsPage({
   const confirmingCount = [...stages.values()].filter((stage) => stage === "confirming").length;
   const readyCount = [...stages.values()].filter((stage) => stage === "ready").length;
 
-  const [statusCounts, escalatedCount, rejectedCount, duplicateCount] = isDeletedView || !tenantId ? [[], 0, 0, 0] : await Promise.all([
+  const [statusCounts, rejectedCount, duplicateCount] = isDeletedView || !tenantId ? [[], 0, 0] : await Promise.all([
     loadOrEmpty("status tabs", () => prisma.bug.groupBy({
       by: ["status"], where: statusTabWhere, _count: { _all: true },
     }), []),
-    loadOrEmpty("escalated tab", () => prisma.bug.count({
-      where: { ...statusTabWhere, status: defaultStatusWhere(false), agentQuestions: ESCALATED_WHERE },
-    }), 0),
     loadOrEmpty("rejected filter", () => prisma.bug.count({
       where: { ...statusTabWhere, confirmations: REJECTED_WHERE },
     }), 0),
@@ -792,23 +750,11 @@ export default async function BugsPage({
   const tabCount = (value: string) => (value === ALL_STATUS ? allCount : countForStatus(value));
   const allFilterCount = (value: string) =>
     value === ALL_STATUS ? allCount : value === REJECTED_STATUS ? rejectedCount : value === DUPLICATE_STATUS ? duplicateCount : countForStatus(value);
-  // The Inbox's other lists, counted only while it is open.
-  const liveTabWhere = { ...statusTabWhere, status: defaultStatusWhere(false) };
-  const designCount = inboxView && tenantId
-    ? await loadOrEmpty("design inbox", () => prisma.bug.count({ where: { ...liveTabWhere, redesigns: DESIGN_WHERE } }), 0)
-    : 0;
-  const inboxCounts: Record<InboxView, number> = { input: escalatedCount, design: designCount, ideas: ideasCount, drafts: draftIds.length };
-  // Your agents and what they've done, for the right half of the Inbox's top box.
-  let inboxAgents: DashboardAgent[] = [];
-  let inboxWork = new Map<string, AgentWorkDone>();
-  if (inboxView && userId && tenantId) {
-    inboxAgents = await loadOrEmpty("inbox agents", () => loadOwnAgents({ userId, tenantId }), [] as DashboardAgent[]);
-    inboxWork = await loadOrEmpty("inbox agent work", () => agentWorkDone(inboxAgents.map((agent) => agent.id)), new Map<string, AgentWorkDone>());
-  }
-  const inboxHref = (view: InboxView) => {
-    // The Inbox is the page with no ?status=.
+  const ideasFilterCount = (view: IdeasView) => (view === "drafts" ? draftIds.length : ideasCount);
+  const ideasHref = (view: IdeasView) => {
+    // Ideas is the page with no ?status=.
     const next = new URLSearchParams(statusHref(null).split("?")[1] ?? "");
-    if (view !== "input") next.set(INBOX_PARAM, view);
+    if (view === "drafts") next.set(IDEAS_PARAM, view);
     return `/issues${next.size ? `?${next}` : ""}`;
   };
   // The All tab stays selected on its own filters (Closed, Rejected, Duplicates).
@@ -818,7 +764,7 @@ export default async function BugsPage({
     next.delete("page");
     next.delete("stage");
     next.delete(SHOW_RESOLVED_PARAM);
-    next.delete(INBOX_PARAM);
+    next.delete(IDEAS_PARAM);
     if (status) next.set("status", status);
     else next.delete("status");
     return `/issues${next.size ? `?${next}` : ""}`;
@@ -911,18 +857,15 @@ export default async function BugsPage({
 
   const listContent = (
     <div className="space-y-4">
-        {/* One left-aligned bar: the Inbox as an envelope (the escalated
-            issues and the ideas), then the status tabs. */}
+        {/* One left-aligned bar: Ideas, then the status tabs. */}
         <div className="issues-tabs-row flex items-center gap-2.5">
           {!isDeletedView ? (
             <nav aria-label="Issue status" className="issues-status-nav min-w-0">
               <ul>
                 <li>
-                  <Link href={statusHref(null)} aria-current={isEscalatedView ? "page" : undefined} title="Inbox" data-testid="inbox-tab">
-                    <span className="issues-status-dot issues-status-inbox" aria-hidden="true" />
-                    {/* Named in text, not aria-label, so the count stays part of its name (axe). */}
-                    <span className="sr-only">Inbox</span>
-                    <span className={`issues-status-count ${escalatedCount > 0 ? "issues-inbox-waiting" : ""}`}>{escalatedCount}</span>
+                  <Link href={statusHref(null)} aria-current={isIdeasView ? "page" : undefined} data-testid="ideas-tab">
+                    <span className="issues-status-dot issues-status-ideas" aria-hidden="true" />
+                    Ideas<span className="issues-status-count">{ideasCount}</span>
                   </Link>
                 </li>
                 {STATUS_TABS.map(({ value, label }) => (
@@ -948,67 +891,29 @@ export default async function BugsPage({
           ) : null}
         </div>
 
-        {inboxView ? (
-          <>
-            {/* How the Inbox works, above its three lists. */}
-            {/* One box in two halves: how the Inbox works, and your agents with what they've done. */}
-            <section aria-label="How the Inbox works" className="grid overflow-hidden rounded-[14px] border border-zk-border bg-zk-surface md:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="flex items-start gap-3 p-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zk-tint text-zk-accent" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <h2 className="text-sm font-bold text-zk-text">How the Inbox works</h2>
-                  <p className="mt-0.5 text-[13px] leading-relaxed text-zk-text2">
-                    Agents work through issues on their own and stop here when they need a person: to answer a question, give feedback on a design, or weigh in on a new idea.
-                  </p>
-                </div>
-              </div>
-              <div aria-label="Your agents" role="group" className="flex flex-col gap-2 border-zk-divider p-3 max-md:border-t md:border-l">
-                <h2 className="text-xs font-bold uppercase tracking-[0.06em] text-zk-muted">Your agents</h2>
-                <InboxAgents
-                  // Agents waiting on you, then working ones, come first.
-                  agents={[...inboxAgents].sort((a, b) => AGENT_ORDER[a.status] - AGENT_ORDER[b.status]).map((agent) => {
-                    const done = describeWorkDone(inboxWork.get(agent.id));
-                    return {
-                      id: agent.id,
-                      name: agent.name,
-                      avatar: agent.avatar,
-                      status: agent.status,
-                      activity: agent.activity,
-                      done: done ? `Last 30 days: ${done}` : "Nothing done in the last 30 days",
-                    };
-                  })}
-                />
-              </div>
-            </section>
-            <nav aria-label="Inbox lists" className="issues-inbox-tabs overflow-x-auto">
-              <ul className="flex w-max gap-1 border-b border-zk-divider">
-                {INBOX_TABS.map(({ view, label }) => {
-                  const on = inboxView === view;
-                  return (
-                    <li key={view}>
-                      <Link
-                        href={inboxHref(view)}
-                        aria-current={on ? "page" : undefined}
-                        className={`-mb-px inline-flex h-10 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[13px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
-                          on ? "border-electric-blue-strong font-semibold text-zk-text" : "border-transparent font-medium text-zk-text2 hover:text-zk-text"
-                        }`}
-                      >
-                        {label}
-                        <span className={`rounded-full px-1.5 font-mono text-[11px] tabular-nums ${on ? "bg-zk-tint text-zk-accent" : "bg-zk-chip text-zk-muted"}`}>
-                          {inboxCounts[view]}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
-          </>
+        {/* Ideas' filters, the same small pills the All tab has under it. */}
+        {ideasView ? (
+          <nav aria-label="Filter ideas" className="issues-all-filters flex flex-wrap items-center justify-end gap-1.5">
+            <span className="mr-1 text-[13px] font-medium text-zk-muted">Filter by:</span>
+            {IDEAS_FILTERS.map(({ view, label }) => {
+              const on = ideasView === view;
+              return (
+                <Link
+                  key={view}
+                  href={ideasHref(view)}
+                  aria-current={on ? "page" : undefined}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
+                    on
+                      ? "border-electric-blue-strong bg-electric-blue-strong text-white"
+                      : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"
+                  }`}
+                >
+                  {label}
+                  <span className={`font-mono text-[11px] tabular-nums ${on ? "text-white/80" : "text-zk-muted"}`}>{ideasFilterCount(view)}</span>
+                </Link>
+              );
+            })}
+          </nav>
         ) : null}
 
         {!isDeletedView && allSelected ? (
@@ -1050,26 +955,20 @@ export default async function BugsPage({
         ) : null}
 
         {isIdeasView ? (
-          <IdeasList ideas={ideaRows} empty={inboxView === "drafts" ? "No unstructured draft ideas are waiting to be structured." : undefined} />
+          <IdeasList ideas={ideaRows} empty={ideasView === "drafts" ? "No unstructured draft ideas are waiting to be structured." : undefined} />
         ) : isFirstRun ? (
           <FirstRunWelcome isAdmin={canDelete} hasTenant={Boolean(tenantId)} />
         ) : bugs.length === 0 ? (
           <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
             <p className="font-bold text-zk-text">
-              {inboxView
-                ? "Nothing here right now."
-                : isWatchingView && !qParam && !statusParam && !severityParam && !tagsParam && !selectedPlatform && !selectedMilestone
+              {isWatchingView && !qParam && !statusParam && !severityParam && !tagsParam && !selectedPlatform && !selectedMilestone
                 ? "You're not watching any issues."
                 : emptyPlatform
                   ? "No issues on this platform"
                   : "No issues match these filters."}
             </p>
             <p className="mt-1.5 text-sm text-zk-muted">
-              {inboxView === "input"
-                ? "No agent is waiting on an answer."
-                : inboxView === "design"
-                  ? "No redesign proposals are waiting for a decision."
-                  : isWatchingView
+              {isWatchingView
                 ? "You watch issues you report, are assigned to or comment on, and any you choose to watch from the issue page."
                 : emptyPlatform
                   ? "Issues tagged for this platform will show up here."

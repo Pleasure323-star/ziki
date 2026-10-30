@@ -13,8 +13,8 @@ import { LocalTime } from "@/components/local-time";
 
 export const metadata: Metadata = { title: "Idea" };
 
-/** The Inbox's New ideas list, where ideas are opened from. */
-const NEW_IDEAS_HREF = "/issues?inbox=ideas";
+/** The Ideas tab, where ideas are opened from. */
+const NEW_IDEAS_HREF = "/issues";
 
 type LegacyComment = { authorId: string; body: string; createdAt: string };
 
@@ -84,7 +84,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="flex flex-col gap-5 pb-10">
-      {/* Header like an issue's: back to the Inbox's New ideas, number + title. */}
+      {/* Header like an issue's: back to the Ideas tab, number + title. */}
       <div className="flex flex-col gap-3">
         <div className="flex items-start gap-2">
           <Link

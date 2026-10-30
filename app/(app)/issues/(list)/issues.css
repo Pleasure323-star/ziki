@@ -97,11 +97,9 @@
 .issues-status-ready_to_merge { --issues-status-icon: url('/icons/issues-status-ready_to_merge.svg'); color: var(--zk-ok-fg); background: var(--zk-ok-bg); }
 .issues-status-auto_merge { --issues-status-icon: url('/icons/issues-status-auto_merge.svg'); color: var(--zk-accent); background: var(--zk-tint); }
 .issues-status-closed { --issues-status-icon: url('/icons/issues-status-closed.svg'); color: var(--zk-muted); background: var(--zk-surface); }
-.issues-status-escalated { --issues-status-icon: url('/icons/issues-status-escalated.svg'); color: var(--zk-bad-fg); background: var(--zk-bad-bg); }
 .issues-status-requires_confirmation { --issues-status-icon: url('/icons/issues-status-requires_confirmation.svg'); color: var(--zk-warn-fg); background: var(--zk-warn-bg); }
-/* The Inbox, as an envelope at the start of the status bar. Its count is red while anything waits. */
-.issues-status-inbox { --issues-status-icon: url('/icons/issues-status-inbox.svg'); color: var(--zk-text2); background: var(--zk-surface); }
-.issues-status-nav a .issues-inbox-waiting { background: var(--zk-bad-bg); color: var(--zk-bad-fg); }
+/* Ideas, at the start of the status bar. */
+.issues-status-ideas { --issues-status-icon: url('/icons/issues-status-ideas.svg'); color: var(--zk-accent); background: var(--zk-tint); }
 .issues-status-nav a[aria-current] .issues-status-dot { background: white; color: var(--color-electric-blue-strong); }
 .issues-table { border: 1px solid var(--zk-border); border-radius: 10px; overflow: hidden; }
 .issues-table-heading { display: flex; align-items: center; gap: 16px; padding: 9px 18px; background: var(--zk-bg); border-bottom: 1px solid var(--issues-rule); font-size: 13px; line-height: 20px; color: var(--zk-muted); }

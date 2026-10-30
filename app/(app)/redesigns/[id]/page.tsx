@@ -22,8 +22,8 @@ export default async function RedesignPage({ params }: { params: Promise<{ id: s
 
   return (
     <article className="mx-auto max-w-2xl space-y-5">
-      <Link href="/issues?inbox=design" className="text-sm font-semibold text-zk-accent hover:underline">
-        Design Feedback
+      <Link href="/escalations" className="text-sm font-semibold text-zk-accent hover:underline">
+        ← Back to Escalations
       </Link>
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">{proposal.title}</h1>

@@ -91,7 +91,7 @@ export function isNavItemActive(pathname: string | null, href: string): boolean 
       path === "/notes" ||
       path === "/issues" ||
       path === "/bugs" ||
-      // An idea opens from the Inbox, so it stays in Product (#idea-table).
+      // An idea opens from the Ideas tab, so it stays in Product (#idea-table).
       path.startsWith("/ideas/") ||
       ((path.startsWith("/issues/") || path.startsWith("/bugs/")) &&
         path !== "/issues/new" &&

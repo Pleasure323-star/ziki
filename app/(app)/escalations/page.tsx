@@ -1,35 +1,179 @@
-import { redirect } from "next/navigation";
+import Link from "next/link";
+import { requireUser } from "@/lib/auth-helpers";
+import { prisma } from "@/lib/prisma";
+import { currentTenantIdFor } from "@/lib/tenant-context";
+import { listOwnerQuestions, parseEscalationBody } from "@/lib/agent-questions";
+import { issuePath } from "@/lib/issue-ref";
+import { LocalTime } from "@/components/local-time";
+import { EscalationTypeBadge, QuickResolveButtons } from "./escalation-controls";
 
-export const metadata = { title: "Agent Escalations" };
+export const metadata = { title: "Escalations" };
+
+const VIEWS = [
+  { value: "waiting", label: "Waiting" },
+  { value: "resolved", label: "Resolved" },
+  { value: "all", label: "All" },
+] as const;
+type View = (typeof VIEWS)[number]["value"];
 
 /**
- * Unify Agent Escalations into the Issues Inbox.
- *
- * Mark Essien: "Need your input in the Inbox should automatically mean the
- * escalation, rather than having a separate escalation page somewhere else."
- *
- * Incoming requests to /escalations redirect directly to the unified Inbox
- * queue under "Need your input" (or "Design feedback needed" for redesigns),
- * preserving any deep-link or filter parameters.
+ * Where agents stop for a person: questions your agents ask you, and redesign
+ * proposals waiting on a decision. Opened from the envelope in the top bar.
  */
 export default async function EscalationsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string; type?: string; id?: string }>;
+  searchParams?: Promise<{ status?: string }>;
 }) {
+  const user = await requireUser();
+  const tenantId = await currentTenantIdFor(user.id);
+  const [questions, proposals] = tenantId
+    ? await Promise.all([
+        listOwnerQuestions(user.id, tenantId),
+        prisma.redesignProposal.findMany({
+          where: { tenantId },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 50,
+          select: {
+            id: true,
+            title: true,
+            body: true,
+            status: true,
+            createdAt: true,
+            bug: { select: { number: true, title: true } },
+            authorAgent: { select: { name: true } },
+          },
+        }),
+      ])
+    : [[], []];
+
   const params = searchParams ? await searchParams : {};
-  const query = new URLSearchParams();
+  const view: View = VIEWS.some((v) => v.value === params.status) ? (params.status as View) : "waiting";
 
-  if (params.type === "Redesign") {
-    query.set("inbox", "design");
-  } else {
-    query.set("inbox", "input");
-  }
+  const rows = [
+    ...questions.map((q) => {
+      const parsed = parseEscalationBody(q.body);
+      return {
+        id: q.id,
+        kind: "question" as const,
+        type: parsed.type as string,
+        title: q.agent.name,
+        byline: null as string | null,
+        body: parsed.cleanBody,
+        createdAt: q.createdAt,
+        waiting: !q.answeredAt,
+        answer: q.answer,
+        bug: q.bug,
+        href: `/escalations/${q.id}`,
+      };
+    }),
+    ...proposals.map((p) => ({
+      id: p.id,
+      kind: "redesign" as const,
+      type: "Redesign",
+      title: p.title,
+      byline: p.authorAgent.name as string | null,
+      body: p.body,
+      createdAt: p.createdAt,
+      waiting: p.status === "proposed",
+      answer: null,
+      bug: p.bug,
+      href: `/redesigns/${p.id}`,
+    })),
+  ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
 
-  if (params.id) {
-    query.set("escalation", params.id);
-  }
+  const waitingCount = rows.filter((row) => row.waiting).length;
+  const counts: Record<View, number> = { waiting: waitingCount, resolved: rows.length - waitingCount, all: rows.length };
+  const shown = rows.filter((row) => (view === "waiting" ? row.waiting : view === "resolved" ? !row.waiting : true));
 
-  const queryString = query.toString();
-  redirect(`/issues${queryString ? `?${queryString}` : ""}`);
+  return (
+    <div className="mx-auto flex max-w-4xl flex-col gap-5 pb-10">
+      <div>
+        <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">Escalations</h1>
+        <p className="mt-1 text-sm text-zk-muted">Questions your agents need answered, and redesign proposals waiting on a decision.</p>
+      </div>
+
+      <nav aria-label="Filter escalations" className="flex flex-wrap items-center gap-1.5">
+        {VIEWS.map(({ value, label }) => {
+          const on = view === value;
+          return (
+            <Link
+              key={value}
+              href={value === "waiting" ? "/escalations" : `/escalations?status=${value}`}
+              aria-current={on ? "page" : undefined}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
+                on ? "border-electric-blue-strong bg-electric-blue-strong text-white" : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"
+              }`}
+            >
+              {label}
+              <span className={`font-mono text-[11px] tabular-nums ${on ? "text-white/80" : "text-zk-muted"}`}>{counts[value]}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {shown.length > 0 ? (
+        <ul className="m-0 flex list-none flex-col divide-y divide-zk-divider overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface p-0">
+          {shown.map((item) => (
+            <li key={`${item.kind}-${item.id}`} className="flex flex-col gap-3 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <EscalationTypeBadge type={item.type} />
+                  <Link href={item.href} className="font-semibold text-zk-accent hover:underline">
+                    {item.title}
+                  </Link>
+                  {item.byline ? <span className="text-xs text-zk-muted">{item.byline}</span> : null}
+                  <span className="text-xs text-zk-muted">·</span>
+                  <LocalTime date={item.createdAt} className="text-xs text-zk-muted" />
+                </div>
+                {item.waiting ? (
+                  <span className="inline-flex items-center rounded-full border border-zk-warn-bd bg-zk-warn-bg px-2.5 py-0.5 text-xs font-semibold text-zk-warn-fg">
+                    Waiting on you
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-zk-ok-bg px-2.5 py-0.5 text-xs font-semibold text-zk-ok-fg">Resolved</span>
+                )}
+              </div>
+
+              <p className="m-0 whitespace-pre-wrap text-sm text-zk-text">{item.body}</p>
+
+              {item.bug ? (
+                <p className="m-0 text-xs">
+                  <span className="text-zk-muted">Issue: </span>
+                  <Link href={issuePath(item.bug.number)} className="font-semibold text-zk-accent hover:underline">
+                    #{item.bug.number} {item.bug.title}
+                  </Link>
+                </p>
+              ) : null}
+
+              {item.waiting && item.kind === "question" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zk-divider pt-2">
+                  <QuickResolveButtons escalationId={item.id} />
+                  <Link href={item.href} className="text-xs font-semibold text-zk-accent hover:underline">
+                    Write a response →
+                  </Link>
+                </div>
+              ) : item.waiting ? (
+                <div className="border-t border-zk-divider pt-2">
+                  <Link href={item.href} className="text-xs font-semibold text-zk-accent hover:underline">
+                    Review proposal →
+                  </Link>
+                </div>
+              ) : item.answer ? (
+                <div className="rounded-[12px] border border-zk-border bg-zk-chip/60 p-3 text-xs text-zk-text2">
+                  <span className="font-semibold text-zk-muted">Your answer:</span>
+                  <p className="m-0 mt-1 whitespace-pre-wrap">{item.answer}</p>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
+          <p className="font-bold text-zk-text">{view === "waiting" ? "Nothing is waiting on you." : "No escalations here."}</p>
+          <p className="mt-1.5 text-sm text-zk-muted">Agents stop here when they need a person: to answer a question or decide on a redesign.</p>
+        </div>
+      )}
+    </div>
+  );
 }

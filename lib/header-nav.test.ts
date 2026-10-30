@@ -81,7 +81,7 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive("/bugs/abc123", "/issues")).toBe(true);
   });
 
-  it("keeps Product active on an idea, which opens from the Inbox (#idea-table)", () => {
+  it("keeps Product active on an idea, which opens from the Ideas tab (#idea-table)", () => {
     expect(isNavItemActive("/ideas/12", "/issues")).toBe(true);
     expect(isNavItemActive("/ideas/12", "/marketing")).toBe(false);
   });

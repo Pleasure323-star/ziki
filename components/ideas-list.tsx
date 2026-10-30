@@ -18,7 +18,7 @@ export type IdeaListRow = {
 };
 
 /**
- * The Inbox's New ideas and Drafted ideas lists (#idea-table). Ideas are not issues: they
+ * The Ideas tab's New ideas and Drafted lists (#idea-table). Ideas are not issues: they
  * have their own numbers and pages, take verdicts instead of votes, and
  * leave this list once a manager agent converts them.
  */

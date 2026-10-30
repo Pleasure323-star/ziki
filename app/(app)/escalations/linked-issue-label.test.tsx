@@ -7,7 +7,6 @@ const currentTenantIdFor = vi.hoisted(() => vi.fn());
 const listOwnerQuestions = vi.hoisted(() => vi.fn());
 const ownerQuestion = vi.hoisted(() => vi.fn());
 const findProposals = vi.hoisted(() => vi.fn());
-const redirect = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantIdFor }));
@@ -18,7 +17,6 @@ vi.mock("@/lib/agent-questions", async (importOriginal) => ({
   ownerQuestion,
 }));
 vi.mock("next/navigation", () => ({
-  redirect,
   notFound: vi.fn(() => {
     throw new Error("notFound");
   }),
@@ -57,9 +55,13 @@ describe("escalation linked issue label (#559)", () => {
     currentTenantIdFor.mockResolvedValue("tenant-1");
   });
 
-  it("redirects the escalation list to the unified issues inbox", async () => {
-    await EscalationsPage({ searchParams: Promise.resolve({ status: "all" }) });
-    expect(redirect).toHaveBeenCalledWith("/issues?inbox=input");
+  it("labels the associated issue on the list with #<number> <title>", async () => {
+    listOwnerQuestions.mockResolvedValue([question]);
+    findProposals.mockResolvedValue([]);
+
+    const html = renderToStaticMarkup(await EscalationsPage({ searchParams: Promise.resolve({ status: "all" }) })).replace(/<!-- -->/g, "");
+
+    expect(html).toContain("#42 Login button broken");
   });
 
   it("labels the associated issue on the detail page with #<number> <title>", async () => {

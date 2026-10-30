@@ -86,6 +86,33 @@ function TrophyIcon() {
   );
 }
 
+/** The envelope that opens Escalations: what your agents are waiting on you for. */
+function EscalationsLink({ pending, active }: { pending: number; active: boolean }) {
+  const label = pending > 0 ? `Escalations, ${pending} waiting` : "Escalations";
+  return (
+    <Link
+      href="/escalations"
+      aria-label={label}
+      title={label}
+      data-testid="escalations-link"
+      className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-zk-chip ${linkFocus} ${active ? "text-zk-accent" : "text-zk-text"}`}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect width="20" height="16" x="2" y="4" rx="2" />
+        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+      </svg>
+      {pending > 0 ? (
+        <span
+          aria-hidden="true"
+          className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-zk-surface bg-zk-bad-fg px-1 text-[11px] font-bold text-white"
+        >
+          {pending > 99 ? "99+" : pending}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
 function BellIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -511,19 +538,6 @@ export function AppHeader({
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
                   Activity &amp; Approvals
                 </MenuLink>
-                {showEscalations ? (
-                  <MenuLink href="/escalations" active={isNavItemActive(pathname, "/escalations")}>
-                    <span className="flex-1">Escalations</span>
-                    {pendingEscalationsCount > 0 ? (
-                      <span
-                        aria-label={`${pendingEscalationsCount} pending`}
-                        className="rounded-full bg-zk-bad-soft px-2 py-0.5 text-xs font-bold tabular-nums text-zk-bad-fg"
-                      >
-                        {pendingEscalationsCount > 99 ? "99+" : pendingEscalationsCount}
-                      </span>
-                    ) : null}
-                  </MenuLink>
-                ) : null}
                 {isSuperAdmin(role) ? (
                   <MenuLink href="/admin/users" active={isNavItemActive(pathname, "/admin/users")}>
                     Admins
@@ -556,7 +570,8 @@ export function AppHeader({
             />
           ) : null}
 
-          {/* The bell sits last, right after the points. */}
+          {/* Escalations, as an envelope, then the bell last. */}
+          {showEscalations ? <EscalationsLink pending={pendingEscalationsCount} active={isNavItemActive(pathname, "/escalations")} /> : null}
           <NotificationsBell key={`${userId}:${activeTenantId}:${pathname}`} unreadCount={unreadCount} active={isNavItemActive(pathname, "/notifications")} />
         </div>
       </div>

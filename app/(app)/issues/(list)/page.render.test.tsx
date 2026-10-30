@@ -60,13 +60,6 @@ vi.mock("@/lib/workflow", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/workflow")>()),
   workflowFor: vi.fn(async () => ({ ...(await import("@/lib/workflow-config")).DEFAULT_PROJECT_WORKFLOW, ideaThreshold: 4 })),
 }));
-const ownAgents = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
-const workDone = vi.hoisted(() => vi.fn(async () => new Map()));
-vi.mock("@/lib/dashboard-overview", () => ({ loadOwnAgents: ownAgents }));
-vi.mock("@/lib/agent-work", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/agent-work")>()),
-  agentWorkDone: workDone,
-}));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     project: { findFirst: vi.fn(async () => ({ slug: "acme-web", name: "Acme Web", goal: null })) },
@@ -131,7 +124,7 @@ beforeEach(() => {
 
 describe("issue list layout", () => {
   it("renders Issues as the page title with a page-level New issue CTA", async () => {
-    const html = await renderList();
+    const html = await renderList({ status: "all" });
     expect(html).toContain("Login button does nothing");
     expect(html).toMatch(/<h1[^>]*>Issues<\/h1>/);
     expect(html).toContain('href="/issues/new?from=%2Fissues"');
@@ -153,7 +146,7 @@ describe("issue list layout", () => {
       args?.where?.projectId === "project-acme" ? 0 : 5,
     );
     findMany.mockResolvedValue([]);
-    const html = await renderList();
+    const html = await renderList({ status: "all" });
     expect(html).toContain("No issues yet");
     expect(html).not.toContain("No issues match these filters.");
     const firstRunCount = count.mock.calls.find(
@@ -191,8 +184,8 @@ describe("issue list layout", () => {
     expect(html).not.toContain("No issues yet");
   });
 
-  it("lists ideas in the Inbox's New ideas, from the Idea table, with their score and no importance button (#idea-table)", async () => {
-    const html = await renderList({ status: "escalated", inbox: "ideas" });
+  it("lists ideas under Ideas' New ideas, from the Idea table, with their score and no importance button (#idea-table)", async () => {
+    const html = await renderList();
     expect(ideaFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "tenant-acme", projectId: "project-acme", status: "open", isDeleted: false }),
     }));
@@ -205,7 +198,7 @@ describe("issue list layout", () => {
     expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
   });
 
-  it("lists a person's ideas without the standard headings under Drafted ideas", async () => {
+  it("lists a person's ideas without the standard headings under Drafted", async () => {
     ideaFindMany.mockImplementation(async (args: { where: { createdByAgentId?: null; id?: { in: string[] } } }) =>
       args.where.createdByAgentId === null && !args.where.id
         ? [
@@ -213,23 +206,16 @@ describe("issue list layout", () => {
             { id: "idea-2", description: "## Summary\nx\n\n## Acceptance Criteria\n- y", createdByAgentId: null },
           ]
         : [IDEA]);
-    const html = await renderList({ status: "escalated", inbox: "drafts" });
+    const html = await renderList({ ideas: "drafts" });
     expect(ideaFindMany.mock.calls.at(-1)![0].where.id).toEqual({ in: ["idea-1"] });
     expect(html).toContain('href="/ideas/12"');
-    const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(tabs).toMatch(/Drafted ideas<span[^>]*>1<\/span>/);
-  });
-
-  it("opens the Inbox's New ideas from the old ?status=ideas link", async () => {
-    const html = await renderList({ status: "ideas" });
-    expect(html).toContain('href="/ideas/12"');
-    const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(tabs).toMatch(/aria-current="page"[^>]*>New ideas/);
+    const filters = html.match(/<nav aria-label="Filter ideas"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(filters).toMatch(/aria-current="page"[^>]*>Drafted<span[^>]*>1<\/span>/);
   });
 
   it("keeps the importance button on an issue, with an Importance column", async () => {
     findMany.mockResolvedValue([{ ...BUG, projectId: "project-acme" }]);
-    const html = await renderList();
+    const html = await renderList({ status: "all" });
     expect(html).not.toContain('data-testid="idea-score-badge"');
     expect(html).toMatch(/click to mark important/);
     expect(html).toContain('title="Importance"');
@@ -242,13 +228,13 @@ describe("issue list layout", () => {
   });
 
   it("still filters by ?stage= from old links (#1054)", async () => {
-    await renderList({ stage: "confirming" });
+    await renderList({ stage: "confirming", status: "all" });
     const listQuery = findMany.mock.calls.at(-1)![0];
     expect(listQuery.where.id).toEqual({ in: ["bug-1"] });
   });
 
   it("counts platform-tab badges and the Show-N-resolved link inside the stage filter (#626)", async () => {
-    await renderList({ stage: "confirming" });
+    await renderList({ stage: "confirming", status: "all" });
 
     // The platform tabs group off the post-stage snapshot: their where-clause
     // must carry the stage's row ids. (The status-tabs groupBy drops them on
@@ -329,20 +315,19 @@ describe("issue list layout", () => {
     expect(nav).toContain('href="/issues?status=resolved&amp;platform=cat-web"');
   });
 
-  it("counts every issue in the platform menu on the Inbox, and a pick opens the All tab", async () => {
+  it("counts every issue in the platform menu on Ideas, and a pick opens the All tab", async () => {
     groupBy.mockResolvedValue([
       { categoryId: "cat-web", _count: { _all: 4 } },
       { categoryId: "cat-mobile", _count: { _all: 2 } },
     ] as never);
-    const html = await renderList({ inbox: "design" });
+    const html = await renderList({ ideas: "drafts" });
     const tabQuery = groupBy.mock.calls.find(([args]) => args.by[0] === "categoryId")![0];
-    expect(tabQuery.where).not.toHaveProperty("agentQuestions");
-    expect(tabQuery.where).not.toHaveProperty("redesigns");
+    expect(tabQuery.where).not.toHaveProperty("id");
     expect(tabQuery.where).not.toHaveProperty("status");
     const nav = html.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toContain('href="/issues?status=all&amp;platform=cat-web"');
     expect(nav).toContain('href="/issues?status=all"');
-    expect(nav).not.toContain("inbox=");
+    expect(nav).not.toContain("ideas=");
   });
 
   it("counts each platform's total in the platform menu, whatever status tab is picked", async () => {
@@ -365,21 +350,18 @@ describe("issue list layout", () => {
     }
   });
 
-  it("puts the Inbox first in one left-aligned bar, as an envelope with its count, then Requires confirmation before Open", async () => {
-    count.mockResolvedValue(2 as never);
-    const html = await renderList({ status: "escalated" });
+  it("puts Ideas first in one left-aligned bar, with the open ideas' count, then Requires confirmation before Open", async () => {
+    const html = await renderList();
     const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toMatch(/class="issues-status-nav min-w-0"/);
     expect(nav).not.toContain("ml-auto");
     const labels = [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Requires confirmation", "Open", "In progress", "Done", "Ready to merge", "Live", "Closed", "All"]);
-    const inbox = nav.match(/<a [^>]*data-testid="inbox-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
-    expect(inbox).toMatch(/href="\/issues"/);
-    expect(inbox).toContain('aria-current="page"');
-    expect(inbox).toContain("issues-status-inbox");
-    // Red while anything waits, selected or not.
-    expect(inbox).toMatch(/<span class="issues-status-count issues-inbox-waiting">2<\/span>/);
-    expect(findMany.mock.calls.at(-1)![0].where.agentQuestions).toEqual({ some: { answeredAt: null } });
+    expect(labels).toEqual(["Ideas", "Requires confirmation", "Open", "In progress", "Done", "Ready to merge", "Live", "Closed", "All"]);
+    const ideas = nav.match(/<a [^>]*data-testid="ideas-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
+    expect(ideas).toMatch(/href="\/issues"/);
+    expect(ideas).toContain('aria-current="page"');
+    expect(ideas).toContain("issues-status-ideas");
+    expect(ideas).toContain('<span class="issues-status-count">4</span>');
   });
 
   it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
@@ -387,66 +369,32 @@ describe("issue list layout", () => {
     expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
   });
 
-  it("opens the Inbox with how it works, then its lists: Need your input, Design feedback needed, New ideas, Drafted ideas", async () => {
-    const html = await renderList({ status: "escalated" });
-    expect(html).toContain('aria-label="How the Inbox works"');
-    const tabs = html.match(/<nav aria-label="Inbox lists"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    const labels = [...tabs.matchAll(/<a [^>]*>([A-Za-z ]+)<span/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Need your input", "Design feedback needed", "New ideas", "Drafted ideas"]);
-    expect(tabs).toMatch(/aria-current="page"[^>]*>Need your input/);
-    expect(tabs).toContain('href="/issues?inbox=design"');
-    expect(tabs).toContain('href="/issues?inbox=ideas"');
-    expect(tabs).toContain('href="/issues?inbox=drafts"');
-    expect(html.indexOf('aria-label="How the Inbox works"')).toBeLessThan(html.indexOf('aria-label="Inbox lists"'));
-    expect(html).not.toContain('aria-label="Filter all issues"');
+  it("filters Ideas with small pills, New ideas and Drafted, and nothing else above the list", async () => {
+    const html = await renderList();
+    const filters = html.match(/<nav aria-label="Filter ideas"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    expect(filters).toContain("Filter by:");
+    const labels = [...filters.matchAll(/<a [^>]*>([A-Za-z ]+)<span/g)].map((m) => m[1]);
+    expect(labels).toEqual(["New ideas", "Drafted"]);
+    expect(filters).toMatch(/aria-current="page"[^>]*>New ideas/);
+    expect(filters).toContain('href="/issues?ideas=drafts"');
+    for (const gone of ["How the Inbox works", "Your agents", "Need your input", "Design feedback needed", 'aria-label="Filter all issues"']) {
+      expect(html).not.toContain(gone);
+    }
   });
 
-  it("shows your agents, their status and what they've done beside how the Inbox works", async () => {
-    ownAgents.mockResolvedValueOnce([
-      { id: "a1", name: "Scout", model: null, level: "working", status: "working", activity: "Working on #3 Seed", lastSeenAt: null },
-      { id: "a2", name: "Lens", model: null, level: "working", status: "waiting", activity: "Waiting for your answer", lastSeenAt: null },
-    ]);
-    workDone.mockResolvedValueOnce(new Map([["a1", { confirmed: 3, rejected: 0, reviews: 1 }]]));
-    const html = await renderList({ status: "escalated" });
-    const box = html.match(/<section aria-label="How the Inbox works"[\s\S]*?<\/section>/)?.[0] ?? "";
-    expect(box).toContain('aria-label="Your agents"');
-    // One agent at a time, the one waiting on you first; the dots switch to Scout.
-    expect(box).toContain("Lens");
-    expect(box).toContain("Waiting for your answer");
-    expect(box).toContain("Nothing done in the last 30 days");
-    expect(box).not.toContain("Working on #3 Seed");
-    expect(box).toContain('aria-label="Show Scout"');
-    expect(box).toMatch(/<button[^>]*disabled[^>]*title="Coming soon"[^>]*>Work<\/button>/);
-    expect(box).toContain('aria-label="Manage Lens"');
-    expect(box).not.toContain(">Manage<");
-  });
-
-  it("points to adding an agent when you have none", async () => {
-    const html = await renderList({ status: "escalated" });
-    expect(html).toContain("No agents yet.");
-    expect(html).toContain('href="/settings/agents"');
-  });
-
-  it("lists issues with an open redesign under Design feedback needed", async () => {
-    await renderList({ status: "escalated", inbox: "design" });
-    const where = findMany.mock.calls.at(-1)![0].where;
-    expect(where.redesigns).toEqual({ some: { status: "proposed" } });
-    expect(where).not.toHaveProperty("agentQuestions");
-    expect(where.status).toEqual({ in: ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge"] });
-  });
-
-  it("drops the Inbox list choice when moving to another tab", async () => {
-    const html = await renderList({ status: "escalated", inbox: "design" });
+  it("drops the Ideas filter when moving to another tab", async () => {
+    const html = await renderList({ ideas: "drafts" });
     const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(status).toContain('href="/issues?status=open"');
-    expect(status).not.toContain("inbox=");
+    expect(status).not.toContain("ideas=");
   });
 
-  it("leaves Inbox unselected on the other tabs", async () => {
+  it("leaves Ideas unselected on the other tabs, with no Ideas filters", async () => {
     const html = await renderList({ status: "open" });
-    const inbox = html.match(/<a [^>]*data-testid="inbox-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
-    expect(inbox).toContain('title="Inbox"');
-    expect(inbox).not.toContain('aria-current="page"');
+    const ideas = html.match(/<a [^>]*data-testid="ideas-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
+    expect(ideas).toContain("Ideas");
+    expect(ideas).not.toContain('aria-current="page"');
+    expect(html).not.toContain('aria-label="Filter ideas"');
   });
 
   it("shows no tabs when the project has no platforms to choose between (#1055)", async () => {
@@ -457,10 +405,10 @@ describe("issue list layout", () => {
     expect(html).not.toContain('aria-label="Platforms"');
   });
 
-  it("lands on the Inbox; All (?status=all) shows every issue, finished ones too", async () => {
+  it("lands on Ideas; All (?status=all) shows every issue, finished ones too", async () => {
     let html = await renderList();
-    expect(html).toContain('aria-label="How the Inbox works"');
-    expect(findMany.mock.calls.at(-1)![0].where.agentQuestions).toEqual({ some: { answeredAt: null } });
+    expect(html).toContain('aria-label="Filter ideas"');
+    expect(findMany.mock.calls.at(-1)![0].where.id).toEqual({ in: [] });
 
     html = await renderList({ q: "login", status: "all" });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
@@ -472,7 +420,7 @@ describe("issue list layout", () => {
   it("searches across All when no tab is picked, so a just-reported issue can be found", async () => {
     const html = await renderList({ q: "login" });
     const where = findMany.mock.calls.at(-1)![0].where;
-    expect(where).not.toHaveProperty("agentQuestions");
+    expect(where).not.toHaveProperty("id");
     expect(where).not.toHaveProperty("status");
     const status = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(status).toMatch(/aria-current="page" href="\/issues\?q=login&amp;status=all"/);
@@ -555,11 +503,11 @@ describe("issue list layout", () => {
     const counts = Object.fromEntries(
       [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
     );
-    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to merge": 1, Live: 7, Closed: 3, All: 28 });
+    expect(counts).toEqual({ Ideas: 4, "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to merge": 1, Live: 7, Closed: 3, All: 28 });
   });
 
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {
-    const html = await renderList();
+    const html = await renderList({ status: "all" });
     expect(html).not.toContain("🔗");
     expect(html).not.toContain("linked proof");
     expect(html).not.toContain("👍");
@@ -570,7 +518,7 @@ describe("issue list layout", () => {
   });
 
   it("shows the assignee as a face only, and a short updated date (#1061)", async () => {
-    const html = await renderList();
+    const html = await renderList({ status: "all" });
     // The name is only in the tooltip and for screen readers.
     expect(html).toContain('title="Assigned to Bob Builder"');
     expect(html).toContain('<span class="sr-only">Assigned to Bob Builder</span>');
@@ -581,12 +529,12 @@ describe("issue list layout", () => {
   });
 
   it("dates rows by when they were opened when sorted by newest (#1061)", async () => {
-    const html = await renderList({ sort: "newest" });
+    const html = await renderList({ sort: "newest", status: "all" });
     expect(html).toMatch(/<time dateTime="2026-10-01T10:00:00.000Z" title="Opened /);
   });
 
   it("keeps the row unwatch action visible in the compact mobile layout", async () => {
-    const html = await renderList({ mine: "watching" });
+    const html = await renderList({ mine: "watching", status: "all" });
 
     expect(html).toContain('class="w-10 shrink-0 items-center justify-end gap-2 flex"');
     expect(html).toMatch(/aria-label="Unwatch [^"]*Login button does nothing"/);
