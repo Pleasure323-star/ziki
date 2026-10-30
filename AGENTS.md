@@ -70,16 +70,37 @@ Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ide
    - When linking a pull request via `POST /api/v1/issues/{id}/github`, the agent delivering the fix (any working agent holding the claim) must supply visual proofs (`screenshots`) and automated test output (`testResults`).
    - The delivering agent does **not** mark merged work as resolved. Submission moves the ticket to `reviewStatus: "submitted"`.
 
-3. **Two-Stage Integration**:
-   - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): Evaluates for completeness, efficiency, and mergeability; accepts (`ready_to_merge`) or rejects with actionable feedback (`rejected`). Any new anti-patterns discovered during review must be documented via `POST /api/v1/projects/{id}/mistakes`.
-   - **Merger agent execution**: Executes the Git merge (`POST /api/v1/issues/{id}/admin-merge`) after verifying that GitHub Actions deployment checks are passing, updating the ticket to `merged`.
-   - Both are tenant admin grants; every other agent is a working agent. A manager or merger agent still cannot review or accept work from its own owner.
+3. **Testing, review and merge** (each step's decision is that step's entry, see "The issue model" below):
+   - **Testers** give test verdicts (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent verdicts say good to merge, the issue moves to Done (`reviewStatus: "tested"`) on its own.
+   - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): a merge review entry, `verdict` accept or reject, with a `summary` and a `description`. Accept moves it to Ready to Merge (`ready_to_merge`); reject (`rejected`) puts the feedback the author acts on in the description. Any new anti-pattern found in review goes to `POST /api/v1/projects/{id}/mistakes`.
+   - **Merger agent execution**: Executes the Git merge (`POST /api/v1/issues/{id}/admin-merge`) after verifying that GitHub Actions deployment checks are passing, updating the ticket to `merged` (the Live tab).
+   - Manager and merger are tenant admin grants; every other agent is a working agent. A manager or merger agent still cannot review or accept work from its own owner.
    - **Human Reviewer Gate (HITL)**: Mandatory review for issues involving major features or architectural pivots.
 
 4. **The Work Feed**:
    - Find work in `GET /<project-slug>/work` (`work_url` in `GET /api/v1/agents/me`; MCP tool `ziki_get_work`; `pnpm ziki work`). Poll about every 30 seconds with `If-None-Match`; an unchanged feed answers `304`.
    - Each item names the class it needs (`minimumRole`) and whether you can act (`canAct`). Manager and merger items are shown to every agent with `canAct: false`.
    - Events (`GET /api/v1/events`, or Server-Sent Events via `GET /api/v1/events/stream`) are for reacting to activity, not for finding work.
+
+## The issue model (don't rebuild the old one)
+
+These are product rules. Code, docs and UI follow them; a change that brings back the old shape is wrong even if it passes the tests.
+
+- **Ideas are not issues.** They have their own table, numbers (idea #1, #2, … apart from issue numbers), routes (`/api/v1/ideas`) and page. An issue exists only by converting an idea; nothing files an issue directly.
+- **One status per issue.** Requires confirmation → Open → In progress → Done → Ready to Merge → Live, plus Closed. Don't show a second status-like label next to it (no separate "stage" chip, no per-stage tally line under a row). Nobody sets a status by hand; it moves as agents do the work.
+- **One entry per person per step.** At each step a person or agent gives exactly one top-level entry for that step, with a verdict, a `summary` (at most two sentences) and a full `description`. A newer entry from the same person replaces theirs.
+
+  | Step | Entry |
+  | --- | --- |
+  | Idea | idea verdict: good, bad or neutral |
+  | Requires confirmation | confirmation: confirm, reject or neutral |
+  | Open | bid |
+  | Done | test verdict: good to merge or not |
+  | Ready to Merge | merge review: accept or reject |
+
+- **Replies, not comments.** A comment is only ever a plain-text reply under one entry. There are no free-standing or typed comments, and no comment that repeats a decision already recorded as an entry: the entry's description is the record.
+- **No upvotes.** An issue's importance is an Importance mark with a written reason, not a bare vote.
+- **One way to do each thing.** When the model changes, remove the old route, field or value outright. Don't keep aliases, deprecated fields or retired-route shims for old clients.
 
 ## Testing (required before done)
 
@@ -107,8 +128,8 @@ Also:
 - **`pnpm lint` is cached** (`node_modules/.cache/eslint/`): after the first run, it only re-lints changed files (about 8 s instead of about 40 s). `tsc` is already incremental.
 - **`pnpm test:changed`** is now another name for `pnpm verify:quick`. (Vitest's own `--changed` traced the whole import graph and took longer than the full suite here.)
 - If you want feedback while you work (for example, writing a tricky function test-first), keep **one** `pnpm test:watch` running instead of starting new runs; it reruns affected tests about 1 s after a save. Avoid `vitest related`: it scans every test file's imports first.
-- Use Node 22 as required by `package.json`. On Node 26, experimental native web storage can break jsdom theme tests; `NODE_OPTIONS=--no-experimental-webstorage pnpm test` avoids that runtime conflict without changing project configuration.
-- Validation schemas live in `lib/validations/bug.ts`; unit tests cover happy + invalid cases under `lib/validations/`.
+- Use Node 22 as required by `package.json`. On Node 26, experimental native web storage can break jsdom theme tests; `NODE_OPTIONS=--no-experimental-webstorage pnpm verify:ready` avoids that runtime conflict without changing project configuration.
+- Validation schemas live in `lib/validations/` (issues in `issue.ts`); unit tests cover happy + invalid cases beside them.
 - Prefer Vitest for pure logic; do not invent heavy E2E unless asked.
 
 ### CLI tests (local clients)
@@ -127,6 +148,22 @@ pnpm test:cli          # resets and uses its own workspace, cli-test
 - A failing scenario is a real API break until you show otherwise. Fix the code, or fix the scenario if the behaviour changed on purpose, and say which in the PR.
 - When you add an agent route, add a command for it (the MCP tool, or `cli/catalog.ts`) and a scenario that exercises it.
 - CI has no local server, so it does not run these. Run them yourself and put the result in the PR's test notes.
+
+## Migrations
+
+- **Migrations only, never a reseed or reset** (see Hard rules). Production applies them at container start (`scripts/migrate.mjs`), so a migration that fails takes the deploy down with it.
+- **A new enum value goes in its own migration.** Postgres can't use a value in the transaction that adds it, so `ALTER TYPE … ADD VALUE` is one migration and any default or backfill that uses the value is the next.
+- **Moving rows: unhook cascades before deleting.** A migration that copies rows to a new table and then deletes the old ones must first drop or repoint every foreign key that cascades from them. Deleting the old rows otherwise deletes what hangs off them (this once lost 9 of 14 idea verdicts in a test run).
+- **Write a data migration's rule in SQL the same way the app decides it**, then check it: run it on a copy and compare row by row against the app's own function (for example `isConfirmed()`). Expect 0 mismatches.
+- **Test on a copy, never the shared dev database.** Copy it with `pg_dump` into a scratch database on the same server, point `DATABASE_URL` at the copy, run `pnpm exec prisma migrate deploy`, check the data, then drop the copy. Never run `prisma migrate dev`, `migrate reset` or anything that uses a shadow database against the dev database. To see the SQL a schema change needs, diff the two schema files: `pnpm exec prisma migrate diff --from-schema-datamodel <old.prisma> --to-schema-datamodel prisma/schema.prisma --script`.
+
+## Merging and deploying
+
+- **Check mergeability first.** `gh pr view <n> --json mergeable` must be `MERGEABLE`. A conflicting PR runs no checks and the merge is refused, so waiting on CI is pointless until the branch is brought up to date with `main`.
+- **Merge only on green**, and only with explicit approval from the person you work for: every check passes, including End-to-end (Playwright).
+- **Live means the commit is served.** After merging, `main`'s CI runs again, then Coolify deploys (about 3–4 minutes) and the migrations run at container start. It is live when `https://ziki.dev/api/health` reports the merge commit's SHA. Compare against that SHA; an empty or unknown SHA must never count as live.
+- **Deploy status:** `COOLIFY_READ_KEY` and `COOLIFY_ADDRESS` in `.env` read Coolify's API (`/api/v1/deployments/applications/<uuid>`) for a deploy's status. They are read-only; never print the key.
+- **Production data is read-only.** Never write to the production database; read queries only, and only when the person you work for allows it.
 
 ## Commits
 
