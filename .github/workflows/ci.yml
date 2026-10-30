@@ -66,6 +66,81 @@ jobs:
           NEXTAUTH_URL: "http://localhost:3000"
         run: pnpm build
 
+  # The CLI scenarios (cli/tests) drive the real agent API through `pnpm ziki`.
+  # This is where they are required: locally they run only for changes to the
+  # API they exercise (AGENTS.md, "CLI tests"). A disposable database, one dev
+  # server started and stopped by scripts/cli-tests.mjs (bounded readiness
+  # wait), and its logs kept when something fails. No build: the scenarios run
+  # against `next dev`, as they do locally, so this job adds no second build.
+  cli:
+    name: CLI scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bug_tracker_cli
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bug_tracker_cli"
+      AUTH_SECRET: "ci-cli-secret-dummy-must-be-long-enough-32-chars"
+      AUTH_URL: "http://localhost:3001/api/auth"
+      NEXTAUTH_URL: "http://localhost:3001"
+      AUTH_TRUST_HOST: "true"
+      AGENT_PLATFORM: "true"
+      NEXT_PUBLIC_AGENT_PLATFORM: "true"
+      # A dummy 32-byte key, so the webhook scenario runs instead of skipping.
+      WEBHOOK_SECRET_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CLI_TEST_LOG_DIR: cli-test-logs
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The CLI reads .env (cli/env.ts); the job's variables above win over it.
+      - name: Point the CLI at this job's database
+        run: cp .env.example .env
+
+      - name: Apply migrations to the disposable database
+        timeout-minutes: 5
+        run: pnpm exec prisma migrate deploy
+
+      - name: Run the CLI scenarios (starts and stops the server)
+        timeout-minutes: 15
+        run: node scripts/cli-tests.mjs --ready-timeout 90 --timeout-minutes 12
+
+      - name: Upload server and scenario logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-test-logs
+          path: cli-test-logs/
+          retention-days: 7
+
   # #299: the critical paths in a real browser, at desktop and 375px, against
   # a production build and a freshly migrated, seeded database.
   e2e:

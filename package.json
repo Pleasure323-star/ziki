@@ -8,13 +8,14 @@
     "start": "next start -p ${PORT:-3000}",
     "lint": "eslint --cache --cache-location node_modules/.cache/eslint/",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "check": "node scripts/verify.mjs ready",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:changed": "node scripts/verify.mjs quick",
     "verify:quick": "node scripts/verify.mjs quick",
     "verify:ready": "node scripts/verify.mjs ready",
+    "verify:recheck": "node scripts/verify.mjs recheck",
+    "verify:status": "node scripts/verify.mjs status",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset",
@@ -22,7 +23,7 @@
     "e2e": "playwright test",
     "e2e:seed": "tsx e2e/seed.ts",
     "ziki": "tsx --tsconfig cli/tsconfig.json cli/ziki.ts",
-    "test:cli": "vitest run --config vitest.cli.config.ts"
+    "test:cli": "node scripts/cli-tests.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

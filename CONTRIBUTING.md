@@ -53,32 +53,33 @@ Keep the subject imperative and under ~72 characters. One logical change per com
 4. Do not mix unrelated refactors with feature work
 5. Never force-push (`git push --force`, `-f`, or `--force-with-lease`)
 6. Do not commit secrets (`.env`, keys, credentials)
-7. Ensure all pre-push checks pass (`pnpm check`)
+7. Verify once before pushing (`pnpm verify:ready`, then `pnpm verify:recheck` after fixes; see below)
 
-## Mandatory Pre-Push Verification
+## Verification before pushing
 
-Before pushing code or opening a PR, always run:
+Finish the whole change, tests included, before running any check. Then:
 
 ```bash
-pnpm check
+pnpm verify:ready     # once: lint, typecheck and the full unit suite (`pnpm check` is the same)
+# fix every failure it reports, all together
+pnpm verify:recheck   # the failing tests plus the tests the fixes affect
+pnpm verify:status    # what each run covered, for the PR's test plan
 ```
 
-This runs the trifecta of pre-push checks:
-1. `pnpm lint` — ESLint static analysis
-2. `pnpm typecheck` — TypeScript type checking (`tsc --noEmit`)
-3. `pnpm test` — Vitest unit and integration test suite
+`verify:ready` runs every phase even when one fails, keeps a complete log per phase, and reuses a pass only when nothing it depends on has changed. `verify:recheck` runs a full suite again only when a shared input changed (dependencies, configs, the Prisma schema, the runtime), and says so. Don't run tests, lint or typecheck between edits, and don't rerun the full suite after a passing recheck. AGENTS.md ("Testing") has the details.
 
-All PRs must pass CI before they can be merged.
+CI is the release gate: on every PR it runs lint, typecheck, the unit suite, the standalone MCP package, the build, the Playwright end-to-end tests and the CLI scenarios, on the final commit. All PRs must pass CI before they can be merged.
 
 ## Testing Guidelines
 
 We prioritize high test confidence. Every new route, server action, API endpoint, or utility should have accompanying unit or integration tests.
 
 ```bash
-pnpm test          # Run all Vitest suites
-pnpm test:watch    # Watch mode for interactive TDD
-pnpm e2e           # Run Playwright end-to-end tests
+pnpm e2e           # Playwright end-to-end tests
+pnpm test:cli      # CLI scenarios: locally only for agent API changes (docs/cli.md)
 ```
+
+Diagnostic commands, for a specific question rather than routine use: `pnpm vitest run <file>` (one file), `pnpm verify:quick` (tests affected by your branch), `pnpm test:watch` (test-first work on one function).
 
 ### Backend Endpoint Testing (`app/api/**`, `app/**/route.ts`)
 

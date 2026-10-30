@@ -46,6 +46,8 @@ yarn.lock
 *.tsbuildinfo
 next-env.d.ts
 .worktrees/
+# Agent worktrees: nested checkouts, never part of this one (tests, verify inputs).
+.claude/worktrees/
 
 # Playwright (#299)
 /test-results/
@@ -55,6 +57,7 @@ next-env.d.ts
 # Local CLI keyring: agent keys for the local sandbox (pnpm ziki setup)
 .ziki-cli/
 
-# Saved test output (AGENTS.md: test once at the end)
+# Saved test output. `pnpm verify:ready` and `pnpm test:cli` keep their logs
+# in node_modules/.cache instead, outside the inputs they hash.
 .test-output.txt
 .verify-output.txt

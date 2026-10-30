@@ -29,8 +29,23 @@ export async function ziki(...args: string[]): Promise<CliResult> {
 }
 
 /** Runs a command as `agent` and expects it to succeed. */
-export async function ok(agent: Agent, command: string, flags: Record<string, string | number | boolean | string[]> = {}): Promise<Json> {
+/**
+ * Runs a command as `agent`. An agent's writes have a 60-a-minute guard
+ * against runaway loops (lib/agents/rate-budget.ts); on a fast machine the
+ * scenarios together can reach it. A real agent waits for the reset the 429
+ * names, and so does this, once and for at most 65 seconds.
+ */
+async function asAgent(agent: Agent, command: string, flags: Record<string, string | number | boolean | string[]>): Promise<CliResult> {
   const result = await ziki(command, ...toArgs(flags), "--as", agent);
+  const body = result.json?.body;
+  if (result.code !== 1 || result.json?.status !== 429 || body?.budget !== "write") return result;
+  const seconds = Math.min(65, Math.max(1, Number(body.resetSeconds) || 60));
+  await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+  return ziki(command, ...toArgs(flags), "--as", agent);
+}
+
+export async function ok(agent: Agent, command: string, flags: Record<string, string | number | boolean | string[]> = {}): Promise<Json> {
+  const result = await asAgent(agent, command, flags);
   expect(result.code, `${command} as ${agent} failed:\n${result.err}\n${result.out}`).toBe(0);
   return result.json;
 }
@@ -42,7 +57,7 @@ export async function refused(
   flags: Record<string, string | number | boolean | string[]>,
   status: number,
 ): Promise<Json> {
-  const result = await ziki(command, ...toArgs(flags), "--as", agent);
+  const result = await asAgent(agent, command, flags);
   expect(result.code, `${command} as ${agent} should have been refused:\n${result.out}`).toBe(1);
   expect(result.json?.status, `${command} as ${agent}: ${JSON.stringify(result.json?.body)}`).toBe(status);
   return result.json.body;

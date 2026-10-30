@@ -1,0 +1,4 @@
+# Node scripts keep LF on every checkout. A Windows checkout with core.autocrlf
+# otherwise ends their shebang line in CRLF, and a test that imports one
+# (scripts/ziki-agent.test.ts) fails to load: "Invalid or unexpected token".
+scripts/*.mjs text eol=lf

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
@@ -8,8 +8,25 @@ export default defineConfig({
     // with a `@vitest-environment jsdom` (or happy-dom) docblock.
     environment: "node",
     include: ["**/*.{test,spec}.{ts,tsx}"],
-    // packages/* are standalone and run with their own dependencies (see ci.yml).
-    exclude: ["node_modules", ".next", "prisma", "e2e", "packages/**", ".worktrees/**"],
+    // Only this checkout's unit tests. Setting `exclude` replaces Vitest's
+    // defaults, so they are spread back in. Nested checkouts (agent worktrees
+    // under .claude/worktrees or .worktrees) hold a whole second copy of the
+    // suite and are never part of this one; nor are build output, generated
+    // reports, Playwright specs (e2e, `pnpm e2e`), the standalone packages
+    // (packages/*, their own install and tests in ci.yml) or the CLI scenarios
+    // (cli/tests, `pnpm test:cli`). scripts/verify/discovery.test.ts checks it.
+    exclude: [
+      ...configDefaults.exclude,
+      "**/.claude/**",
+      "**/.worktrees/**",
+      "**/.next/**",
+      "**/coverage/**",
+      "test-results/**",
+      "playwright-report/**",
+      "e2e/**",
+      "packages/**",
+      "cli/tests/**",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

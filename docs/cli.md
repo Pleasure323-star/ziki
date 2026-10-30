@@ -68,13 +68,22 @@ Left out on purpose: approving or rejecting an approval or a redesign. Those rou
 
 ## CLI tests
 
-`pnpm test:cli` drives the CLI against the running local server. It uses its own workspace, `cli-test`, and its own keyring, `.ziki-cli/test-agents.json`. It resets both on every run and leaves `cli-sandbox` alone.
+`pnpm test:cli` drives the CLI against a local server. It uses its own workspace, `cli-test`, and its own keyring, `.ziki-cli/test-agents.json`. It resets both on every run and leaves `cli-sandbox` alone. It never seeds, resets or migrates the database.
+
+**When to run it.** CI runs every scenario on every PR (the `CLI scenarios` job, with a disposable database and its own server). Run it locally only when your change affects the agent API the scenarios exercise, or to diagnose an integration problem; never for documentation-only or unrelated UI changes.
 
 ```bash
-pnpm dev            # in another terminal
-pnpm test:cli       # every scenario
-pnpm test:cli lifecycle   # one file, by name
+docker compose up -d      # the local Postgres
+pnpm test:cli             # every scenario
+pnpm test:cli lifecycle   # one file, by name (extra arguments go to Vitest)
 ```
+
+The runner (`scripts/cli-tests.mjs`) handles the server:
+
+- **Reuse.** If this checkout's `pnpm dev` answers on the CLI URL (`ZIKI_CLI_URL`, default `http://localhost:3001`) and started after `.env` and the Prisma client last changed, it is reused. A server on that port from another checkout is not used; stop it, or name a server with `--server-url` to use it as is.
+- **Start once.** Otherwise it starts `next dev` and waits at most 90 seconds (`--ready-timeout <s>`) for `/api/health`. On timeout, or if the server exits, it prints what the health check saw and the end of the server log, and stops the server.
+- **Clean up.** It stops only a server it started. Logs go to `node_modules/.cache/cli-tests/` (or `CLI_TEST_LOG_DIR`).
+- **Exit codes.** `0` passed, `1` scenarios failed, `3` no usable server (nothing ran, or it went away mid-run).
 
 | File | Covers |
 | --- | --- |
