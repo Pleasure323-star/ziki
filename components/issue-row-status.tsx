@@ -51,76 +51,45 @@ export type IssueRowWork = {
 
 /**
  * One line saying where an issue stands: Idea (with its score), Requires confirmation
- * (bots), Ready for bids, who is working on it and for how long, or Resolved / Closed.
- * Once its fix is merged, the dev → staging → main chips from merge history instead.
+ * (bots), Ready for bids, who is working on it and for how long, Done, Ready to merge,
+ * or Live / Closed. A live fix shows its dev → staging → main chips from merge history instead.
  */
 export function IssueRowStatus({
   status,
   stage,
   botConfirmations,
   work,
-  reviewStatus,
   mergePath,
 }: {
   status: string;
   stage: IssueStage | undefined;
   botConfirmations: number;
   work: IssueRowWork | null;
-  reviewStatus?: string | null;
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
   const finished = status === "resolved" || status === "closed";
-  // Reopening keeps reviewStatus "merged", so only finished issues show the path.
   if (mergePath && finished) {
     return <MergePathChips path={mergePath} compact />;
   }
   if (finished) {
     return (
       <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
-        <CheckIcon /> {status === "resolved" ? "Resolved" : "Closed"}
+        <CheckIcon /> {status === "resolved" ? "Live" : "Closed"}
       </span>
     );
   }
-  // The review only refines an issue in progress (one rule: currentDecisionStage).
-  const review = status === "in_progress" ? reviewStatus : null;
-  if (review === "submitted") {
-    return (
-      <span className="issue-row-status inline-flex items-center gap-1.5 font-medium text-indigo-600 dark:text-indigo-400">
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-indigo-400 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-indigo-500" />
-        </span>
-        PR Submitted
-      </span>
-    );
-  }
-  if (review === "tested") {
+  if (status === "done") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-400">
-        <CheckIcon /> Tested
+        <CheckIcon /> Done
       </span>
     );
   }
-  if (review === "ready_to_merge") {
+  if (status === "ready_to_merge") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
-        <CheckIcon /> Ready to Merge
-      </span>
-    );
-  }
-  if (review === "rejected") {
-    return (
-      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-amber-600 dark:text-amber-400">
-        <Svg><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></Svg> Needs Revision
-      </span>
-    );
-  }
-  if (review === "merge_blocked" || review === "merge_failed") {
-    return (
-      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-rose-600 dark:text-rose-400">
-        <Svg><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></Svg>{" "}
-        {review === "merge_blocked" ? "Merge Blocked" : "Merge Failed"}
+        <CheckIcon /> Ready to merge
       </span>
     );
   }

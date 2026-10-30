@@ -22,7 +22,7 @@ import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
 import { severityLabels } from "@/lib/labels";
-import { severities } from "@/lib/validations/issue";
+import { severities, statuses } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
   hasMatch,
@@ -128,32 +128,16 @@ const REJECTED_STATUS = "rejected";
 const REJECTED_WHERE = { some: { verdict: "reject", undoneAt: null } } satisfies Prisma.IssueConfirmationListRelationFilter;
 /** `?status=duplicate`: marked as a duplicate of another issue. */
 const DUPLICATE_STATUS = "duplicate";
-/**
- * `?status=ready_to_merge`: accepted fixes waiting for a merger agent (#SDLC).
- * Accepting a fix leaves the issue open or in progress, so the tab takes any
- * status but closed, and Open and In progress leave these out.
- */
-const READY_TO_MERGE_STATUS = "ready_to_merge";
-/** `?status=auto_merge`: resolved issues whose fix is live — merged to dev, staging, main/production (#SDLC). */
-const AUTO_MERGE_STATUS = "auto_merge";
-/**
- * `?status=resolved`: the Done tab (Ziki #713). A pull request is linked and
- * the project's required independent reviewers said it is good to merge
- * (review status `tested`). It follows the work, not a status a person set:
- * Open and In progress leave these out, as they do for Ready to Merge.
- */
-const DONE_STATUS = "resolved";
-/** Statuses an accepted fix can have while it waits to be merged. */
-// A fix is reviewed only while its issue is in progress (one rule: currentDecisionStage).
-const READY_TO_MERGE_STATUSES = ["in_progress"] as const;
-
-/** The filters under the All tab. Open, In progress and Done have tabs of their own. */
-const ALL_FILTERS = [ALL_STATUS, "closed", REJECTED_STATUS, DUPLICATE_STATUS].map((value) => ({
+/** The filters under the All tab. Every status has a tab of its own. */
+const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) => ({
   value,
   label: statusFilterLabel(value),
 }));
-/** The status tabs, left to right. */
-const STATUS_TABS = ["requires_confirmation", "open", "in_progress", DONE_STATUS, READY_TO_MERGE_STATUS, AUTO_MERGE_STATUS, ALL_STATUS].map((value) => ({
+/**
+ * The status tabs, left to right: one per status, in pipeline order, so every
+ * issue is on exactly one of them (#one-status), then All.
+ */
+const STATUS_TABS = [...statuses, ALL_STATUS].map((value) => ({
   value,
   label: statusFilterLabel(value),
 }));
@@ -346,19 +330,13 @@ export default async function BugsPage({
   const tagsParam = serializeTags(selectedTags.map((t) => t.name));
 
   const statusWhere = statusFilterWhere(statusParam);
-  // With no status filter the All tab shows every issue, finished ones too;
-  // Open, In progress and Done are tabs of their own. Inbox (escalated) keeps
-  // to live work unless resolved issues were asked for (#1058).
+  // Each status tab filters on its status alone (one status per issue). With no
+  // status filter the All tab shows every issue. Inbox (escalated) keeps to live
+  // work unless resolved issues were asked for (#1058).
   const showResolved = parseShowResolved(params[SHOW_RESOLVED_PARAM]);
   const hidesResolved = statusParam === ESCALATED_STATUS && !isDeletedView && !showResolved;
   if (statusWhere !== undefined) {
     where.status = statusWhere;
-    // Only an issue in progress has a fix under review: an accepted fix waiting
-    // to be merged is on the Ready to Merge tab, a tested one (two good-to-merge
-    // verdicts) on the Done tab (Ziki #713), not In progress.
-    if (statusParam === "in_progress" && !isDeletedView) {
-      where.AND = [{ OR: [{ reviewStatus: null }, { reviewStatus: { notIn: ["ready_to_merge", "tested"] } }] }];
-    }
   } else if (hidesResolved) {
     where.status = defaultStatusWhere(false);
   }
@@ -386,18 +364,6 @@ export default async function BugsPage({
   }
   if (statusParam === DUPLICATE_STATUS && !isDeletedView) {
     where.duplicateOfId = { not: null };
-  }
-  if (statusParam === READY_TO_MERGE_STATUS && !isDeletedView) {
-    where.status = { in: [...READY_TO_MERGE_STATUSES] };
-    where.reviewStatus = "ready_to_merge";
-  }
-  if (statusParam === AUTO_MERGE_STATUS && !isDeletedView) {
-    where.status = "resolved";
-    where.reviewStatus = "merged";
-  }
-  if (statusParam === DONE_STATUS && !isDeletedView) {
-    where.status = { in: [...READY_TO_MERGE_STATUSES] };
-    where.reviewStatus = "tested";
   }
   if (isSeverity(severityParam)) {
     where.severity = severityParam;
@@ -488,7 +454,6 @@ export default async function BugsPage({
     confirmations: _rejected,
     duplicateOfId: _duplicate,
     redesigns: _design,
-    reviewStatus: _review,
     AND: _notMergeStage,
     ...tabScope
   } = where;
@@ -501,7 +466,6 @@ export default async function BugsPage({
   void _escalated;
   void _rejected;
   void _duplicate;
-  void _review;
   void _notMergeStage;
   // The platform menu counts each platform's issues whatever tab is picked,
   // so its numbers don't move as you switch tabs; the tabs then split the
@@ -606,8 +570,7 @@ export default async function BugsPage({
         duplicateOf: showDuplicates ? { select: { number: true } } : false,
         createdAt: true,
         updatedAt: true,
-        // A merged fix shows its dev → staging → main chips in the status column.
-        reviewStatus: true,
+        // A live fix shows its dev → staging → main chips in the status column.
         pullRequestUrl: true,
         type: { select: { name: true } },
         reporter: { select: { name: true, role: true, image: true } },
@@ -809,7 +772,7 @@ export default async function BugsPage({
   const confirmingCount = [...stages.values()].filter((stage) => stage === "confirming").length;
   const readyCount = [...stages.values()].filter((stage) => stage === "ready").length;
 
-  const [statusCounts, escalatedCount, rejectedCount, duplicateCount, readyToMergeByStatus, liveCount, testedByStatus] = isDeletedView || !tenantId ? [[], 0, 0, 0, [], 0, []] : await Promise.all([
+  const [statusCounts, escalatedCount, rejectedCount, duplicateCount] = isDeletedView || !tenantId ? [[], 0, 0, 0] : await Promise.all([
     loadOrEmpty("status tabs", () => prisma.bug.groupBy({
       by: ["status"], where: statusTabWhere, _count: { _all: true },
     }), []),
@@ -822,41 +785,13 @@ export default async function BugsPage({
     loadOrEmpty("duplicate filter", () => prisma.bug.count({
       where: { ...statusTabWhere, duplicateOfId: { not: null } },
     }), 0),
-    loadOrEmpty("ready to merge tab", () => prisma.bug.groupBy({
-      by: ["status"],
-      where: { ...statusTabWhere, status: { in: [...READY_TO_MERGE_STATUSES] }, reviewStatus: "ready_to_merge" },
-      _count: { _all: true },
-    }), []),
-    loadOrEmpty("live tab", () => prisma.bug.count({
-      where: { ...statusTabWhere, status: "resolved", reviewStatus: "merged" },
-    }), 0),
-    loadOrEmpty("done tab", () => prisma.bug.groupBy({
-      by: ["status"],
-      where: { ...statusTabWhere, status: { in: [...READY_TO_MERGE_STATUSES] }, reviewStatus: "tested" },
-      _count: { _all: true },
-    }), []),
   ]);
-  const readyToMergeFor = (status: string) => readyToMergeByStatus.find((row) => row.status === status)?._count._all ?? 0;
-  const readyToMergeCount = READY_TO_MERGE_STATUSES.reduce((sum, status) => sum + readyToMergeFor(status), 0);
-  // Open and In progress leave out what waits on the Ready to Merge tab, so the tabs never overlap.
-  const countForStatus = (status: string) =>
-    (statusCounts.find((row) => row.status === status)?._count._all ?? 0) -
-    (status === "open" || status === "in_progress" ? readyToMergeFor(status) : 0);
+  // One status per issue, so the status tabs never overlap and add up to All.
+  const countForStatus = (status: string) => statusCounts.find((row) => row.status === status)?._count._all ?? 0;
   const allCount = statusCounts.reduce((sum, row) => sum + row._count._all, 0);
-  // Done is the tested fixes (Ziki #713); Open and In progress leave them out too.
-  const testedFor = (status: string) => testedByStatus.find((row) => row.status === status)?._count._all ?? 0;
-  const doneCount = READY_TO_MERGE_STATUSES.reduce((sum, status) => sum + testedFor(status), 0);
-  const workTabCount = (status: string) =>
-    countForStatus(status) - (status === "open" || status === "in_progress" ? testedFor(status) : 0);
-  const tabCount = (value: string) =>
-    value === ALL_STATUS ? allCount
-      : value === DONE_STATUS ? doneCount
-        : value === "open" || value === "in_progress" ? workTabCount(value)
-        : value === READY_TO_MERGE_STATUS ? readyToMergeCount
-          : value === AUTO_MERGE_STATUS ? liveCount
-            : countForStatus(value);
+  const tabCount = (value: string) => (value === ALL_STATUS ? allCount : countForStatus(value));
   const allFilterCount = (value: string) =>
-    value === ALL_STATUS ? allCount : value === REJECTED_STATUS ? rejectedCount : value === DUPLICATE_STATUS ? duplicateCount : value === READY_TO_MERGE_STATUS ? readyToMergeCount : countForStatus(value);
+    value === ALL_STATUS ? allCount : value === REJECTED_STATUS ? rejectedCount : value === DUPLICATE_STATUS ? duplicateCount : countForStatus(value);
   // The Inbox's other lists, counted only while it is open.
   const liveTabWhere = { ...statusTabWhere, status: defaultStatusWhere(false) };
   const designCount = inboxView && tenantId
@@ -1195,7 +1130,7 @@ export default async function BugsPage({
                       : null;
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
-                        mergePath={bug.reviewStatus === "merged" ? mergePathOf(bug) : null} />
+                        mergePath={bug.status === "resolved" && bug.pullRequestUrl ? mergePathOf(bug) : null} />
                     );
 
                     return (

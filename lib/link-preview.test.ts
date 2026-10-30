@@ -32,7 +32,7 @@ describe("bugLinkPreviewDescription (#117)", () => {
   it("can't include a reporter or description, because it doesn't accept them", () => {
     const result = bugLinkPreviewDescription({ status: "resolved" });
     expect(result).not.toMatch(/reported by/i);
-    expect(result).toContain("Resolved");
+    expect(result).toContain("Live");
   });
 });
 

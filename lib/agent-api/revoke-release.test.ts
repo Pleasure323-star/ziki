@@ -51,9 +51,9 @@ describe("revoking an agent hands its work back (#523)", () => {
       where: { id: "claim-1" },
       data: { status: "released", releasedAt: now, releaseReason: "revoked" },
     });
-    // Only reopened while it is still this person's in-progress issue.
+    // Only reopened while it is still this person's in-progress issue, and no fix is linked yet.
     expect(tx.bug.updateMany).toHaveBeenCalledWith({
-      where: { id: "bug-1", tenantId: "tenant-zedu", isDeleted: false, assigneeId: "ada", status: "in_progress" },
+      where: { id: "bug-1", tenantId: "tenant-zedu", isDeleted: false, assigneeId: "ada", status: "in_progress", pullRequestUrl: null },
       data: { assigneeId: null, status: "open" },
     });
     expect(publish).toHaveBeenCalledWith(tx, expect.objectContaining({

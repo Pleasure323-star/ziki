@@ -283,7 +283,7 @@ describe("agent issue reads", () => {
 
   it("names invalid status, severity, stage and assignee filters (#406)", async () => {
     const cases: [string, string][] = [
-      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, resolved, closed."],
+      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, done, ready_to_merge, resolved, closed."],
       ["severity=urgent", "severity must be one of low, medium, high, critical."],
       ["stage=idea", "stage must be one of confirming, ready."],
       ["assignee=%20", 'assignee must be "none" or a valid user id.'],
@@ -462,10 +462,10 @@ describe("agent comments", () => {
   it("takes a comment on the issue itself only while it is Open; elsewhere 409 use_stage_entry names the stage's entry route", async () => {
     const cases: Array<[Record<string, unknown>, RegExp | null]> = [
       [{ status: "requires_confirmation" }, /\/issues\/issue-a\/confirmations$/],
-      [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "submitted" }, /\/issues\/issue-a\/test-results$/],
-      [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "ready_to_merge" }, /\/issues\/issue-a\/merge$/],
-      [{ status: "in_progress", pullRequestUrl: null, reviewStatus: null }, null],
-      [{ status: "resolved", reviewStatus: "merged" }, null],
+      [{ status: "in_progress", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/test-results$/],
+      [{ status: "ready_to_merge", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
+      [{ status: "in_progress", pullRequestUrl: null }, null],
+      [{ status: "resolved" }, null],
     ];
     for (const [stage, route] of cases) {
       db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, ...stage });

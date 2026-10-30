@@ -97,7 +97,6 @@ import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
-import { ReviewStatusBadge } from "@/components/review-status-badge";
 import { SubmissionEvidence } from "@/components/submission-evidence";
 import { voteDirection } from "@/lib/voting";
 import {
@@ -231,7 +230,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       select: {
         title: true,
         status: true,
-        reviewStatus: true,
         isDeleted: true,
       },
     });
@@ -245,7 +243,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.status]}`}>
             {statusLabels[bug.status]}
           </Badge>
-          <ReviewStatusBadge status={bug.reviewStatus} />
         </div>
         <Link
           href={`/login?callbackUrl=${encodeURIComponent(`/issues/${rawId}`)}`}
@@ -717,18 +714,20 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       : 0;
   const commentTree = buildCommentTree(comments.comments);
   // #1446: the stage the page opens on, and what each stage holds.
-  const currentStage = currentDecisionStage({
-    status: bug.status,
-    reviewStatus: bug.reviewStatus,
-    pullRequestUrl: bug.pullRequestUrl,
-    hasClaim: agentDecisions.some((d) => d.kind === "claimed"),
-    ideaAccepted: intakeStage === "ready",
-  });
+  const currentStage = currentDecisionStage({ status: bug.status });
+  // Sent back: the latest manager decision on the fix was a reject.
+  const latestMergeDecision = agentDecisions
+    .filter((d) => d.kind === "accepted" || d.kind === "merge_rejected")
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    .at(-1);
+  const sentBack = latestMergeDecision?.kind === "merge_rejected";
   // #review-entries: at Done the issue takes test verdicts, at Ready to merge
   // merge reviews, not comments.
   const reviewBug = { id: bug.id, pullRequestUrl: bug.pullRequestUrl ?? null, pullRequestHeadSha: bug.pullRequestHeadSha ?? null };
-  const testing = !bug.isDeleted && currentStage === "done";
-  const mergeReviewing = !bug.isDeleted && currentStage === "ready";
+  // Testers test a delivered fix while the issue is in progress, and until it is accepted.
+  const testing = !bug.isDeleted && ((currentStage === "progress" && Boolean(bug.pullRequestUrl)) || currentStage === "done");
+  // Managers review a tested fix (Done) and an accepted one (Ready to merge).
+  const mergeReviewing = !bug.isDeleted && (currentStage === "done" || currentStage === "ready");
   // Taken at their own stage; read-only afterwards.
   const [testVerdictList, mergeReviewList] = pastConfirmation
     ? await Promise.all([
@@ -1042,7 +1041,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <IssueProgressReport
             decisions={agentDecisions}
             currentStage={currentStage}
-            setback={stageSetback(currentStage, bug.reviewStatus)}
+            setback={stageSetback(currentStage, sentBack)}
           />
 
               <section
@@ -1203,7 +1202,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
                 {statusLabels[bug.status]}
               </Badge>
-              <ReviewStatusBadge status={bug.reviewStatus} />
               <Badge className={`${issueChipBaseClass} ${issueSeverityChipClass[bug.severity]}`}>
                 {severityLabels[bug.severity]}
               </Badge>

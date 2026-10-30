@@ -13,20 +13,20 @@ const states = (container: HTMLElement) =>
 
 describe("MergePathChips", () => {
   it("shows dev merged and the rest not reached", () => {
-    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "merged", updatedAt: at });
+    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", status: "resolved", updatedAt: at });
     const { container } = render(<MergePathChips path={path} />);
     expect(states(container)).toEqual(["dev:merged", "staging:pending", "main:pending"]);
     expect(container.querySelector(".merge-path")).toHaveAttribute("aria-label", "Reached dev");
   });
 
   it("warns on dev when no PR is linked", () => {
-    const { container } = render(<MergePathChips path={mergePathOf({ pullRequestUrl: null, reviewStatus: null, updatedAt: at })} />);
+    const { container } = render(<MergePathChips path={mergePathOf({ pullRequestUrl: null, status: "open", updatedAt: at })} />);
     expect(states(container)[0]).toBe("dev:not_linked");
     expect(container.querySelector('[data-stage="dev"]')).toHaveAttribute("title", "Not linked");
   });
 
   it("shrinks the chips and keeps them on one line when compact", () => {
-    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "merged", updatedAt: at });
+    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", status: "resolved", updatedAt: at });
     const full = render(<MergePathChips path={path} />).container;
     expect(full.querySelector('[data-stage="dev"]')).toHaveClass("h-6");
     expect(full.querySelector(".merge-path")).toHaveClass("flex-wrap");
@@ -38,7 +38,7 @@ describe("MergePathChips", () => {
   });
 
   it("pulses a chip whose PR is still open", () => {
-    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", reviewStatus: "submitted", updatedAt: at });
+    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", status: "in_progress", updatedAt: at });
     const { container } = render(<MergePathChips path={path} />);
     expect(container.querySelector('[data-stage="dev"]')).toHaveClass("merge-chip-live");
   });

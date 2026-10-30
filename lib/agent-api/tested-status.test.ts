@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { refreshTestedStatus, TESTED } from "./tested-status";
+import { refreshTestedStatus } from "./tested-status";
 
 const PR = "https://github.com/emerjent/ziki/pull/9";
 
 function makeDb(opts: {
-  reviewStatus?: string | null;
+  status?: string;
   pullRequestUrl?: string | null;
   verdicts?: { owner: string; agent?: string; onBehalfOf?: string }[];
   claimOwner?: string;
@@ -12,7 +12,7 @@ function makeDb(opts: {
   const bug = {
     id: "bug1",
     projectId: "p1",
-    reviewStatus: opts.reviewStatus === undefined ? "submitted" : opts.reviewStatus,
+    status: opts.status ?? "in_progress",
     pullRequestUrl: opts.pullRequestUrl === undefined ? PR : opts.pullRequestUrl,
     assigneeId: "ada",
     beneficiaryUserId: "ada",
@@ -40,10 +40,10 @@ function makeDb(opts: {
 describe("refreshTestedStatus: the Done step (Ziki #713)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("moves a submitted fix to tested once two independent reviewers say good to merge", async () => {
+  it("moves a fix in progress to Done once two independent reviewers say good to merge", async () => {
     const db = makeDb({ verdicts: [{ owner: "rob" }, { owner: "sam" }] });
-    expect(await refreshTestedStatus(db as never, "bug1", "sam")).toBe(TESTED);
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { reviewStatus: TESTED } });
+    expect(await refreshTestedStatus(db as never, "bug1", "sam")).toBe("done");
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "done" } });
     expect(db.bugActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ summary: expect.stringContaining("moved to Done") }) }),
     );
@@ -65,15 +65,15 @@ describe("refreshTestedStatus: the Done step (Ziki #713)", () => {
     expect(await refreshTestedStatus(db as never, "bug1", "rob")).toBeNull();
   });
 
-  it("moves a tested fix back to in progress when a reviewer takes their verdict back", async () => {
-    const db = makeDb({ reviewStatus: TESTED, verdicts: [{ owner: "rob" }] });
-    expect(await refreshTestedStatus(db as never, "bug1", "sam")).toBe("submitted");
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { reviewStatus: "submitted" } });
+  it("moves a Done fix back to In progress when a reviewer takes their verdict back", async () => {
+    const db = makeDb({ status: "done", verdicts: [{ owner: "rob" }] });
+    expect(await refreshTestedStatus(db as never, "bug1", "sam")).toBe("in_progress");
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "in_progress" } });
   });
 
-  it("leaves later steps alone: ready to merge, merged, rejected", async () => {
-    for (const reviewStatus of ["ready_to_merge", "merged", "rejected", "merge_blocked"]) {
-      const db = makeDb({ reviewStatus, verdicts: [{ owner: "rob" }, { owner: "sam" }] });
+  it("leaves every other status alone: Ready to merge, Live, Closed, Open", async () => {
+    for (const status of ["ready_to_merge", "resolved", "closed", "open"]) {
+      const db = makeDb({ status, verdicts: [{ owner: "rob" }, { owner: "sam" }] });
       expect(await refreshTestedStatus(db as never, "bug1", "sam")).toBeNull();
       expect(db.bug.update).not.toHaveBeenCalled();
     }

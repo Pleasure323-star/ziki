@@ -1,15 +1,13 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { confirmedIssueIds } from "@/lib/issue-stage";
-import { countedMergeVerdicts } from "@/lib/agent-api/merge-verdicts";
+import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verdicts";
 import { reviewerConflict } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
-import { MERGE_BLOCKED, MERGE_FAILED } from "@/lib/merge-status";
 
-/** Still waiting on the admin merge: ready, or blocked or failed and able to try again. */
-const AWAITING_MERGE = ["ready_to_merge", MERGE_BLOCKED, MERGE_FAILED];
+/** The two merge queues: tested fixes waiting for a manager's accept, and accepted ones waiting to merge. */
+export type MergeQueueStatus = "done" | "ready_to_merge";
 
 export type ReadyToMergeIssue = {
   id: string;
@@ -18,7 +16,7 @@ export type ReadyToMergeIssue = {
   projectId: string;
   pullRequestUrl: string;
   pullRequestHeadSha: string | null;
-  reviewStatus: string | null;
+  status: MergeQueueStatus;
   claim: {
     agentId: string;
     beneficiaryUserId: string;
@@ -28,37 +26,26 @@ export type ReadyToMergeIssue = {
 };
 
 /**
- * Scan for issues ready to be merged: confirmed, active claim, linked PR,
- * and sufficient independent goodToMerge test verdicts, with merger independence.
+ * Confirmed issues with a linked pull request at one merge step, that this
+ * agent is independent of: `done` (tested, waiting for a manager's accept,
+ * which also needs enough independent good-to-merge verdicts on the linked
+ * pull request) or `ready_to_merge` (accepted, waiting for the merge, blocked
+ * and failed merges included).
  */
 export async function findReadyToMergeIssues(
   agent: AgentContext,
   projectId: string,
-  limit = 50,
-  reviewStatusFilter?: string | null,
+  limit: number,
+  status: MergeQueueStatus,
 ): Promise<ReadyToMergeIssue[]> {
   requireLevel(agent, "manager");
   const { verdictsNeeded } = await workflowFor(projectId);
-
-  // Prisma can't match null inside `in`, so "submitted, tested or not reviewed yet" is an OR.
-  let reviewStatusCondition: Prisma.BugWhereInput;
-  if (reviewStatusFilter === "ready_to_merge") {
-    reviewStatusCondition = { reviewStatus: { in: AWAITING_MERGE } };
-  } else if (reviewStatusFilter === "submitted") {
-    reviewStatusCondition = { OR: [{ reviewStatus: { in: ["submitted", "tested"] } }, { reviewStatus: null }] };
-  } else if (reviewStatusFilter === "all") {
-    reviewStatusCondition = { reviewStatus: { not: "rejected" } };
-  } else if (agent.level === "merger") {
-    reviewStatusCondition = { reviewStatus: { in: AWAITING_MERGE } };
-  } else {
-    reviewStatusCondition = { reviewStatus: { not: "rejected" } };
-  }
 
   // Confirmation from one bulk read, not one isConfirmed() per row (#714).
   const confirmed = await confirmedIssueIds(prisma, {
     tenantId: agent.tenantId,
     projectId,
-    status: "in_progress",
+    status,
     pullRequestUrl: { not: null },
   });
   if (confirmed.size === 0) return [];
@@ -71,20 +58,8 @@ export async function findReadyToMergeIssues(
       tenantId: agent.tenantId,
       projectId,
       isDeleted: false,
-      status: "in_progress",
+      status,
       pullRequestUrl: { not: null },
-      AND: [reviewStatusCondition],
-      OR: [
-        { reviewStatus: { in: AWAITING_MERGE } },
-        {
-          claims: {
-            some: {
-              status: "active",
-              releasedAt: null,
-            },
-          },
-        },
-      ],
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
@@ -94,7 +69,6 @@ export async function findReadyToMergeIssues(
       projectId: true,
       pullRequestUrl: true,
       pullRequestHeadSha: true,
-      reviewStatus: true,
       reporterId: true,
       beneficiaryUserId: true,
       assigneeId: true,
@@ -104,6 +78,7 @@ export async function findReadyToMergeIssues(
       claims: {
         select: {
           status: true,
+          claimedAt: true,
           releasedAt: true,
           agentId: true,
           beneficiaryUserId: true,
@@ -129,12 +104,12 @@ export async function findReadyToMergeIssues(
   for (const bug of candidates) {
     if (ready.length >= limit) break;
 
-    const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt) ?? null;
+    const claim = deliveredClaim(bug);
     // The same verdict rule as the merge gate (merge.ts), on the linked PR only.
     const onLinkedPr = bug.testVerdicts.filter((verdict) => verdict.pullRequestUrl === bug.pullRequestUrl);
     const { reviewers } = countedMergeVerdicts(onLinkedPr, claim, bug);
 
-    if (!AWAITING_MERGE.includes(bug.reviewStatus ?? "") && reviewers.length < verdictsNeeded) continue;
+    if (status === "done" && reviewers.length < verdictsNeeded) continue;
 
     if (reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug)) continue;
 
@@ -145,7 +120,7 @@ export async function findReadyToMergeIssues(
       projectId: bug.projectId,
       pullRequestUrl: bug.pullRequestUrl!,
       pullRequestHeadSha: bug.pullRequestHeadSha,
-      reviewStatus: bug.reviewStatus,
+      status,
       claim: claim ? { agentId: claim.agentId, beneficiaryUserId: claim.beneficiaryUserId } : null,
       verdictsCount: reviewers.length,
       createdAt: bug.createdAt,

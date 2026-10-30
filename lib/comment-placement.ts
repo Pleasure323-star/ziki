@@ -44,7 +44,7 @@ export class CommentPlacementError extends Error {
  */
 export async function placeComment(
   db: Db,
-  bug: { id: string; status: string; reviewStatus?: string | null; pullRequestUrl?: string | null },
+  bug: { id: string; status: string; pullRequestUrl?: string | null },
   input: CommentPlacementInput,
 ): Promise<CommentPlacement> {
   const placement: CommentPlacement = {

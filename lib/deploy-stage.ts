@@ -14,14 +14,14 @@ export function isDeployStage(value: unknown): value is DeployStage {
  *
  * TODO(merger fields): once the merger agent records the real stage on the
  * issue, pass it as `recorded` and it wins. Until then the only thing we know
- * is `reviewStatus === "merged"`, which means the fix has at least reached dev.
+ * is that the issue is live (`status === "resolved"`), so the fix has at least reached dev.
  */
 export function deployStageOf(
-  reviewStatus: string | null | undefined,
+  status: string | null | undefined,
   recorded?: string | null,
 ): DeployStage | null {
   if (isDeployStage(recorded)) return recorded;
-  if (reviewStatus === "merged") return "dev";
+  if (status === "resolved") return "dev";
   return null;
 }
 

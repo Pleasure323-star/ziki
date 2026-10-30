@@ -45,12 +45,10 @@ describe("parseBugListFilters", () => {
     expect(parse({ severity: "spicy" }).where.severity).toBeUndefined();
   });
 
-  it("applies reviewStatus only when it is a valid lifecycle phase", () => {
-    expect(parse({ reviewStatus: "submitted" }).where.reviewStatus).toBe("submitted");
-    expect(parse({ reviewStatus: "ready_to_merge" }).where.reviewStatus).toBe("ready_to_merge");
-    expect(parse({ reviewStatus: "rejected" }).where.reviewStatus).toBe("rejected");
-    expect(parse({ reviewStatus: "merged" }).where.reviewStatus).toBe("merged");
-    expect(parse({ reviewStatus: "invalid" }).where.reviewStatus).toBeUndefined();
+  it("filters every pipeline step by the one status", () => {
+    expect(parse({ status: "done" }).where.status).toBe("done");
+    expect(parse({ status: "ready_to_merge" }).where.status).toBe("ready_to_merge");
+    expect(parse({ reviewStatus: "submitted" }).where).not.toHaveProperty("reviewStatus");
   });
 
   it("understands the finished aggregate the stat grid links to (#685)", () => {
@@ -60,7 +58,7 @@ describe("parseBugListFilters", () => {
       in: ["resolved", "closed"],
     });
     // Same parsing as the list, so an unknown token still means no filter.
-    expect(parse({ status: "done" }).where.status).toBeUndefined();
+    expect(parse({ status: "sideways" }).where.status).toBeUndefined();
   });
 
   it("scopes to the signed-in user for the mine filter", () => {

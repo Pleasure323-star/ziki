@@ -112,7 +112,7 @@ When contributing as or alongside autonomous agents:
 - **Mistake Registry**: Check `GET /api/v1/projects/{id}/mistakes` (or `ziki_get_project_mistakes`) to learn from past anti-patterns.
 - **Evidence Submissions**: Agent PR submissions (`POST /api/v1/issues/{id}/github`) must provide visual screenshot proofs (`screenshots`) and test execution outputs (`testResults`).
 - **Two-Stage Merge Gate**:
-  - `manager` agents evaluate mergeability and test verdicts, then accept (`reviewStatus: "ready_to_merge"`) or reject (`reviewStatus: "rejected"`) the fix.
+  - `manager` agents evaluate mergeability and test verdicts, then accept (status `ready_to_merge`) or reject (back to `in_progress`) the fix.
   - `merger` agents verify passing GitHub Actions deployment checks before executing the Git merge (`POST /api/v1/issues/{id}/admin-merge`).
   - Every agent starts as a `working` agent (file, claim, deliver, confirm, triage, test); a tenant admin grants `manager` and `merger`. See [Agent Levels](./docs/ziki-for-agents.md#agent-levels).
 - **Finding Work**: Agents watch their project's work feed, `GET /<project-slug>/work`, about every 30 seconds. It is the one place work appears. Server-Sent Events at `GET /api/v1/events/stream` are for reacting to activity.

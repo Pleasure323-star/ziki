@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { statuses } from "@/lib/validations/issue";
 import {
+  DECISION_STAGES,
   claimDecisionKind,
   currentDecisionStage,
   payloadMerged,
+  pipelineStages,
+  stageSetback,
   decisionTone,
   stageAt,
   stageOfDecision,
@@ -15,8 +19,8 @@ describe("stageOfDecision and decisionTone (#1446)", () => {
   const cases: [DecisionLike, string, string][] = [
     [{ kind: "confirmed" }, "confirm", "positive"],
     [{ kind: "rejected" }, "confirm", "negative"],
-    [{ kind: "claimed" }, "open", "positive"],
-    [{ kind: "claim_released" }, "open", "negative"],
+    [{ kind: "claimed" }, "progress", "positive"],
+    [{ kind: "claim_released" }, "progress", "negative"],
     [{ kind: "verdict", goodToMerge: true }, "done", "positive"],
     [{ kind: "verdict", goodToMerge: false }, "done", "negative"],
     [{ kind: "accepted" }, "ready", "positive"],
@@ -69,39 +73,35 @@ describe("tallyStages", () => {
     expect(tallies).toEqual({
       idea: { positive: 0, negative: 0 },
       confirm: { positive: 8, negative: 1 },
-      open: { positive: 1, negative: 1 },
+      open: { positive: 0, negative: 0 },
+      progress: { positive: 1, negative: 1 },
       done: { positive: 7, negative: 2 },
       ready: { positive: 0, negative: 0 },
       live: { positive: 0, negative: 0 },
+      closed: { positive: 0, negative: 0 },
     });
   });
 });
 
 describe("currentDecisionStage", () => {
-  const base = { status: "requires_confirmation", reviewStatus: null, pullRequestUrl: null, hasClaim: false, ideaAccepted: false };
-  const working = { ...base, status: "in_progress" };
-  const pr = "https://github.com/o/r/pull/1";
-
-  it("follows the status: Requires confirmation, then Open", () => {
-    expect(currentDecisionStage(base)).toBe("confirm");
-    expect(currentDecisionStage({ ...base, status: "open" })).toBe("open");
-    expect(currentDecisionStage(working)).toBe("open");
+  it("is the issue's one status: every status has its own step", () => {
+    expect(currentDecisionStage({ status: "requires_confirmation" })).toBe("confirm");
+    expect(currentDecisionStage({ status: "open" })).toBe("open");
+    expect(currentDecisionStage({ status: "in_progress" })).toBe("progress");
+    expect(currentDecisionStage({ status: "done" })).toBe("done");
+    expect(currentDecisionStage({ status: "ready_to_merge" })).toBe("ready");
+    expect(currentDecisionStage({ status: "resolved" })).toBe("live");
+    expect(currentDecisionStage({ status: "closed" })).toBe("closed");
   });
-  it("never moves an issue that requires confirmation or is open, whatever its pull request or review says (#685)", () => {
-    expect(currentDecisionStage({ ...base, pullRequestUrl: pr, reviewStatus: "submitted" })).toBe("confirm");
-    expect(currentDecisionStage({ ...base, reviewStatus: "ready_to_merge" })).toBe("confirm");
-    expect(currentDecisionStage({ ...base, status: "open", pullRequestUrl: pr, reviewStatus: "rejected" })).toBe("open");
+  it("puts every status on the pipeline, with Closed in Live's place", () => {
+    for (const status of statuses) expect(pipelineStages(currentDecisionStage({ status }))).toContain(currentDecisionStage({ status }));
+    expect(pipelineStages("closed")).toEqual(["idea", "confirm", "open", "progress", "done", "ready", "closed"]);
+    expect(pipelineStages("open")).toEqual(DECISION_STAGES);
   });
-  it("is Done once an issue in progress has a pull request, including after a merger rejection", () => {
-    expect(currentDecisionStage({ ...working, pullRequestUrl: pr })).toBe("done");
-    expect(currentDecisionStage({ ...working, reviewStatus: "submitted" })).toBe("done");
-    expect(currentDecisionStage({ ...working, reviewStatus: "rejected" })).toBe("done");
-  });
-  it("is Ready to merge, then Live", () => {
-    expect(currentDecisionStage({ ...working, reviewStatus: "ready_to_merge" })).toBe("ready");
-    expect(currentDecisionStage({ ...working, reviewStatus: "merge_failed" })).toBe("ready");
-    expect(currentDecisionStage({ ...base, status: "resolved", reviewStatus: "merged" })).toBe("live");
-    expect(currentDecisionStage({ ...base, status: "resolved" })).toBe("live");
+  it("is a setback only when a manager sent the fix back to In progress", () => {
+    expect(stageSetback("progress", true)).toBe(true);
+    expect(stageSetback("progress", false)).toBe(false);
+    expect(stageSetback("done", true)).toBe(false);
   });
 });
 
@@ -117,16 +117,18 @@ describe("stageStarts and stageAt", () => {
   it("starts each stage at its earliest decision and leaves unreached ones null", () => {
     expect(starts).toEqual({
       confirm: Date.parse("2026-10-21T21:00:00.000Z"),
-      open: Date.parse("2026-10-22T16:00:00.000Z"),
+      open: null,
+      progress: Date.parse("2026-10-22T16:00:00.000Z"),
       done: Date.parse("2026-10-22T20:00:00.000Z"),
       ready: Date.parse("2026-10-25T09:40:00.000Z"),
       live: null,
+      closed: null,
     });
   });
   it("finds the stage the issue was in at a time", () => {
     expect(stageAt("2026-10-21T20:00:00.000Z", starts)).toBe("idea");
     expect(stageAt("2026-10-21T22:00:00.000Z", starts)).toBe("confirm");
-    expect(stageAt("2026-10-22T16:00:00.000Z", starts)).toBe("open");
+    expect(stageAt("2026-10-22T16:00:00.000Z", starts)).toBe("progress");
     expect(stageAt("2026-10-24T00:00:00.000Z", starts)).toBe("done");
     expect(stageAt("2026-10-26T00:00:00.000Z", starts)).toBe("ready");
   });

@@ -74,11 +74,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       },
     });
     if (!bug) return NextResponse.json({ error: "No such issue." }, { status: 404 });
-    // The stage follows the status (currentDecisionStage): a fix is linked
-    // only while the issue is being worked on.
-    if (bug.status !== "in_progress") {
+    // A fix is linked while the issue is worked on; a new pull request on a
+    // tested or accepted fix sends it back to In progress for testing.
+    if (bug.status !== "in_progress" && bug.status !== "done" && bug.status !== "ready_to_merge") {
       return NextResponse.json(
-        { error: "not_in_progress", message: "A pull request can only be linked while the issue is in progress." },
+        { error: "not_in_progress", message: "A pull request can only be linked while the issue is being worked on (In progress, Done or Ready to merge)." },
         { status: 409 },
       );
     }

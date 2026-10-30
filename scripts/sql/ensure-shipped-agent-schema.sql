@@ -62,5 +62,4 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 ALTER TYPE "AgentLevel" ADD VALUE IF NOT EXISTS 'admin_merger';
-ALTER TABLE "Bug" ADD COLUMN IF NOT EXISTS "reviewStatus" TEXT;
 

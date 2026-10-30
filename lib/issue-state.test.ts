@@ -52,7 +52,7 @@ describe("statusFilterValues", () => {
   it("returns null for no filter or an unknown value", () => {
     expect(statusFilterValues(undefined)).toBeNull();
     expect(statusFilterValues("")).toBeNull();
-    expect(statusFilterValues("done")).toBeNull();
+    expect(statusFilterValues("sideways")).toBeNull();
   });
 });
 
@@ -70,6 +70,6 @@ describe("statusFilterWhere", () => {
 
   it("returns undefined when nothing should be filtered", () => {
     expect(statusFilterWhere(undefined)).toBeUndefined();
-    expect(statusFilterWhere("done")).toBeUndefined();
+    expect(statusFilterWhere("sideways")).toBeUndefined();
   });
 });

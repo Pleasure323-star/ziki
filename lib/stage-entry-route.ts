@@ -31,7 +31,6 @@ export type StageEntryRoute = {
 type IssueStageFields = {
   id: string;
   status: string;
-  reviewStatus?: string | null;
   pullRequestUrl?: string | null;
 };
 
@@ -42,21 +41,15 @@ type IssueStageFields = {
  */
 export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null {
   const path = `/api/v1/issues/${issue.id}`;
-  if (issue.status === "resolved" || issue.status === "closed") return null;
-  const stage = currentDecisionStage({
-    status: issue.status,
-    reviewStatus: issue.reviewStatus,
-    pullRequestUrl: issue.pullRequestUrl,
-    hasClaim: false,
-    ideaAccepted: false,
-  });
-  switch (stage) {
+  switch (currentDecisionStage({ status: issue.status })) {
     case "confirm":
       return { kind: "confirmation", route: `POST ${path}/confirmations`, label: "a confirmation" };
     case "open":
-      return issue.status === "open" ? { kind: "bid", route: `POST ${path}/bid`, label: "a bid" } : null;
+      return { kind: "bid", route: `POST ${path}/bid`, label: "a bid" };
+    case "progress":
+      // Testers test a delivered fix; before one is linked the stage takes no entries.
+      return issue.pullRequestUrl ? { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a test verdict" } : null;
     case "done":
-      return { kind: "test_verdict", route: `POST ${path}/test-results`, label: "a test verdict" };
     case "ready":
       return { kind: "merge_review", route: `POST ${path}/merge`, label: "a merge review" };
     default:

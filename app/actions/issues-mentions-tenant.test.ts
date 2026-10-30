@@ -109,7 +109,6 @@ beforeEach(() => {
     assigneeId: null,
     tenantId: "tenant-zedu",
     status: "requires_confirmation",
-    reviewStatus: null,
     pullRequestUrl: null,
   });
   db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "carol" });
@@ -213,7 +212,7 @@ describe("addCommentAction: comments on the issue itself only while it is Open",
   it("takes one, and a reply to one, while the issue is Open", async () => {
     db.bug.findUnique.mockResolvedValue({
       id: "bug-1", isDeleted: false, title: "t", reporterId: "carol", assigneeId: null, tenantId: "tenant-zedu",
-      status: "open", reviewStatus: null, pullRequestUrl: null,
+      status: "open", pullRequestUrl: null,
     });
     expect(await addCommentAction("bug-1", form({ body: "Same here on Firefox." }))).toEqual({ ok: true, commentId: "comment-new" });
     expect(db.__tx.comment.create.mock.calls[0][0].data).toMatchObject({ parentId: null, bidId: null, confirmationId: null });

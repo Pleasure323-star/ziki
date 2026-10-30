@@ -74,6 +74,19 @@ describe("an agent gives work back (#547)", () => {
     expect(db.bugActivity.createMany).toHaveBeenCalled();
   });
 
+  it("leaves a delivered fix where it got to: the issue stays In progress (#one-status)", async () => {
+    db.issueClaim.findFirst.mockResolvedValue(claim("active"));
+    db.bug.findFirstOrThrow.mockResolvedValue({
+      id: "bug1", title: "T", status: "in_progress", assigneeId: "ada", projectId: "p", pullRequestUrl: "https://github.com/o/r/pull/1",
+    });
+
+    const result = await releaseClaim(agent, "p", "bug1");
+
+    expect(result.reopened).toBe(false);
+    expect(db.bug.update).not.toHaveBeenCalled();
+    expect(isConfirmed).not.toHaveBeenCalled();
+  });
+
   it("leaves a reassigned or resolved issue alone", async () => {
     db.issueClaim.findFirst.mockResolvedValue(claim("active"));
     db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "resolved", assigneeId: "ada", projectId: "p" });

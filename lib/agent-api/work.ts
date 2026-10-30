@@ -137,7 +137,7 @@ export type ProjectWork = {
   /** `importance` is the issue's importance (#importance). */
   ready: (IssueRef & { importance: number; severity: string })[];
   toAccept: IssueRef[];
-  toMerge: (IssueRef & { reviewStatus: string | null })[];
+  toMerge: IssueRef[];
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
@@ -190,7 +190,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   const [tests, ready, toAccept, toMerge, ideas, jobs, workflow] = await Promise.all([
     findReviewableIssues(caller, project.id, "test", PER_KIND_LIMIT),
     findClaimableIssues(caller, project.id, PER_KIND_LIMIT, confirmations),
-    findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "submitted"),
+    findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "done"),
     findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "ready_to_merge"),
     openIdeas(tenantId, project.id),
     openJobs(tenantId, project.id),
@@ -224,7 +224,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
     ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, importance: r.voteCount, severity: r.severity })),
     toAccept: toAccept.map((t) => ({ id: t.id, number: t.number, title: t.title })),
-    toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title, reviewStatus: t.reviewStatus })),
+    toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     jobs,
     facts: await loadFacts([...ids]),
     ideaFacts: await loadIdeaFacts(ideas.map((idea) => idea.id)),
@@ -586,9 +586,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   for (const fix of work.toMerge) {
     items.push({
       kind: "merge_fix",
-      key: `merge_fix:${fix.id}:${fix.reviewStatus ?? ""}`,
+      key: `merge_fix:${fix.id}`,
       title: `Merge the accepted fix for #${fix.number}`,
-      detail: fix.reviewStatus === "ready_to_merge" ? "Accepted by a manager. Check the deployment checks, then merge." : `The last merge attempt is ${fix.reviewStatus}. Check why, then retry.`,
+      detail: "Accepted by a manager. Check the deployment checks, then merge; if an earlier attempt was blocked or failed, its reason is in the activity log.",
       minimumRole: "merger",
       ...roleGate("merger", fix.id),
       issue: issueRef(fix),

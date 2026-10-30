@@ -6,8 +6,8 @@ import { ClaimDeadline } from "@/components/claim-deadline";
 import type { AgentDecision } from "@/components/issue-agent-activity";
 import { useIssueStage } from "@/components/issue-stage-context";
 import {
-  DECISION_STAGES,
   decisionStageInfo,
+  pipelineStages,
   tallyStages,
   type DecisionStage,
 } from "@/lib/decision-stages";
@@ -79,9 +79,11 @@ export const stageIconName: Record<DecisionStage, IconName> = {
   idea: "bulb",
   confirm: "eye",
   open: "bot",
+  progress: "timer",
   done: "flask",
   ready: "merge",
   live: "rocket",
+  closed: "x",
 };
 
 /** A chip class from the design: cg ok, cr bad, ca warn, cb info, cn neutral, cv violet. */
@@ -178,8 +180,9 @@ export type StepState = "done" | "now" | "warn" | "todo";
 
 /** Where a stage sits against the current one: behind it, at it, or ahead. */
 export function stageState(stage: DecisionStage, currentStage: DecisionStage, setback: boolean): StepState {
-  const index = DECISION_STAGES.indexOf(stage);
-  const currentIndex = DECISION_STAGES.indexOf(currentStage);
+  const steps = pipelineStages(currentStage);
+  const index = steps.indexOf(stage);
+  const currentIndex = steps.indexOf(currentStage);
   return index < currentIndex ? "done" : index > currentIndex ? "todo" : setback ? "warn" : "now";
 }
 
@@ -187,7 +190,7 @@ export function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-/** The progress header's status chip, as in the design: "Done · testing". */
+/** The progress header's status chip, as in the design: "Done · tested". */
 function statusChip(stage: DecisionStage, setback: boolean): { label: string; tone: Tone } {
   const label = decisionStageInfo[stage].label;
   if (setback) return { label: `${label} · not good to merge`, tone: "ca" };
@@ -197,13 +200,17 @@ function statusChip(stage: DecisionStage, setback: boolean): { label: string; to
     case "confirm":
       return { label: `${label} · with reviewers`, tone: "ca" };
     case "open":
-      return { label: `${label} · in progress`, tone: "cb" };
+      return { label: `${label} · waiting for bids`, tone: "cb" };
+    case "progress":
+      return { label: `${label} · being worked on`, tone: "cb" };
     case "done":
-      return { label: `${label} · testing`, tone: "cv" };
+      return { label: `${label} · tested`, tone: "cv" };
     case "ready":
       return { label, tone: "cv" };
     case "live":
       return { label, tone: "cg" };
+    case "closed":
+      return { label, tone: "cn" };
   }
 }
 
@@ -225,7 +232,8 @@ export function IssueProgressReport({
 }) {
   const picked = useIssueStage();
   const selected = picked?.stage ?? currentStage;
-  const currentIndex = DECISION_STAGES.indexOf(currentStage);
+  const steps = pipelineStages(currentStage);
+  const currentIndex = steps.indexOf(currentStage);
   const tallies = tallyStages(decisions);
   const chip = statusChip(currentStage, setback);
 
@@ -242,10 +250,10 @@ export function IssueProgressReport({
       </div>
       <div className="pgw">
         <div className="pg-track" aria-hidden="true">
-          <span className="pg-fill" style={{ width: `${(currentIndex * 100) / (DECISION_STAGES.length - 1)}%` }} />
+          <span className="pg-fill" style={{ width: `${(currentIndex * 100) / (steps.length - 1)}%` }} />
         </div>
         <ol className="pg" aria-label="Progress report: pick a stage to see its logs">
-          {DECISION_STAGES.map((stage, index) => {
+          {steps.map((stage, index) => {
             const state = stageState(stage, currentStage, setback);
             const tally = tallies[stage];
             const logs = tally.positive + tally.negative;

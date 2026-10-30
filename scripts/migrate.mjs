@@ -164,6 +164,10 @@ END $$;
   // running it again over a partial apply is safe: the probe always passes.
   "20261209000000_confirmation_stage_comments": `SELECT 1;
 `,
+  // Moves rows onto the one status and drops Bug.reviewStatus; every step skips
+  // what is already done, so a partial apply is safe to run again.
+  "20261213000001_one_status": `SELECT 1;
+`,
 };
 
 /** True when `name` has a probe and the probe finds none of its objects. */

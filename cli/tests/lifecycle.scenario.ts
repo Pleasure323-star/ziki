@@ -206,7 +206,8 @@ describe("a report from idea to merge", () => {
     const reply = await ok(solver, "comment", { id, body: "On it.", mergeReviewId: rejected.review.id });
     expect(reply.comment).toMatchObject({ mergeReviewId: rejected.review.id });
     const reviews = await ok("ada", "list-merge-reviews", { id });
-    expect(reviews.reviewStatus).toBe("rejected");
+    // A reject sends the fix back to In progress.
+    expect(reviews.status).toBe("in_progress");
     expect(reviews.reviews[0]).toMatchObject({ id: rejected.review.id, verdict: "reject" });
     expect(JSON.stringify(reviews)).toContain("On it.");
     const comments = JSON.stringify(await ok("ada", "list-comments", { id }));

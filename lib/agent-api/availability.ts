@@ -126,9 +126,10 @@ async function releaseClaimIfStale(
     const otherClaim = await tx.issueClaim.count({ where: { bugId: fresh.bugId, releasedAt: null, id: { not: fresh.id } } });
     let reopened = false;
     // Preserve a human's later reassignment or resolution and any newer claim.
+    // A delivered fix stays where it got to (#one-status).
     if (!otherClaim) {
       const reopenedRow = await tx.bug.updateMany({ where: { id: fresh.bugId, projectId, tenantId,
-        isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress" }, data: { assigneeId: null, status: "open" } });
+        isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open" } });
       reopened = reopenedRow.count > 0;
     }
     let offer: OfferNextResult | null = null;

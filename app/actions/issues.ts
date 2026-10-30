@@ -1324,7 +1324,6 @@ export async function addCommentAction(
       assigneeId: true,
       tenantId: true,
       status: true,
-      reviewStatus: true,
       pullRequestUrl: true,
     },
   });

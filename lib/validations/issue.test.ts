@@ -184,7 +184,7 @@ describe("updateBugSchema", () => {
   });
 
   it("rejects an invalid status", () => {
-    const result = updateBugSchema.safeParse({ status: "done" });
+    const result = updateBugSchema.safeParse({ status: "sideways" });
     expect(result.success).toBe(false);
   });
 

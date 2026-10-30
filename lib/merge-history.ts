@@ -41,7 +41,7 @@ export type MergePath = {
 
 export type MergeHistoryIssue = {
   pullRequestUrl: string | null;
-  reviewStatus: string | null;
+  status: string;
   updatedAt: Date;
 };
 
@@ -61,7 +61,8 @@ export function mergePathOf(issue: MergeHistoryIssue, later: MergeMovement[] = [
     return { steps, movements: [], bucket: "not_linked" };
   }
 
-  const merged = issue.reviewStatus === "merged";
+  // A fix that went live merged into dev at least.
+  const merged = issue.status === "resolved";
   const movements: MergeMovement[] = [
     { stage: "dev", kind: merged ? "merged" : "opened", prNumber: pr.number, prUrl: issue.pullRequestUrl, repo: `${pr.owner}/${pr.repo}`, at: issue.updatedAt },
     ...later.filter((m) => m.stage !== "dev"),

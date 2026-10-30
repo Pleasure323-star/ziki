@@ -5,7 +5,7 @@ import { isGitHubUrl, splitProofLinkLines } from "@/lib/proof-links";
 import { stripGitHubMarkup } from "@/lib/github-paste";
 
 export const severities = ["low", "medium", "high", "critical"] as const;
-export const statuses = ["requires_confirmation", "open", "in_progress", "resolved", "closed"] as const;
+export const statuses = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge", "resolved", "closed"] as const;
 
 export const severitySchema = z.enum(severities);
 export const statusSchema = z.enum(statuses);

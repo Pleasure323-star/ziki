@@ -39,7 +39,8 @@ export async function linkPullRequest(params: {
       data: {
         pullRequestUrl,
         pullRequestHeadSha,
-        reviewStatus: "submitted",
+        // A newly linked pull request is tested from the start: In progress.
+        status: "in_progress",
         ...(screenshots?.length ? { proofLinks: { push: screenshots } } : {}),
       },
     });

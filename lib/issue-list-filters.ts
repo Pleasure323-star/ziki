@@ -106,11 +106,6 @@ export function parseBugListFilters({
     where.severity = severity as Prisma.BugWhereInput["severity"];
   }
 
-  const reviewStatus = toSingleQueryParam(params.reviewStatus);
-  if (reviewStatus && ["submitted", "tested", "ready_to_merge", "rejected", "merged"].includes(reviewStatus)) {
-    where.reviewStatus = reviewStatus;
-  }
-
   // Platform filter. An id that no longer exists resolves to no filter
   // rather than an empty result, matching what the list does — a bookmark
   // pointing at a deleted platform should show issues, not a blank page.

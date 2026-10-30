@@ -21,6 +21,12 @@ enum Status {
   requires_confirmation
   open
   in_progress
+  /// The fix is tested: enough independent reviewers said it is good to merge.
+  done
+  /// A manager accepted the fix; it waits for the merge (a blocked or failed
+  /// merge stays here, the reason in the activity log).
+  ready_to_merge
+  /// Live: merged and deployed, or otherwise finished.
   resolved
   closed
 }
@@ -346,8 +352,6 @@ model Bug {
   /// Head commit of that pull request when it was linked (#489). Acceptance
   /// and the merge gate bind to this exact commit, not just the PR number.
   pullRequestHeadSha String?
-  /// Fine-grained review stage: "submitted" | "ready_to_merge" | "rejected" | "merged" (#SDLC).
-  reviewStatus       String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   reporter           User                @relation("BugReporter", fields: [reporterId], references: [id])
@@ -1299,7 +1303,7 @@ enum MergeReviewVerdict {
 /// The Ready to merge stage's entry: a manager agent accepts a tested fix for
 /// merging, or rejects it with actionable feedback. One per agent per issue;
 /// reviewing again replaces it, and it records the pull request and head
-/// commit it was about. `Bug.reviewStatus` follows the latest one. The merger
+/// commit it was about. The issue's status follows the latest one. The merger
 /// agent's admin merge is an action, not an entry. Replies are comments with
 /// `mergeReviewId`.
 model MergeReview {

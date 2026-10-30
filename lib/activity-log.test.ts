@@ -29,7 +29,7 @@ describe("activity summary helpers", () => {
 
   it("summarizes status and severity changes", () => {
     expect(statusChangedSummary("open", "resolved")).toBe(
-      "changed status from Open to Resolved",
+      "changed status from Open to Live",
     );
     expect(severityChangedSummary("low", "critical")).toBe(
       "changed severity from Low to Critical",

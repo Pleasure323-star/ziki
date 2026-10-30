@@ -128,7 +128,7 @@ describe("itemsFor", () => {
     const project = work({
       ready: [{ id: "b1", number: 1, title: "x", importance: 3, severity: "high" }],
       toAccept: [{ id: "b2", number: 2, title: "y" }],
-      toMerge: [{ id: "b3", number: 3, title: "z", reviewStatus: "ready_to_merge" }],
+      toMerge: [{ id: "b3", number: 3, title: "z" }],
       facts: new Map([["b2", facts()], ["b3", facts()]]),
     });
     const items = itemsFor(agent("working"), project, nothingMine);
@@ -167,7 +167,7 @@ describe("waitingForOthers", () => {
   const project = work({
     toConvert: [{ id: "b1", number: 7, title: "x", score: 4 }, { id: "b4", number: 9, title: "w", score: 3 }],
     toAccept: [{ id: "b2", number: 2, title: "y" }],
-    toMerge: [{ id: "b3", number: 3, title: "z", reviewStatus: "ready_to_merge" }],
+    toMerge: [{ id: "b3", number: 3, title: "z" }],
     facts: new Map([["b1", facts()], ["b2", facts()], ["b3", facts()], ["b4", facts()]]),
   });
 

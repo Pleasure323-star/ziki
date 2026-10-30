@@ -49,7 +49,7 @@ function bucketWhere(bucket: MergeBucket): Prisma.BugWhereInput {
     case "all":
       return {};
     case "dev":
-      return { pullRequestUrl: { not: null }, reviewStatus: "merged" };
+      return { pullRequestUrl: { not: null } };
     case "not_linked":
       return { pullRequestUrl: null };
     case "staging":
@@ -80,12 +80,12 @@ export default async function MergeHistoryPage({ searchParams }: { searchParams:
   const bucket = parseMergeBucket(toSingleQueryParam(params.stage));
   const releaseView = toSingleQueryParam(params.view) === "release";
 
-  // Completed work: resolved issues, plus any whose fix was merged.
+  // Completed work: live issues (a merged fix is live).
   const completed: Prisma.BugWhereInput = {
     ...bugInTenant(tenantId),
     ...(projectId ? { projectId } : {}),
     isDeleted: false,
-    OR: [{ status: "resolved" }, { reviewStatus: "merged" }],
+    status: "resolved",
   };
   const where: Prisma.BugWhereInput = { AND: [completed, bucketWhere(bucket)] };
 
@@ -107,7 +107,7 @@ export default async function MergeHistoryPage({ searchParams }: { searchParams:
       title: true,
       updatedAt: true,
       pullRequestUrl: true,
-      reviewStatus: true,
+      status: true,
       beneficiary: { select: { name: true } },
     },
   });

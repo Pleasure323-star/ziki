@@ -346,22 +346,21 @@ describe("issue list layout", () => {
   });
 
   it("counts each platform's total in the platform menu, whatever status tab is picked", async () => {
-    for (const status of ["open", "in_progress", "resolved", "ready_to_merge", "auto_merge", "all"]) {
+    for (const status of ["open", "in_progress", "done", "ready_to_merge", "resolved", "all"]) {
       groupBy.mockClear();
       await renderList({ status, severity: "high" });
       const tabQuery = groupBy.mock.calls.find(([args]) => args.by[0] === "categoryId")![0];
-      for (const key of ["status", "reviewStatus", "AND", "categoryId"]) expect(tabQuery.where).not.toHaveProperty(key);
+      for (const key of ["status", "AND", "categoryId"]) expect(tabQuery.where).not.toHaveProperty(key);
       // Other filters still narrow it.
       expect(tabQuery.where?.severity).toBe("high");
     }
   });
 
-  it("keeps the Ready to Merge and Live clauses out of the other tabs' counts", async () => {
-    for (const status of ["ready_to_merge", "auto_merge"]) {
+  it("keeps the picked tab's status out of the tab counts", async () => {
+    for (const status of ["done", "ready_to_merge", "resolved"]) {
       groupBy.mockClear();
       await renderList({ status });
       const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status")![0];
-      expect(statusCount.where).not.toHaveProperty("reviewStatus");
       expect(statusCount.where).not.toHaveProperty("status");
     }
   });
@@ -373,7 +372,7 @@ describe("issue list layout", () => {
     expect(nav).toMatch(/class="issues-status-nav min-w-0"/);
     expect(nav).not.toContain("ml-auto");
     const labels = [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">/g)].map((m) => m[1]);
-    expect(labels).toEqual(["Requires confirmation", "Open", "In progress", "Done", "Ready to Merge", "Live", "All"]);
+    expect(labels).toEqual(["Requires confirmation", "Open", "In progress", "Done", "Ready to merge", "Live", "Closed", "All"]);
     const inbox = nav.match(/<a [^>]*data-testid="inbox-tab"[\s\S]*?<\/a>/)?.[0] ?? "";
     expect(inbox).toMatch(/href="\/issues"/);
     expect(inbox).toContain('aria-current="page"');
@@ -433,7 +432,7 @@ describe("issue list layout", () => {
     const where = findMany.mock.calls.at(-1)![0].where;
     expect(where.redesigns).toEqual({ some: { status: "proposed" } });
     expect(where).not.toHaveProperty("agentQuestions");
-    expect(where.status).toEqual({ in: ["requires_confirmation", "open", "in_progress"] });
+    expect(where.status).toEqual({ in: ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge"] });
   });
 
   it("drops the Inbox list choice when moving to another tab", async () => {
@@ -479,13 +478,12 @@ describe("issue list layout", () => {
     expect(status).toMatch(/aria-current="page" href="\/issues\?q=login&amp;status=all"/);
   });
 
-  it("shows a Filter by row under All: All, Closed, Rejected and Duplicates", async () => {
+  it("shows a Filter by row under All: All, Rejected and Duplicates (Closed has its own tab)", async () => {
     const html = await renderList({ status: "all" });
     const filters = html.match(/<nav aria-label="Filter all issues"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(filters).toContain("Filter by:");
     const labels = [...filters.matchAll(/<a [^>]*>([A-Za-z]+)<span/g)].map((m) => m[1]);
-    expect(labels).toEqual(["All", "Closed", "Rejected", "Duplicates"]);
-    expect(filters).toContain('href="/issues?status=closed"');
+    expect(labels).toEqual(["All", "Rejected", "Duplicates"]);
     expect(filters).toContain('href="/issues?status=rejected"');
     expect(filters).toContain('href="/issues?status=duplicate"');
   });
@@ -530,60 +528,34 @@ describe("issue list layout", () => {
     expect(html).not.toContain("Hide resolved");
   });
 
-  it("lists tested fixes under Done: two independent reviewers said good to merge (Ziki #713)", async () => {
-    await renderList({ status: "resolved" });
-    const where = findMany.mock.calls.at(-1)![0].where;
-    expect(where).toMatchObject({ status: { in: ["in_progress"] }, reviewStatus: "tested" });
-    expect(where).not.toHaveProperty("AND");
-    // The tab counts don't inherit the Done clause.
-    const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status")![0];
-    expect(statusCount.where).not.toHaveProperty("AND");
+  it("lists each tab by the one status: Done is status done (Ziki #713)", async () => {
+    for (const status of ["in_progress", "done", "ready_to_merge", "resolved"]) {
+      await renderList({ status });
+      const where = findMany.mock.calls.at(-1)![0].where;
+      expect(where.status).toBe(status);
+      expect(where).not.toHaveProperty("AND");
+    }
   });
 
-  it("counts the work tabs by step, and All also holds closed issues and ones resolved before Ziki #713", async () => {
-    groupBy.mockImplementation((async (args: { by: string[]; where?: { reviewStatus?: string } }) =>
+  it("gives every status its own tab, counted by status, and All adds them up", async () => {
+    groupBy.mockImplementation((async (args: { by: string[] }) =>
       args.by[0] !== "status"
         ? []
-        : args.where?.reviewStatus === "ready_to_merge"
-          // An accepted fix waits at Ready to Merge only while its issue is in progress.
-          ? [{ status: "in_progress", _count: { _all: 1 } }]
-          : args.where?.reviewStatus === "tested"
-            // Two fixes with two good-to-merge verdicts, still in progress.
-            ? [{ status: "in_progress", _count: { _all: 2 } }]
-            : [
-              { status: "requires_confirmation", _count: { _all: 4 } },
-              { status: "open", _count: { _all: 9 } },
-              { status: "in_progress", _count: { _all: 5 } },
-              { status: "resolved", _count: { _all: 7 } },
-              { status: "closed", _count: { _all: 3 } },
-            ]) as never);
-    count.mockImplementation((async (args: { where?: { reviewStatus?: string } }) =>
-      args?.where?.reviewStatus === "merged" ? 3 : 0) as never);
+        : [
+          { status: "requires_confirmation", _count: { _all: 4 } },
+          { status: "open", _count: { _all: 9 } },
+          { status: "in_progress", _count: { _all: 2 } },
+          { status: "done", _count: { _all: 2 } },
+          { status: "ready_to_merge", _count: { _all: 1 } },
+          { status: "resolved", _count: { _all: 7 } },
+          { status: "closed", _count: { _all: 3 } },
+        ]) as never);
     const html = await renderList({ status: "all" });
     const nav = html.match(/<nav aria-label="Issue status"[\s\S]*?<\/nav>/)?.[0] ?? "";
     const counts = Object.fromEntries(
       [...nav.matchAll(/<\/span>([A-Za-z ]+)<span class="issues-status-count">(\d+)<\/span>/g)].map((m) => [m[1], Number(m[2])]),
     );
-    // In progress = 5 - 1 waiting to merge - 2 tested. Done = the 2 tested fixes (Ziki #713).
-    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to Merge": 1, Live: 3, All: 28 });
-    // The other 7 are closed (3) or were resolved without a merge (4): they stay under All only.
-    expect(counts.All - (counts["Requires confirmation"] + counts.Open + counts["In progress"] + counts.Done + counts["Ready to Merge"] + counts.Live)).toBe(7);
-  });
-
-  it("lists an accepted fix on Ready to Merge only while its issue is in progress, and keeps it off In progress (#685)", async () => {
-    await renderList({ status: "ready_to_merge" });
-    expect(findMany.mock.calls.at(-1)![0].where).toMatchObject({
-      status: { in: ["in_progress"] },
-      reviewStatus: "ready_to_merge",
-    });
-    await renderList({ status: "in_progress" });
-    // Ziki #713: a tested fix is on Done instead.
-    expect(findMany.mock.calls.at(-1)![0].where.AND).toEqual([
-      { OR: [{ reviewStatus: null }, { reviewStatus: { notIn: ["ready_to_merge", "tested"] } }] },
-    ]);
-    // The status alone decides Open: a review status never moves an open issue.
-    await renderList({ status: "open" });
-    expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("AND");
+    expect(counts).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Done: 2, "Ready to merge": 1, Live: 7, Closed: 3, All: 28 });
   });
 
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {

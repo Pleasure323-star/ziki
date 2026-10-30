@@ -11,16 +11,16 @@ describe("deployStageOf", () => {
   });
 
   it("treats a merged fix as at least in dev", () => {
-    expect(deployStageOf("merged")).toBe("dev");
+    expect(deployStageOf("resolved")).toBe("dev");
   });
 
   it("prefers a recorded stage over the fallback", () => {
-    expect(deployStageOf("merged", "staging")).toBe("staging");
-    expect(deployStageOf("merged", "main")).toBe("main");
+    expect(deployStageOf("resolved", "staging")).toBe("staging");
+    expect(deployStageOf("resolved", "main")).toBe("main");
   });
 
   it("ignores an unknown recorded stage", () => {
-    expect(deployStageOf("merged", "prod")).toBe("dev");
+    expect(deployStageOf("resolved", "prod")).toBe("dev");
     expect(deployStageOf("submitted", "prod")).toBeNull();
   });
 });

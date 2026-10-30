@@ -24,16 +24,16 @@ export const FINISHED_STATUS_VALUES = ["resolved", "closed"] as const;
 
 /**
  * What the issues page calls each `?status=` value, on its tabs and in the
- * Active filters chip, so the two always read the same ("Done", not "Resolved").
+ * Active filters chip, so the two always read the same ("Live", not "Resolved").
  */
 const STATUS_FILTER_LABELS: Record<string, string> = {
   escalated: "Inbox",
   ideas: "Ideas",
   open: "Open",
   in_progress: "In progress",
-  resolved: "Done",
-  ready_to_merge: "Ready to Merge",
-  auto_merge: "Live",
+  done: "Done",
+  ready_to_merge: "Ready to merge",
+  resolved: "Live",
   all: "All",
   closed: "Closed",
   rejected: "Rejected",
@@ -85,7 +85,7 @@ export function resultCountText(count: number, status: string | null): string {
  */
 export const SHOW_RESOLVED_PARAM = "resolved";
 export const SHOW_RESOLVED = "1";
-export const LIVE_STATUS_VALUES = ["requires_confirmation", "open", "in_progress"] as const;
+export const LIVE_STATUS_VALUES = ["requires_confirmation", "open", "in_progress", "done", "ready_to_merge"] as const;
 
 export function parseShowResolved(raw: string | string[] | null | undefined): boolean {
   return (Array.isArray(raw) ? raw[0] : raw) === SHOW_RESOLVED;

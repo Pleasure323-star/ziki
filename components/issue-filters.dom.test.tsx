@@ -75,9 +75,10 @@ describe("Issues compact toolbar", () => {
   it.each([
     ["open", "Open"],
     ["in_progress", "In progress"],
-    ["resolved", "Done"],
-    ["ready_to_merge", "Ready to Merge"],
-    ["auto_merge", "Live"],
+    ["done", "Done"],
+    ["ready_to_merge", "Ready to merge"],
+    ["resolved", "Live"],
+    ["closed", "Closed"],
     ["all", "All"],
   ])("names the %s status chip like its tab", (status, label) => {
     nav.params = new URLSearchParams(`status=${status}&severity=high`);

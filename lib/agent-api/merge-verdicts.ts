@@ -8,6 +8,24 @@ export type CountableVerdict = {
 
 export type VerdictClaim = { agentId: string; agent: { ownerUserId: string } } | null;
 
+type ClaimRow = { status: string; claimedAt?: Date | null; releasedAt: Date | null };
+
+/**
+ * The claim the fix was delivered under (#432): the active one, or, once a
+ * pull request is linked, the last claim let go after delivery. A delivered fix
+ * stays where it got to when its agent lets go (#one-status), so its testing,
+ * review, merge and points still follow that claim. Pass claims with
+ * `claimedAt` selected.
+ */
+export function deliveredClaim<C extends ClaimRow>(bug: { pullRequestUrl: string | null; claims: readonly C[] }): C | null {
+  const active = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
+  if (active || !bug.pullRequestUrl) return active ?? null;
+  const released = bug.claims
+    .filter((c) => c.status === "released" && c.claimedAt && c.releasedAt)
+    .sort((a, b) => b.releasedAt!.getTime() - a.releasedAt!.getTime());
+  return released[0] ?? null;
+}
+
 /**
  * The good-to-merge verdicts that count toward accepting a fix (#434): one per
  * independent owner, never from the claim holder's agent or owner, and never

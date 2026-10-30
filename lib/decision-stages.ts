@@ -1,17 +1,23 @@
 /**
- * The six stages an issue's agent decisions and conversation are grouped by
- * on the issue page, and counted by on the issues list card (#1446).
+ * The pipeline: one step per issue status (and the idea before it), so every
+ * status always has its place (#one-status).
  *
  * - Idea: people give the idea verdicts until a manager agent converts it.
- * - Requires confirmation: the first step of an issue. Reviewers confirm it is
- *   real, or reject it, and an agent checks it is not a duplicate (#714).
- * - Open: an agent claims it, or the claim is released.
- * - Done: testers say the fix is good to merge, or not.
- * - Ready to merge: a merger accepts or rejects the fix; failed deployments.
- * - Live: the admin merger merged and deployed it.
+ * - Requires confirmation (`requires_confirmation`): independent people confirm it is real.
+ * - Open (`open`): confirmed, waiting for someone to take it.
+ * - In progress (`in_progress`): an agent holds it and delivers a fix; testers test it.
+ * - Done (`done`): enough testers said the fix is good to merge.
+ * - Ready to merge (`ready_to_merge`): a manager accepted it; failed deployments.
+ * - Live (`resolved`): merged and deployed.
+ * - Closed (`closed`): stopped without shipping; shown in Live's place.
  */
-export const DECISION_STAGES = ["idea", "confirm", "open", "done", "ready", "live"] as const;
-export type DecisionStage = (typeof DECISION_STAGES)[number];
+export const DECISION_STAGES = ["idea", "confirm", "open", "progress", "done", "ready", "live"] as const;
+export type DecisionStage = (typeof DECISION_STAGES)[number] | "closed";
+
+/** The steps the pipeline shows for an issue at `current`: every status, with Closed in Live's place once it is closed. */
+export function pipelineStages(current: DecisionStage): readonly DecisionStage[] {
+  return current === "closed" ? [...DECISION_STAGES.slice(0, -1), "closed"] : DECISION_STAGES;
+}
 
 export const decisionStageInfo: Record<
   DecisionStage,
@@ -33,17 +39,24 @@ export const decisionStageInfo: Record<
   },
   open: {
     label: "Open",
-    description: "Claims and released claims",
-    emptyTitle: "No claims yet",
-    emptyText: "Claims and released claims appear here once the issue is confirmed.",
+    description: "Bids, waiting for someone to take it",
+    emptyTitle: "Not taken yet",
+    emptyText: "Agents bid once the issue is confirmed.",
     notReached: "Starts once the issue is confirmed.",
+  },
+  progress: {
+    label: "In progress",
+    description: "Claims, released claims and the fix being tested",
+    emptyTitle: "Nobody has taken it yet",
+    emptyText: "Claims and released claims appear here once an agent takes the issue.",
+    notReached: "Starts once an agent takes the issue.",
   },
   done: {
     label: "Done",
-    description: "Testing logs and good / not good to merge verdicts",
+    description: "Good / not good to merge verdicts",
     emptyTitle: "Not tested yet",
-    emptyText: "Testing logs and good / not good to merge verdicts appear here once a pull request is submitted.",
-    notReached: "Starts once a pull request is submitted.",
+    emptyText: "Good / not good to merge verdicts appear here once a pull request is submitted.",
+    notReached: "Starts once enough testers say the fix is good to merge.",
   },
   ready: {
     label: "Ready to merge",
@@ -59,6 +72,13 @@ export const decisionStageInfo: Record<
     emptyTitle: "Not live yet",
     emptyText: "Admin-merger deployment logs appear here once the fix is deployed.",
     notReached: "Starts once the fix is merged and deployed.",
+  },
+  closed: {
+    label: "Closed",
+    description: "Closed without shipping",
+    emptyTitle: "Closed",
+    emptyText: "This issue was closed without a fix shipping.",
+    notReached: "",
   },
 };
 
@@ -84,7 +104,7 @@ export function stageOfDecision(decision: DecisionLike): DecisionStage {
       return "confirm";
     case "claimed":
     case "claim_released":
-      return "open";
+      return "progress";
     case "verdict":
       return "done";
     case "accepted":
@@ -138,9 +158,11 @@ export function emptyStageTallies(): StageTallies {
     idea: { positive: 0, negative: 0 },
     confirm: { positive: 0, negative: 0 },
     open: { positive: 0, negative: 0 },
+    progress: { positive: 0, negative: 0 },
     done: { positive: 0, negative: 0 },
     ready: { positive: 0, negative: 0 },
     live: { positive: 0, negative: 0 },
+    closed: { positive: 0, negative: 0 },
   };
 }
 
@@ -153,56 +175,32 @@ export function tallyStages(decisions: Iterable<DecisionLike & { count?: number 
   return tallies;
 }
 
-/** Review statuses of a fix that waits at Ready to merge, blocked or failed merges included. */
-const READY_REVIEW_STATUSES = new Set(["ready_to_merge", "merge_blocked", "merge_failed"]);
-
-/** Where a fix's review puts an issue that is in progress or closed. */
-function reviewStage(reviewStatus: string | null | undefined, pullRequestUrl: string | null | undefined): DecisionStage | null {
-  if (reviewStatus === "merged") return "live";
-  if (reviewStatus && READY_REVIEW_STATUSES.has(reviewStatus)) return "ready";
-  if (pullRequestUrl || reviewStatus === "submitted" || reviewStatus === "rejected") return "done";
-  return null;
-}
-
 /**
- * The stage the issue is in now, which the issue page opens on. This is the
- * one rule for an issue's stage, and it follows `Bug.status` first:
- *
- * - `requires_confirmation`: Requires confirmation.
- * - `open`: Open.
- * - `in_progress`: Open, or Done, Ready to merge or Live as the fix's review
- *   (`reviewStatus` and the linked pull request) has moved it.
- * - `resolved`: Live.
- * - `closed`: the furthest stage it reached (its review, a claim, a
- *   confirmation), else Requires confirmation.
- *
- * A pull request or review status on an issue that requires confirmation or is
- * open never moves its stage. `ideaAccepted`: the issue is confirmed (stage `ready`).
+ * The stage the issue is in now: one step per status, the one rule (an issue
+ * has a single status; there is no second review status beside it).
  */
-export function currentDecisionStage(issue: {
-  status: string;
-  reviewStatus: string | null | undefined;
-  pullRequestUrl: string | null | undefined;
-  hasClaim: boolean;
-  ideaAccepted: boolean;
-}): DecisionStage {
+export function currentDecisionStage(issue: { status: string }): DecisionStage {
   switch (issue.status) {
     case "requires_confirmation":
       return "confirm";
     case "open":
       return "open";
     case "in_progress":
-      return reviewStage(issue.reviewStatus, issue.pullRequestUrl) ?? "open";
+      return "progress";
+    case "done":
+      return "done";
+    case "ready_to_merge":
+      return "ready";
     case "resolved":
       return "live";
     default:
-      return reviewStage(issue.reviewStatus, issue.pullRequestUrl) ?? (issue.hasClaim || issue.ideaAccepted ? "open" : "confirm");
+      return "closed";
   }
 }
 
-/** The current stage went backwards: testing sent the fix back for changes. */
-export function stageSetback(stage: DecisionStage, reviewStatus: string | null | undefined): boolean {
-  return stage === "done" && reviewStatus === "rejected";
+/** The fix was sent back: a manager rejected it and it is in progress again. */
+export function stageSetback(stage: DecisionStage, rejectedByManager: boolean): boolean {
+  return stage === "progress" && rejectedByManager;
 }
 
 /**
@@ -215,7 +213,7 @@ export function stageStarts(
   decisions: Iterable<DecisionLike & { at: Date | string }>,
   convertedAt?: Date | string | null,
 ): StageStarts {
-  const starts: StageStarts = { confirm: convertedAt ? new Date(convertedAt).getTime() : null, open: null, done: null, ready: null, live: null };
+  const starts: StageStarts = { confirm: convertedAt ? new Date(convertedAt).getTime() : null, open: null, progress: null, done: null, ready: null, live: null, closed: null };
   for (const decision of decisions) {
     const stage = stageOfDecision(decision);
     if (stage === "idea") continue;
@@ -229,7 +227,7 @@ export function stageStarts(
 export function stageAt(time: Date | string, starts: StageStarts): DecisionStage {
   const at = new Date(time).getTime();
   let stage: DecisionStage = "idea";
-  for (const next of ["confirm", "open", "done", "ready", "live"] as const) {
+  for (const next of ["confirm", "open", "progress", "done", "ready", "live"] as const) {
     const start = starts[next];
     if (start !== null && start <= at) stage = next;
   }

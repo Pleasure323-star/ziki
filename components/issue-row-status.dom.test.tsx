@@ -42,32 +42,30 @@ describe("IssueRowStatus", () => {
   });
 
   it("labels finished issues", () => {
-    expect(text(<IssueRowStatus {...base} status="resolved" />)).toBe("Resolved");
+    expect(text(<IssueRowStatus {...base} status="resolved" />)).toBe("Live");
     cleanup();
     expect(text(<IssueRowStatus {...base} status="closed" />)).toBe("Closed");
   });
 
-  it("renders fine-grained SDLC review statuses", () => {
-    expect(text(<IssueRowStatus {...base} status="in_progress" reviewStatus="submitted" />)).toContain("PR Submitted");
+  it("labels the tested and accepted steps from the one status", () => {
+    expect(text(<IssueRowStatus {...base} status="done" />)).toContain("Done");
     cleanup();
-    expect(text(<IssueRowStatus {...base} status="in_progress" reviewStatus="ready_to_merge" />)).toContain("Ready to Merge");
-    cleanup();
-    expect(text(<IssueRowStatus {...base} status="in_progress" reviewStatus="rejected" />)).toContain("Needs Revision");
+    expect(text(<IssueRowStatus {...base} status="ready_to_merge" />)).toContain("Ready to merge");
   });
 });
 
 describe("IssueRowStatus merge path", () => {
   const merged = mergePathOf({
     pullRequestUrl: "https://github.com/Zedu-Endor/issue-tracker/pull/1262",
-    reviewStatus: "merged",
+    status: "resolved",
     updatedAt: new Date("2026-10-22T16:10:00Z"),
   });
 
-  it("shows the merge history chips instead of Resolved once the fix is merged", () => {
+  it("shows the merge history chips instead of Live once the fix is merged", () => {
     const { container } = render(<IssueRowStatus {...base} status="resolved" mergePath={merged} />);
     const chips = Array.from(container.querySelectorAll("[data-stage]")).map((el) => `${el.textContent}:${el.getAttribute("data-state")}`);
     expect(chips).toEqual(["dev:merged", "staging:pending", "main:pending"]);
-    expect(container.textContent).not.toContain("Resolved");
+    expect(container.textContent).not.toContain("Live");
     expect(container.querySelector(".merge-path")).toHaveAttribute("aria-label", "Reached dev");
   });
 
@@ -83,7 +81,7 @@ describe("IssueRowStatus merge path", () => {
   });
 
   it("keeps the usual label when there is no merge path", () => {
-    expect(text(<IssueRowStatus {...base} status="resolved" mergePath={null} />)).toBe("Resolved");
+    expect(text(<IssueRowStatus {...base} status="resolved" mergePath={null} />)).toBe("Live");
     cleanup();
     expect(text(<IssueRowStatus {...base} stage="ready" />)).toBe("Ready for bids");
   });

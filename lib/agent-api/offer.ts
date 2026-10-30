@@ -383,12 +383,13 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
 
     const bug = await tx.bug.findFirstOrThrow({
       where: { id: bugId },
-      select: { id: true, title: true, status: true, assigneeId: true, projectId: true, areaId: true },
+      select: { id: true, title: true, status: true, assigneeId: true, projectId: true, areaId: true, pullRequestUrl: true },
     });
     let reopened = false;
     if (claim.status === "active") {
       const otherOpen = await tx.issueClaim.count({ where: { bugId, releasedAt: null, id: { not: claim.id } } });
-      if (!otherOpen && bug.status === "in_progress" && bug.assigneeId === claim.beneficiaryUserId) {
+      // A delivered fix stays where it got to (#one-status): only an undelivered one goes back to Open.
+      if (!otherOpen && bug.status === "in_progress" && !bug.pullRequestUrl && bug.assigneeId === claim.beneficiaryUserId) {
         await tx.bug.update({ where: { id: bugId }, data: { assigneeId: null, status: "open" } });
         await tx.bugActivity.createMany({ data: [
           { bugId, actorId: claim.beneficiaryUserId, type: "assignee_changed", summary: assigneeChangedSummary(claim.beneficiary.name, null), metadata: { field: "assignee", from: claim.beneficiaryUserId, to: null } },

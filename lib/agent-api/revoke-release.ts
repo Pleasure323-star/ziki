@@ -51,7 +51,8 @@ export async function releaseWorkOfRevokedAgent(
     let canReoffer = claim.status === "offered" && !otherOpen;
     if (!otherOpen && claim.status === "active") {
       const reopened = await tx.bug.updateMany({
-        where: { id: claim.bugId, tenantId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress" },
+        // A delivered fix stays where it got to (#one-status).
+        where: { id: claim.bugId, tenantId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress", pullRequestUrl: null },
         data: { assigneeId: null, status: "open" },
       });
       canReoffer = reopened.count > 0;

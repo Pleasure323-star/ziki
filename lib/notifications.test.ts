@@ -95,8 +95,8 @@ describe("planNotifications (#151)", () => {
       SITE,
     );
     expect(planned).toHaveLength(1);
-    expect(planned[0]?.subject).toBe("[Ziki Issues] “Login button does nothing” is now Resolved");
-    expect(planned[0]?.text).toContain("from Open to Resolved");
+    expect(planned[0]?.subject).toBe("[Ziki Issues] “Login button does nothing” is now Live");
+    expect(planned[0]?.text).toContain("from Open to Live");
     expect(
       planNotifications({ ...base, kind: "status_changed", reporterId: "alice", from: "open", to: "closed" }, SITE),
     ).toEqual([]);

@@ -8,7 +8,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
-import { countedMergeVerdicts } from "@/lib/agent-api/merge-verdicts";
+import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verdicts";
 import { award, awardDispatcher } from "@/lib/points/award";
 import { pointSourceKey, reviewerPointsAt } from "@/lib/points/rules";
 import {
@@ -49,7 +49,8 @@ import { MERGE_BLOCKED, MERGE_FAILED, recordMergeOutcome, type MergeOutcomeStatu
  * (#review-entries): a `MergeReview` with a summary of at most two sentences
  * and a full description (a reject's description is the feedback the fix's
  * author acts on). One per agent per issue; reviewing again replaces it.
- * `Bug.reviewStatus` follows it: `ready_to_merge` or `rejected`. Nothing is
+ * The issue's status follows it: an accept makes it `ready_to_merge`, a reject
+ * sends it back to `in_progress`. Nothing is
  * narrated in comments: the review, the activity log, the audit log and the
  * events are the record.
  *
@@ -77,6 +78,7 @@ const mergeBugSelect = {
   claims: {
     select: {
       status: true,
+      claimedAt: true,
       releasedAt: true,
       agentId: true,
       beneficiaryUserId: true,
@@ -87,12 +89,7 @@ const mergeBugSelect = {
 } satisfies Prisma.BugSelect;
 
 type LoadedBug = Prisma.BugGetPayload<{ select: typeof mergeBugSelect }>;
-type ActiveClaim = LoadedBug["claims"][number];
 
-/** The claim an agent is currently working `bug` under (#432). */
-function activeClaim(bug: LoadedBug): ActiveClaim | null {
-  return bug.claims.find((c) => c.status === "active" && !c.releasedAt) ?? null;
-}
 
 /** A merge review as the API returns it. */
 export type StoredMergeReview = {
@@ -298,13 +295,13 @@ async function reviewFix(
     };
   }
 
-  const claim = activeClaim(bug);
+  const claim = deliveredClaim(bug);
   if (!claim) {
     return {
       status: 409,
       error: "not_ready",
       missing: "claim",
-      message: "This issue needs an active claim before its fix can be accepted.",
+      message: "This issue needs a claim that delivered its fix before the fix can be accepted.",
     };
   }
   if (!bug.pullRequestUrl) {
@@ -413,7 +410,7 @@ async function reviewFix(
       const saved = await saveMergeReview(tx, agent, bug, review ?? DEFAULT_ACCEPT, pullRequestUrl, acceptedHeadSha);
       await tx.bug.update({
         where: { id: bug.id },
-        data: { reviewStatus: "ready_to_merge" },
+        data: { status: "ready_to_merge" },
       });
       await tx.bugActivity.create({
         data: {
@@ -434,7 +431,7 @@ async function reviewFix(
           pullRequestUrl: bug.pullRequestUrl,
           headSha: acceptedHeadSha,
           readyToMerge: true,
-          reviewStatus: "ready_to_merge",
+          status: "ready_to_merge",
           mergeReviewId: saved.review.id,
           summary: saved.review.summary,
         },
@@ -450,7 +447,7 @@ async function reviewFix(
           pullRequestUrl: bug.pullRequestUrl,
           headSha: acceptedHeadSha,
           readyToMerge: true,
-          reviewStatus: "ready_to_merge",
+          status: "ready_to_merge",
           mergeReviewId: saved.review.id,
           summary: saved.review.summary,
         },
@@ -619,7 +616,7 @@ async function reviewFix(
 
     // A merger agent's accept through POST /merge is its review too.
     const saved = review ? await saveMergeReview(tx, agent, bug, review, bug.pullRequestUrl!, acceptedHeadSha) : null;
-    await tx.bug.update({ where: { id: bug.id }, data: { status: "resolved", reviewStatus: "merged" } });
+    await tx.bug.update({ where: { id: bug.id }, data: { status: "resolved" } });
     // #review-entries: the merge is recorded here, not in a comment.
     await tx.bugActivity.create({
       data: {
@@ -631,7 +628,7 @@ async function reviewFix(
           field: "status",
           from: bug.status,
           to: "resolved",
-          reviewStatus: "merged",
+          merged: true,
           pullRequestUrl: bug.pullRequestUrl,
           mergeCommitSha,
           ...(saved ? { mergeReviewId: saved.review.id } : {}),
@@ -695,7 +692,7 @@ async function reviewFix(
         headSha: acceptedHeadSha,
         mergeCommitSha,
         status: "resolved",
-        reviewStatus: "merged",
+        merged: true,
       },
       actorAgentId: agent.agentId,
       bugId: bug.id,
@@ -745,14 +742,14 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
   }
   const saved = await prisma.$transaction(async (tx) => {
     const saved = await saveMergeReview(tx, agent, bug, review, pullRequestUrl, bug.pullRequestHeadSha ?? null);
-    await tx.bug.update({ where: { id: bug.id }, data: { reviewStatus: "rejected" } });
+    await tx.bug.update({ where: { id: bug.id }, data: { status: "in_progress" } });
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
         summary: `Fix rejected for merging: ${review.summary}`,
-        metadata: { field: "reviewStatus", reviewStatus: "rejected", rejected: true, mergeReviewId: saved.review.id },
+        metadata: { field: "status", from: bug.status, to: "in_progress", rejected: true, mergeReviewId: saved.review.id },
       },
     });
     // #1429: the audit log keeps every merge decision, the review only the latest.
@@ -761,7 +758,8 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       "issue.merge_rejected",
       `bug:${bug.id}`,
       {
-        reviewStatus: "rejected",
+        status: "in_progress",
+        rejected: true,
         mergeReviewId: saved.review.id,
         summary: review.summary,
         notes: review.description,
@@ -776,7 +774,7 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       payload: {
         issueId: bug.id,
         rejected: true,
-        reviewStatus: "rejected",
+        status: "in_progress",
         mergeReviewId: saved.review.id,
         summary: review.summary,
         notes: review.description,
@@ -835,13 +833,13 @@ export async function listMergeReviews(scope: { tenantId: string; projectId?: st
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-    select: { id: true, number: true, reviewStatus: true, pullRequestUrl: true, pullRequestHeadSha: true },
+    select: { id: true, number: true, status: true, pullRequestUrl: true, pullRequestHeadSha: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found.", { error: "not_found", message: "Issue not found." });
   return {
     issueId: bug.id,
     issueNumber: bug.number,
-    reviewStatus: bug.reviewStatus,
+    status: bug.status,
     pullRequestUrl: bug.pullRequestUrl,
     headSha: bug.pullRequestHeadSha,
     reviews: await mergeReviewEntries(bug),

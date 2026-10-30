@@ -40,7 +40,7 @@ describe("Role-based discovery functions", () => {
 
   describe("findReadyToMergeIssues", () => {
     it("needs a manager agent", async () => {
-      await expect(findReadyToMergeIssues(contributor, "p1")).rejects.toBeInstanceOf(AgentLevelError);
+      await expect(findReadyToMergeIssues(contributor, "p1", 50, "done")).rejects.toBeInstanceOf(AgentLevelError);
     });
 
     it("returns ready to merge issues when conditions are met", async () => {
@@ -64,11 +64,12 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1");
+      const issues = await findReadyToMergeIssues(merger, "p1", 50, "done");
       expect(issues).toHaveLength(1);
       expect(issues[0]).toMatchObject({
         id: "bug-1",
         number: 101,
+        status: "done",
         verdictsCount: 2,
       });
     });
@@ -82,7 +83,6 @@ describe("Role-based discovery functions", () => {
           projectId: "p1",
           pullRequestUrl: "https://github.com/org/repo/pull/4",
           pullRequestHeadSha: "sha-4",
-          reviewStatus: null,
           reporterId: "user-1",
           beneficiaryUserId: "user-1",
           createdByAgentId: null,
@@ -95,10 +95,10 @@ describe("Role-based discovery functions", () => {
         },
       ]);
       // One independent verdict of the two needed: the gate would refuse, so the queue doesn't list it.
-      await expect(findReadyToMergeIssues(merger, "p1")).resolves.toEqual([]);
+      await expect(findReadyToMergeIssues(merger, "p1", 50, "done")).resolves.toEqual([]);
     });
 
-    it("filters by reviewStatus parameter when provided", async () => {
+    it("reads one status: Ready to merge, which needs no further verdicts", async () => {
       db.bug.findMany.mockResolvedValue([
         {
           id: "bug-accepted",
@@ -107,7 +107,6 @@ describe("Role-based discovery functions", () => {
           projectId: "p1",
           pullRequestUrl: "https://github.com/org/repo/pull/2",
           pullRequestHeadSha: "sha-2",
-          reviewStatus: "ready_to_merge",
           reporterId: "user-1",
           beneficiaryUserId: "user-1",
           createdByAgentId: null,
@@ -120,25 +119,14 @@ describe("Role-based discovery functions", () => {
       const issues = await findReadyToMergeIssues(merger, "p1", 50, "ready_to_merge");
       expect(db.bug.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            // A blocked or failed merge is still waiting on the merger agent.
-            AND: [{ reviewStatus: { in: ["ready_to_merge", "merge_blocked", "merge_failed"] } }],
-          }),
+          where: expect.objectContaining({ status: "ready_to_merge" }),
         }),
       );
       expect(issues).toHaveLength(1);
-      expect(issues[0].reviewStatus).toBe("ready_to_merge");
+      expect(issues[0].status).toBe("ready_to_merge");
     });
 
-    it("matches submitted, tested or not-yet-reviewed fixes without putting null inside `in`, which Prisma rejects", async () => {
-      db.bug.findMany.mockResolvedValue([]);
-      await findReadyToMergeIssues(merger, "p1", 50, "submitted");
-      const where = db.bug.findMany.mock.calls.at(-1)![0].where;
-      expect(where.AND).toEqual([{ OR: [{ reviewStatus: { in: ["submitted", "tested"] } }, { reviewStatus: null }] }]);
-      expect(JSON.stringify(where)).not.toMatch(/"in":\[[^\]]*null/);
-    });
-
-    it("keeps a blocked merge on the list so it can be tried again", async () => {
+    it("keeps a blocked merge on the list so it can be tried again: it stays Ready to merge", async () => {
       db.bug.findMany.mockResolvedValue([
         {
           id: "bug-blocked",
@@ -147,7 +135,6 @@ describe("Role-based discovery functions", () => {
           projectId: "p1",
           pullRequestUrl: "https://github.com/org/repo/pull/3",
           pullRequestHeadSha: "sha-3",
-          reviewStatus: "merge_blocked",
           reporterId: "user-1",
           beneficiaryUserId: "user-1",
           createdByAgentId: null,
@@ -159,7 +146,7 @@ describe("Role-based discovery functions", () => {
 
       const issues = await findReadyToMergeIssues(merger, "p1", 50, "ready_to_merge");
       expect(issues).toHaveLength(1);
-      expect(issues[0].reviewStatus).toBe("merge_blocked");
+      expect(issues[0].status).toBe("ready_to_merge");
     });
   });
 
