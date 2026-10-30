@@ -1,3 +1,4 @@
+import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { AddVerdictDialog } from "@/components/add-verdict-dialog";
 
@@ -163,14 +164,7 @@ export function IdeaVerdictsPanel({
                   · <LocalTime compact date={verdict.updatedAt} />
                 </span>
               </p>
-              <p className="mb-0 mt-1 break-words text-[13px] leading-[1.5] text-zk-text">{verdict.summary}</p>
-              <details className="group mt-1">
-                <summary className="cursor-pointer list-none text-xs font-bold text-zk-accent hover:underline [&::-webkit-details-marker]:hidden">
-                  <span className="group-open:hidden">Show full description</span>
-                  <span className="hidden group-open:inline">Hide full description</span>
-                </summary>
-                <p className="mb-0 mt-1.5 whitespace-pre-line break-words text-[13px] leading-[1.5] text-zk-text2">{verdict.description}</p>
-              </details>
+              <EntrySummary summary={verdict.summary} description={verdict.description} />
             </li>
           ))}
         </ul>

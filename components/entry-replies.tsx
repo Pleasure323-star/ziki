@@ -1,4 +1,5 @@
 import { LocalTime } from "@/components/local-time";
+import { EntryText } from "@/components/entry-summary";
 
 export type EntryReplyView = {
   id: string;
@@ -22,7 +23,7 @@ export function EntryReplies({ replies }: { replies: EntryReplyView[] }) {
               · <LocalTime compact date={reply.createdAt} />
             </span>
           </p>
-          <p className="mb-0 mt-0.5 whitespace-pre-line break-words leading-[1.5] text-zk-text">{reply.body}</p>
+          <EntryText body={reply.body} />
         </li>
       ))}
     </ul>

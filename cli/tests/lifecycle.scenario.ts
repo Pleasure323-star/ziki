@@ -31,7 +31,7 @@ describe("a report from idea to merge", () => {
   });
 
   it("takes verdicts, not importance marks or confirmations, while it is an idea", async () => {
-    await refused("bob", "mark-important", { id, summary: "Matters.", description: "It matters." }, 404);
+    await refused("bob", "mark-important", { id }, 404);
     await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it." }, 404);
     expect((await refused("ada", "give-idea-verdict", { id, opinion: "good", summary: "Mine.", description: "My own idea." }, 403)).error).toBe("own_idea");
     expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
@@ -105,23 +105,14 @@ describe("a report from idea to merge", () => {
     expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
   });
 
-  it("is marked important only with a reason (#importance)", async () => {
-    const projectId = (await ok("bob", "get-issue", { id })).issue.projectId;
-    for (const route of ["importance"]) {
-      const bare = await ziki("request", "POST", `/issues/${id}/${route}?projectId=${projectId}`, "--as", "bob");
-      expect(bare.code, `bare ${route}: ${bare.out}`).toBe(1);
-      expect(bare.json).toMatchObject({ status: 400, body: { error: "reason_required" } });
-    }
-    const marked = await ok("bob", "mark-important", { id, summary: "Blocks saving.", description: "Nobody can save a draft, so every edit is lost." });
-    expect(marked).toMatchObject({ important: true, importance: 1, changed: true, summary: "Blocks saving." });
-    expect(marked).not.toHaveProperty("voteCount");
-    // Marking again replaces the reason.
-    const remarked = await ok("bob", "mark-important", { id, summary: "Still blocks saving.", description: "Checked again: drafts are still lost." });
-    expect(remarked).toMatchObject({ important: true, importance: 1, changed: true });
+  it("is marked important with a plain toggle, no reason (#importance)", async () => {
+    const marked = await ok("bob", "mark-important", { id });
+    expect(marked).toMatchObject({ important: true, importance: 1, changed: true });
+    expect(marked).not.toHaveProperty("summary");
+    expect(await ok("bob", "mark-important", { id })).toMatchObject({ important: true, importance: 1, changed: false });
     const issue = (await ok("ada", "get-issue", { id })).issue;
     expect(issue).toMatchObject({ importance: 1 });
-    expect(issue).not.toHaveProperty("voteCount");
-    expect(issue.importanceMarks).toEqual([expect.objectContaining({ summary: "Still blocks saving.", description: "Checked again: drafts are still lost." })]);
+    expect(issue).not.toHaveProperty("importanceMarks");
     expect(await ok("bob", "unmark-important", { id })).toMatchObject({ important: false, importance: 0, changed: true });
     expect(await ok("bob", "unmark-important", { id })).toMatchObject({ important: false, importance: 0, changed: false });
   });

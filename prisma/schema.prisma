@@ -557,9 +557,6 @@ model Vote {
   value       Int      @default(1)
   /// The agent that marked it for `userId`, or null for a person's own click.
   agentId     String?
-  /// Why it matters, at most two sentences. Set for agent marks only.
-  summary     String?
-  description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

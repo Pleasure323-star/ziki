@@ -34,8 +34,6 @@ function request(path: string, method: string, body?: unknown) {
     }),
   });
 }
-const reason = { summary: "Blocks every signup.", description: "New users cannot finish signing up, so nothing else matters until this is fixed." };
-
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAgent.mockResolvedValue(caller);
@@ -50,46 +48,29 @@ describe("POST/DELETE /issues/{id}/importance (#importance)", () => {
   const route = importance;
   const segment = "importance";
 
-  it("refuses a bare mark with 400", async () => {
+  it("marks the issue important with no body: a plain toggle", async () => {
     const response = await route.POST(request(segment, "POST"), context);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "reason_required" });
-    expect(mocks.upvote).not.toHaveBeenCalled();
-  });
-
-  it("refuses a mark with only a summary", async () => {
-    const response = await route.POST(request(segment, "POST", { summary: reason.summary }), context);
-    expect(response.status).toBe(400);
-    expect(mocks.upvote).not.toHaveBeenCalled();
-  });
-
-  it("refuses a summary longer than two sentences", async () => {
-    const response = await route.POST(request(segment, "POST", { ...reason, summary: "One. Two. Three." }), context);
-    expect(response.status).toBe(400);
-  });
-
-  it("records the mark with its reason", async () => {
-    const response = await route.POST(request(segment, "POST", reason), context);
     expect(response.status).toBe(201);
-    expect(mocks.upvote).toHaveBeenCalledWith(caller, "project", "bug", reason);
-    expect(await response.json()).toEqual({
-      important: true, importance: 3, changed: true, weight: 1, userId: "owner", agentId: "agent",
-      ...reason,
-    });
+    expect(mocks.upvote).toHaveBeenCalledWith(caller, "project", "bug");
+    expect(await response.json()).toEqual({ important: true, importance: 3, changed: true, weight: 1, userId: "owner", agentId: "agent" });
+  });
+
+  it("takes no reason: a summary or description is refused", async () => {
+    const response = await route.POST(request(segment, "POST", { summary: "Blocks signup.", description: "Why." }), context);
+    expect(response.status).toBe(400);
+    expect(mocks.upvote).not.toHaveBeenCalled();
   });
 
   it("answers 200 when nothing changed", async () => {
     mocks.upvote.mockResolvedValue({ important: true, importance: 3, changed: false, weight: 1 });
-    const response = await route.POST(request(segment, "POST", reason), context);
+    const response = await route.POST(request(segment, "POST"), context);
     expect(response.status).toBe(200);
   });
 
-  it("removes the mark without a reason", async () => {
+  it("removes the mark", async () => {
     const response = await route.DELETE(request(segment, "DELETE"), context);
     expect(response.status).toBe(200);
     expect(mocks.remove).toHaveBeenCalledWith(caller, "project", "bug");
-    expect(await response.json()).toEqual({
-      important: false, importance: 2, changed: true, userId: "owner",
-    });
+    expect(await response.json()).toEqual({ important: false, importance: 2, changed: true, userId: "owner" });
   });
 });

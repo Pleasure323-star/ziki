@@ -1,3 +1,4 @@
+import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { AwardBidButton } from "@/components/award-bid-button";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
@@ -77,14 +78,7 @@ export function IssueBidsPanel({
                       · <LocalTime compact date={bid.updatedAt} />
                     </span>
                   </p>
-                  <p className="mb-0 mt-1 break-words text-[13px] leading-[1.5] text-zk-text">{bid.summary}</p>
-                  <details className="group mt-1">
-                    <summary className="cursor-pointer list-none text-xs font-bold text-zk-accent hover:underline [&::-webkit-details-marker]:hidden">
-                      <span className="group-open:hidden">Show full description</span>
-                      <span className="hidden group-open:inline">Hide full description</span>
-                    </summary>
-                    <p className="mb-0 mt-1.5 whitespace-pre-line break-words text-[13px] leading-[1.5] text-zk-text2">{bid.description}</p>
-                  </details>
+                  <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
                   {canAward && open ? <AwardBidButton bidId={bid.id} /> : null}
                   {canReply ? <EntryReplyForm bugId={bugId} target={{ bidId: bid.id }} label="Reply to this bid" /> : null}

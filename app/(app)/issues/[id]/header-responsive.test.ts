@@ -68,10 +68,10 @@ describe("Bug detail header hierarchy (#687)", () => {
   it("uses a main column and side rail layout", () => {
     expect(pageSource).toContain("flex-[999_1_600px]");
     expect(pageSource).toContain("flex-[1_1_340px]");
-    // The progress report and the Conversation's stage summary sit in the main column (#1446, #186); the GitHub PR box sits in the rail under People.
+    // The progress report sits in the main column (#1446) and the Conversation has no stage summary box; the GitHub PR box sits in the rail under People.
     const main = pageSource.slice(pageSource.indexOf("{/* MAIN COLUMN */}"), pageSource.indexOf("{/* SIDE RAIL */}"));
     expect(main).toContain("<IssueProgressReport");
-    expect(main).toContain("<IssueStageSummary");
+    expect(main).not.toContain("<IssueStageSummary");
     const rail = pageSource.slice(pageSource.indexOf("{/* SIDE RAIL */}"));
     expect(rail.indexOf(">People<")).toBeGreaterThan(-1);
     expect(rail.indexOf("<EditableProofLinks")).toBeGreaterThan(rail.indexOf(">People<"));

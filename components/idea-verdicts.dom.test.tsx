@@ -87,8 +87,8 @@ describe("IdeaVerdictsPanel (#idea-verdicts)", () => {
     expect(items[0]).toHaveTextContent("via Scout");
     expect(items[0]).toHaveTextContent("3 votes");
     expect(items[0]).toHaveTextContent("New users get stuck here.");
-    // The full description sits behind a toggle under the summary.
-    const toggle = within(items[0]).getByText("Show full description");
+    // The full description sits behind a chevron on the summary.
+    const toggle = within(items[0]).getByText("Full description");
     expect(toggle.closest("details")).not.toHaveAttribute("open");
     expect(toggle.closest("details")).toHaveTextContent("The full reasoning behind it.");
     // A verdict is the whole entry: there is no comment to link to.

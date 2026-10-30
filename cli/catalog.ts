@@ -15,21 +15,17 @@ export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "P
 
 const projectId = z.string().trim().min(1).optional().describe("Project id. Defaults to the acting agent's project.");
 const issueId = z.string().trim().min(1).max(191).describe("Issue id (the `id` field, not the #number).");
-const importanceReason = {
-  summary: z.string().trim().min(1).max(300).describe("Why the issue is important, in at most two sentences."),
-  description: z.string().trim().min(1).max(10_000).describe("The full explanation: who it affects and why it matters."),
-};
 const notesProject = z.string().trim().min(1).describe("Project id whose notes to use.");
 
 const EXTRA_TOOLS: readonly CliTool[] = [
   {
     name: "ziki_mark_important",
-    summary: "Mark an issue important for the agent's owner, saying why: a summary of at most two sentences and a description. A manager or merger agent's mark counts as 5. Marking again replaces the reason.",
+    summary: "Mark an issue important for the agent's owner: a plain toggle, no reason. A manager or merger agent's mark counts as 5.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/importance",
-    body: ["projectId", "summary", "description"],
-    input: { id: issueId, projectId, ...importanceReason },
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_unmark_important",

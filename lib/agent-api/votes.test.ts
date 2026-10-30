@@ -17,8 +17,7 @@ const db = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 
-const reason = { summary: "Blocks every signup.", description: "New users cannot finish signing up." };
-const mark = { agentId: "agent-1", ...reason };
+const mark = { agentId: "agent-1" };
 
 const agent = {
   agentId: "agent-1",
@@ -47,7 +46,7 @@ describe("agent upvotes", () => {
     db.vote.findUnique.mockResolvedValue(null);
     db.vote.create.mockResolvedValue({ id: "vote-1" });
 
-    const result = await upvoteIssue(agent, projectId, bugId, reason);
+    const result = await upvoteIssue(agent, projectId, bugId);
 
     expect(result).toEqual({ important: true, importance: 1, changed: true, weight: 1 });
     expect(db.vote.create).toHaveBeenCalledWith({
@@ -64,45 +63,23 @@ describe("agent upvotes", () => {
     }));
   });
 
-  it("changes nothing when the owner's mark already has this agent's reason", async () => {
-    db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: 1, ...mark });
+  it("changes nothing when the owner already marked it with this weight", async () => {
+    db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: 1, agentId: null });
     db.bug.findUnique.mockResolvedValue({ voteCount: 3 });
 
-    const result = await upvoteIssue(agent, projectId, bugId, reason);
+    const result = await upvoteIssue(agent, projectId, bugId);
 
     expect(result).toEqual({ important: true, importance: 3, changed: false, weight: 1 });
     expect(db.vote.create).not.toHaveBeenCalled();
+    expect(db.vote.update).not.toHaveBeenCalled();
     expect(db.agentEvent.create).not.toHaveBeenCalled();
-  });
-
-  it("replaces the reason on a re-mark without changing the count", async () => {
-    db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: 1, agentId: "agent-1", summary: "Old.", description: "Old reason." });
-    db.bug.findUnique.mockResolvedValue({ voteCount: 3 });
-    db.vote.update.mockResolvedValue({});
-
-    const result = await upvoteIssue(agent, projectId, bugId, reason);
-
-    expect(result).toEqual({ important: true, importance: 3, changed: true, weight: 1 });
-    expect(db.vote.update).toHaveBeenCalledWith({ where: { id: "vote-1" }, data: { value: 1, ...mark } });
-    expect(db.vote.groupBy).not.toHaveBeenCalled();
-  });
-
-  it("gives a person's own mark the agent's reason when their agent marks it", async () => {
-    db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: 1, agentId: null, summary: null, description: null });
-    db.bug.findUnique.mockResolvedValue({ voteCount: 1 });
-    db.vote.update.mockResolvedValue({});
-
-    const result = await upvoteIssue(agent, projectId, bugId, { summary: "  Blocks every signup. ", description: reason.description });
-
-    expect(result.changed).toBe(true);
-    expect(db.vote.update).toHaveBeenCalledWith({ where: { id: "vote-1" }, data: { value: 1, ...mark } });
   });
 
   it("turns an old downvote into an upvote", async () => {
     db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: -1 });
     db.vote.update.mockResolvedValue({});
 
-    const result = await upvoteIssue(agent, projectId, bugId, reason);
+    const result = await upvoteIssue(agent, projectId, bugId);
 
     expect(result.changed).toBe(true);
     expect(db.vote.update).toHaveBeenCalledWith({ where: { id: "vote-1" }, data: { value: 1, ...mark } });
@@ -132,7 +109,7 @@ describe("agent upvotes", () => {
       { value: MANAGER_VOTE_WEIGHT, _count: { _all: 1 } },
     ]);
 
-    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId, reason);
+    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId);
 
     expect(db.vote.create).toHaveBeenCalledWith({
       data: { userId: "user-ada", bugId, value: MANAGER_VOTE_WEIGHT, ...mark },
@@ -145,7 +122,7 @@ describe("agent upvotes", () => {
     db.vote.findUnique.mockResolvedValue(null);
     db.vote.create.mockResolvedValue({ id: "vote-1" });
 
-    const result = await upvoteIssue({ ...agent, level: "merger" }, projectId, bugId, reason);
+    const result = await upvoteIssue({ ...agent, level: "merger" }, projectId, bugId);
 
     expect(result.weight).toBe(MANAGER_VOTE_WEIGHT);
   });
@@ -154,7 +131,7 @@ describe("agent upvotes", () => {
     db.vote.findUnique.mockResolvedValue({ id: "vote-1", value: 1 });
     db.vote.update.mockResolvedValue({});
 
-    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId, reason);
+    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId);
 
     expect(result.changed).toBe(true);
     expect(db.vote.update).toHaveBeenCalledWith({ where: { id: "vote-1" }, data: { value: MANAGER_VOTE_WEIGHT, ...mark } });
@@ -165,7 +142,7 @@ describe("agent upvotes", () => {
     db.vote.findUnique.mockResolvedValue(null);
     db.vote.create.mockResolvedValue({ id: "vote-1" });
 
-    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId, reason);
+    const result = await upvoteIssue({ ...agent, level: "manager" }, projectId, bugId);
 
     expect(result.weight).toBe(1);
     expect(db.vote.create).toHaveBeenCalledWith({ data: { userId: "user-ada", bugId, value: 1, ...mark } });

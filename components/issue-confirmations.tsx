@@ -1,3 +1,4 @@
+import { EntrySummary } from "@/components/entry-summary";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { AddConfirmationDialog } from "@/components/add-confirmation-dialog";
@@ -138,7 +139,6 @@ export function IssueConfirmationsPanel({
   /** The issue is past Requires confirmation (its status says so). */
   confirmed: boolean;
 }) {
-  const reached = data.confirmations >= data.confirmationsNeeded;
   const mine = viewerId ? data.entries.find((entry) => entry.onBehalfOfUserId === viewerId) ?? null : null;
 
   return (
@@ -150,13 +150,6 @@ export function IssueConfirmationsPanel({
           <span className="font-mono font-normal normal-case tracking-normal">{data.entries.length}</span>
         </h3>
         <div className="flex items-center gap-2">
-          <span
-            data-testid="confirmation-count"
-            aria-label="Confirmations"
-            className={`rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ${reached ? "bg-zk-ok-bg text-zk-ok-fg" : "bg-zk-tint text-zk-accent"}`}
-          >
-            {confirmationsText(data.confirmations, data.confirmationsNeeded)}
-          </span>
           {history || block || !viewerId ? null : (
             <AddConfirmationDialog
               bugId={bugId}
@@ -215,7 +208,7 @@ export function IssueConfirmationsPanel({
                   · <LocalTime compact date={entry.updatedAt} />
                 </span>
               </p>
-              <p className="mb-0 mt-1 break-words text-[13px] leading-[1.5] text-zk-text">{entry.summary}</p>
+              <EntrySummary summary={entry.summary} description={entry.description} />
               {entry.verdict !== "neutral" && !entry.counted ? (
                 <p className="mb-0 mt-1 text-xs text-zk-muted" data-testid="confirmation-not-counted">
                   {entry.undone
@@ -223,13 +216,6 @@ export function IssueConfirmationsPanel({
                     : "Doesn't count: given before the latest edit, or not independent of this issue."}
                 </p>
               ) : null}
-              <details className="group mt-1">
-                <summary className="cursor-pointer list-none text-xs font-bold text-zk-accent hover:underline [&::-webkit-details-marker]:hidden">
-                  <span className="group-open:hidden">Show full description</span>
-                  <span className="hidden group-open:inline">Hide full description</span>
-                </summary>
-                <p className="mb-0 mt-1.5 whitespace-pre-line break-words text-[13px] leading-[1.5] text-zk-text2">{entry.description}</p>
-              </details>
               <EntryReplies replies={entry.replies} />
               {!history && viewerId && block !== "deleted" ? <EntryReplyForm bugId={bugId} target={{ confirmationId: entry.id }} label="Reply to this confirmation" /> : null}
             </li>

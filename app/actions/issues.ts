@@ -1446,7 +1446,7 @@ export type ToggleVoteResult = ActionResult & {
 
 /**
  * Toggles the current user's importance mark on an issue (#importance; once an
- * upvote). A person's click needs no reason. Rejects any direction other than
+ * upvote). Rejects any direction other than
  * 1 or -1, and -1 because downvotes are gone.
  */
 export async function toggleVoteAction(
@@ -1500,10 +1500,10 @@ export async function toggleVoteAction(
     if (nextVote === 0 && existing) {
       await tx.vote.delete({ where: { id: existing.id } });
     } else if (existing) {
-      // #importance: a person's click is a plain mark, with no agent reason.
+      // #importance: a person's own click; no agent made it.
       await tx.vote.update({
         where: { id: existing.id },
-        data: { value: nextVote, agentId: null, summary: null, description: null },
+        data: { value: nextVote, agentId: null },
       });
     } else {
       await tx.vote.create({

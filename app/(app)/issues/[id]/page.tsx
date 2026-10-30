@@ -40,7 +40,6 @@ import { ActivityTimeline, type ActivityEntry } from "@/components/activity-time
 import { type AgentDecision } from "@/components/issue-agent-activity";
 import { IssueProgressReport } from "@/components/issue-progress-report";
 import { IssueStageProvider } from "@/components/issue-stage-context";
-import { IssueStageSummary } from "@/components/issue-stage-summary";
 import { IssueComments } from "@/components/comment-thread";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
@@ -61,10 +60,6 @@ import { MergeReviewsPanel, TestVerdictsPanel, type MergeReviewView, type TestVe
 import { GoalBudgetSection } from "@/components/goal-budgets";
 import { Badge } from "@/components/ui/badge";
 import { VoteButton } from "@/components/vote-button";
-import { ImportanceReasons } from "@/components/importance-reasons";
-import { fetchImportanceReasons, type ImportanceReason } from "@/lib/importance-marks";
-import { type IdeaVerdictsData } from "@/components/idea-verdicts";
-import { listIdeaVerdicts } from "@/lib/agent-api/idea-verdicts";
 import { UpdateIssueForm } from "@/components/update-issue-form";
 import { IssueConfirmationsPanel, type ConfirmationBlock, type ConfirmationsData } from "@/components/issue-confirmations";
 import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-api/confirmations";
@@ -413,8 +408,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     : [[] as IssueHold[], [] as BidEntryView[]];
   const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
 
-  // #importance: started now, read after the batch below, so it runs alongside it.
-  const importanceReasonsLoad = loadOptional<ImportanceReason[]>("importance reasons", [], () => fetchImportanceReasons(bug.id));
   const [users, categories, areas, types, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
     await Promise.all([
       canTriage
@@ -654,7 +647,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           : Promise.resolve(null)),
       ),
     ]);
-  const importanceReasons = await importanceReasonsLoad;
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
@@ -691,13 +683,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       console.error("[bugs] issue stage lookup failed", error);
     }
   }
-  // #idea-table: the verdicts of the idea this issue was converted from, for the Idea stage.
+  // #idea-table: the idea this issue was converted from.
   const sourceIdea = bug.idea;
-  const ideaVerdicts: IdeaVerdictsData | null = sourceIdea
-    ? await loadOptional<IdeaVerdictsData | null>("idea verdicts", null, () =>
-        listIdeaVerdicts({ tenantId: bug.tenantId, projectId: bug.projectId }, sourceIdea.id),
-      )
-    : null;
   // #issue-confirmations: at Requires confirmation the issue takes confirmation
   // entries; afterwards they stay, read-only, under the comments.
   const confirming = !bug.isDeleted && bug.status === "requires_confirmation";
@@ -1003,7 +990,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             />
           </div>
         </div>
-        <ImportanceReasons reasons={importanceReasons} />
       </div>
 
       <div className="flex flex-wrap items-start gap-5">
@@ -1072,20 +1058,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 </div>
                 {/* Who has the issue, once it is past Requires confirmation: the agent it was awarded to, or Open. */}
                 {pastConfirmation ? <AwardBox holds={holds} open={bug.status === "open"} /> : null}
-                {/* #186: the picked stage's summary, in place of the Agent decisions card. */}
-                <IssueStageSummary
-                  decisions={agentDecisions}
-                  currentStage={currentStage}
-                  setback={stageSetback(currentStage, bug.reviewStatus)}
-                  pullRequestUrl={bug.pullRequestUrl}
-                  severity={bug.severity}
-                  ideaVerdicts={
-                    ideaVerdicts
-                      ? { score: ideaVerdicts.ideaScore, threshold: ideaVerdicts.ideaThreshold, votes: ideaVerdicts.votes }
-                      : undefined
-                  }
-                  confirmation={confirmation}
-                />
                 {confirming && confirmationsData ? (
                   <IssueConfirmationsPanel
                     bugId={bug.id}
