@@ -88,6 +88,11 @@ describe("the verdict rules", () => {
 });
 
 describe("giveIdeaVerdict", () => {
+  // An idea still short of the threshold (3), so a good verdict counts.
+  beforeEach(() => {
+    db.$queryRaw.mockResolvedValue([idea({ score: 0 })]);
+  });
+
   it("records the verdict on the idea, rescores it and pays the first point", async () => {
     const result = await giveIdeaVerdict(person, "p1", "7", input);
     expect(db.ideaVerdict.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -128,6 +133,34 @@ describe("giveIdeaVerdict", () => {
     db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 5 }]);
     const manager = { ...person, agent: { id: "a-dana", level: "manager" as const } };
     await expect(giveIdeaVerdict(manager, "p1", "i1", { ...input, votes: 5 })).resolves.toMatchObject({ ideaScore: 5, convertible: true });
+  });
+
+  it("refuses another good verdict once the idea reached the threshold, and pays nothing (#727)", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ score: 3 })]);
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({
+      status: 409,
+      body: { error: "enough_verdicts", ideaScore: 3, ideaThreshold: 3 },
+    });
+    // A bad verdict on the way in doesn't turn it into a good one either.
+    db.ideaVerdict.findUnique.mockResolvedValue({ id: "v1", opinion: "bad" });
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "enough_verdicts" } });
+    expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it("still takes a bad verdict at the threshold, so a late problem can stop the idea (#727)", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ score: 3 })]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 3 }, { opinion: "bad", votes: 1 }]);
+    const result = await giveIdeaVerdict(person, "p1", "i1", { ...input, opinion: "bad" });
+    expect(result).toMatchObject({ ideaScore: 2, convertible: false });
+    expect(db.ideaVerdict.upsert).toHaveBeenCalled();
+  });
+
+  it("lets a person rewrite their own good verdict at the threshold (#727)", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ score: 3 })]);
+    db.ideaVerdict.findUnique.mockResolvedValue({ id: "v1", opinion: "good" });
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 3 }]);
+    await expect(giveIdeaVerdict(person, "p1", "i1", input)).resolves.toMatchObject({ replaced: true, ideaScore: 3 });
   });
 
   it("refuses more votes than the giver may give", async () => {

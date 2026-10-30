@@ -159,7 +159,7 @@ type IdeaFacts = ReviewedBug & {
 export type ProjectWork = {
   tenantId: string;
   project: { id: string; slug: string; name: string };
-  /** Open ideas, with their verdict score. */
+  /** Open ideas still short of the threshold, with their verdict score (#727). */
   ideas: (IssueRef & { score: number })[];
   /** Open ideas at or past the project's threshold, waiting for a manager agent to convert them. */
   toConvert: (IssueRef & { score: number })[];
@@ -232,14 +232,14 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   // One read decides every converted issue's stage: which still require
   // confirmation, and for what, and which are ready (#714).
   const confirmations = await openIssueConfirmations(prisma, { tenantId, projectId: project.id });
-  const [tests, ready, toAccept, toMerge, ideas, jobs, workflow] = await Promise.all([
+  const workflow = await workflowFor(project.id);
+  const [tests, ready, toAccept, toMerge, ideas, jobs] = await Promise.all([
     findReviewableIssues(caller, project.id, "test", PER_KIND_LIMIT),
     findClaimableIssues(caller, project.id, PER_KIND_LIMIT, confirmations),
     findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "done"),
     findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "ready_to_merge"),
-    openIdeas(tenantId, project.id),
+    openIdeas(tenantId, project.id, workflow.ideaThreshold),
     openJobs(tenantId, project.id),
-    workflowFor(project.id),
   ]);
 
   // Issues that require confirmation: the reviews they still lack, oldest first.
@@ -291,10 +291,14 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   };
 }
 
-/** Open ideas, highest score first so the ones nearest conversion lead. */
-async function openIdeas(tenantId: string, projectId: string): Promise<ProjectWork["ideas"]> {
+/**
+ * Open ideas still short of the threshold, highest score first so the ones
+ * nearest conversion lead. An idea at the threshold has its verdicts (#727):
+ * it waits in `toConvert` for a manager instead.
+ */
+async function openIdeas(tenantId: string, projectId: string, threshold: number): Promise<ProjectWork["ideas"]> {
   return prisma.idea.findMany({
-    where: { tenantId, projectId, isDeleted: false, status: "open" },
+    where: { tenantId, projectId, isDeleted: false, status: "open", score: { lt: threshold } },
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
     take: PER_KIND_LIMIT,
     select: { id: true, number: true, title: true, score: true },
@@ -659,6 +663,8 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   // 2. Ideas waiting for a verdict. Each person gives one, and earns once per idea.
   const maxVotes = can("manager") ? MAX_IDEA_VOTES : 1;
   for (const idea of work.ideas) {
+    // #727: an idea at the threshold has the verdicts it needs; it waits for a manager to convert it.
+    if (idea.score >= work.ideaThreshold) continue;
     if (!independentOfIdea(idea.id)) continue;
     if (work.ideaFacts.get(idea.id)?.verdictOwners.includes(owner)) continue;
     items.push({

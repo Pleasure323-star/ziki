@@ -138,7 +138,7 @@ export type SubmitTestVerdictResult =
   | { status: 400; error: "invalid_request"; message: string; field?: string }
   | { status: 403; error: "insufficient_level" | "fixer_cannot_verdict" | "not_independent"; message: string }
   | { status: 404; error: "not_found"; message: string }
-  | { status: 409; error: "not_delivered" | "already_verdicted"; message: string }
+  | { status: 409; error: "not_delivered" | "already_verdicted" | "enough_verdicts"; message: string }
   /** "Good to merge" was not recorded because the pull request isn't ready (#255). */
   | {
       status: 409;
@@ -226,6 +226,21 @@ export async function submitTestVerdict(
       error: "not_independent",
       message: "onBehalfOfUserId must be independent of the issue's reporter, solver, and claim beneficiary.",
     };
+  }
+
+  // #727: a Done issue already has the good judgements it needs. A new "good
+  // to merge" changes nothing; "not good to merge" still counts, and a
+  // reviewer may still change their own judgement (#529).
+  if (body.goodToMerge && bug.status === "done") {
+    const own = await prisma.testVerdict.findFirst({ where: { bugId: bug.id, agentId: agent.agentId }, select: { id: true } });
+    if (!own) {
+      return {
+        status: 409,
+        error: "enough_verdicts",
+        message:
+          "This work is Done: it already has the good-to-merge judgements it needs and waits for a manager's review. Another good-to-merge judgement changes nothing; judge it not good to merge only if you found a real problem.",
+      };
+    }
   }
 
   // A tester only says "good to merge" about a pull request that is ready.
