@@ -81,6 +81,11 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive("/bugs/abc123", "/issues")).toBe(true);
   });
 
+  it("keeps Product active on an idea, which opens from the Inbox (#idea-table)", () => {
+    expect(isNavItemActive("/ideas/12", "/issues")).toBe(true);
+    expect(isNavItemActive("/ideas/12", "/marketing")).toBe(false);
+  });
+
   it("matches admin pages by prefix only on a path boundary", () => {
     expect(isNavItemActive("/admin/types", "/admin/types")).toBe(true);
     expect(isNavItemActive("/admin/types/x", "/admin/types")).toBe(true);

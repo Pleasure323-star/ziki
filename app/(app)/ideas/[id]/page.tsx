@@ -13,6 +13,9 @@ import { LocalTime } from "@/components/local-time";
 
 export const metadata: Metadata = { title: "Idea" };
 
+/** The Inbox's New ideas list, where ideas are opened from. */
+const NEW_IDEAS_HREF = "/issues?inbox=ideas";
+
 type LegacyComment = { authorId: string; body: string; createdAt: string };
 
 function legacyComments(value: unknown): LegacyComment[] {
@@ -80,14 +83,24 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
     : new Map<string, string | null>();
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-6">
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-2 text-sm">
-        <Link href="/issues?status=ideas" className="text-zk-text2 hover:text-zk-text">Ideas</Link>
-        <span className="text-zk-muted" aria-hidden="true">›</span>
-        <span aria-current="page" className="font-mono text-zk-text">Idea #{idea.number}</span>
-      </nav>
-
-      <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">
+    <div className="flex flex-col gap-5 pb-10">
+      {/* Header like an issue's: back to the Inbox's New ideas, number + title. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start gap-2">
+          <Link
+            href={NEW_IDEAS_HREF}
+            aria-label="Back to ideas"
+            title="Back to ideas"
+            className="mt-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zk-accent hover:bg-zk-chip print:hidden"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </Link>
+          <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
+            <span className="font-bold tabular-nums text-zk-muted">Idea #{idea.number}</span> {idea.title}
+          </h1>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <span data-testid="idea-status" className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${chip.className}`}>{chip.label}</span>
           {idea.issue ? (
@@ -95,16 +108,19 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
               Issue #{idea.issue.number}
             </Link>
           ) : null}
+          <span className="text-[13px] text-zk-muted">
+            {idea.reporter.name ?? "Someone"}
+            {idea.createdByAgent ? ` via ${idea.createdByAgent.name}` : ""} · <LocalTime date={idea.createdAt} />
+            {idea.type ? ` · ${idea.type.name}` : ""}
+            {idea.category ? ` · ${idea.category.name}` : ""}
+            {idea.area ? ` · ${idea.area.name}` : ""}
+          </span>
         </div>
-        <h1 className="mt-2 text-xl font-bold text-zk-text">{idea.title}</h1>
-        <p className="mt-1 text-[13px] text-zk-muted">
-          {idea.reporter.name ?? "Someone"}
-          {idea.createdByAgent ? ` via ${idea.createdByAgent.name}` : ""} · <LocalTime date={idea.createdAt} />
-          {idea.type ? ` · ${idea.type.name}` : ""}
-          {idea.category ? ` · ${idea.category.name}` : ""}
-          {idea.area ? ` · ${idea.area.name}` : ""}
-        </p>
-        <RichText content={idea.description} className="mt-4 text-sm text-zk-text" />
+      </div>
+
+      <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">
+        <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Description</h2>
+        <RichText content={idea.description} className="mt-3 text-sm text-zk-text" />
       </section>
 
       {idea.attachments.length > 0 ? (
