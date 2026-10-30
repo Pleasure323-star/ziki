@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, Severity, Status } from "@prisma/client";
+import type { Prisma, PrismaClient, Status } from "@prisma/client";
 import { award, type PointAward } from "./award";
 import { getProjectRewardConfig } from "./platform-rewards";
 import {
@@ -27,7 +27,6 @@ export type HistoricalBug = {
   id: string;
   tenantId: string;
   status: Status;
-  severity: Severity;
   assigneeId: string | null;
   reporterId: string;
   beneficiaryUserId?: string | null;
@@ -64,7 +63,7 @@ export function backfillEntries(
       userId: bug.assigneeId,
       bugId: bug.id,
       role: "solver",
-      points: calculateSolverPoints(bug.severity, rewardConfig),
+      points: calculateSolverPoints(rewardConfig),
       sourceKey: pointSourceKey("solver", bug.id, bug.assigneeId),
     });
   }
@@ -133,7 +132,6 @@ export async function backfillPoints(db: Db, options: BackfillOptions = {}): Pro
         id: true,
         tenantId: true,
         status: true,
-        severity: true,
         assigneeId: true,
         reporterId: true,
         beneficiaryUserId: true,

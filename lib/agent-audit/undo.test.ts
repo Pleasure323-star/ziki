@@ -39,8 +39,6 @@ const baseEvent = (overrides: Record<string, unknown> = {}) => ({
   payload: {
     confirmationId: "val-1",
     confirmed: true,
-    severity: "high",
-    previousSeverity: "medium",
   },
   undoneAt: null,
   agent: { ownerUserId: "user-agent-owner" },
@@ -94,7 +92,7 @@ describe("undoAuditEvent (#450)", () => {
     expect(correct).not.toHaveBeenCalled();
   });
 
-  it("marks the confirmation undone and restores the severity it set (#issue-confirmations)", async () => {
+  it("marks the confirmation undone and changes nothing else on a confirmed issue (#issue-confirmations)", async () => {
     db.bug.findUnique.mockResolvedValue({
       id: "bug-1",
       tenantId,
@@ -105,8 +103,6 @@ describe("undoAuditEvent (#450)", () => {
       id: "val-1",
       bugId: "bug-1",
       verdict: "confirm",
-      severity: "high",
-      previousSeverity: "medium",
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });
@@ -118,10 +114,7 @@ describe("undoAuditEvent (#450)", () => {
     });
 
     expect(db.issueConfirmation.update).toHaveBeenCalledWith({ where: { id: "val-1" }, data: { undoneAt: expect.any(Date) } });
-    expect(db.bug.update).toHaveBeenCalledWith({
-      where: { id: "bug-1" },
-      data: { severity: "medium" },
-    });
+    expect(db.bug.update).not.toHaveBeenCalled();
   });
 
   it("leaves an entry given again since the audited one alone", async () => {
@@ -132,8 +125,6 @@ describe("undoAuditEvent (#450)", () => {
       id: "val-1",
       bugId: "bug-1",
       verdict: "confirm",
-      severity: "high",
-      previousSeverity: "medium",
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });
@@ -151,8 +142,6 @@ describe("undoAuditEvent (#450)", () => {
       id: "val-1",
       bugId: "bug-1",
       verdict: "confirm",
-      severity: null,
-      previousSeverity: null,
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });
@@ -174,8 +163,6 @@ describe("undoAuditEvent (#450)", () => {
       id: "val-1",
       bugId: "bug-1",
       verdict: "confirm",
-      severity: "high",
-      previousSeverity: "medium",
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });
@@ -212,8 +199,6 @@ describe("undoAuditEvent (#450)", () => {
       id: "val-1",
       bugId: "bug-1",
       verdict: "reject",
-      severity: null,
-      previousSeverity: null,
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });

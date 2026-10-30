@@ -52,13 +52,12 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
       expect(screen.getByRole("button", { name: "Add rule" })).toBeInTheDocument();
     });
 
-    it("renders existing rules with stage, type, severity, and file glob", () => {
+    it("renders existing rules with stage, type and file glob, and no severity", () => {
       const rules = [
         {
           id: "rule-1",
           stage: "before_merge",
           issueTypeId: "type-1",
-          severity: "high",
           fileGlob: "app/(app)/billing/**",
           issueType: { id: "type-1", name: "Design" },
         },
@@ -66,7 +65,6 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
           id: "rule-2",
           stage: "before_offer",
           issueTypeId: null,
-          severity: null,
           fileGlob: null,
           issueType: null,
         },
@@ -83,7 +81,7 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
 
       expect(screen.getAllByText("Before merge").length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText("Design").length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText(/Severity: high/)).toBeInTheDocument();
+      expect(screen.queryByText(/Severity/i)).not.toBeInTheDocument();
       expect(screen.getByText("Files: app/(app)/billing/**")).toBeInTheDocument();
 
       expect(screen.getAllByText("Before offer").length).toBeGreaterThanOrEqual(1);
@@ -102,7 +100,6 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
       formData.set("slug", "web");
       formData.set("stage", "before_merge");
       formData.set("issueTypeId", "type-design");
-      formData.set("severity", "critical");
       formData.set("fileGlob", "app/(app)/billing/**");
 
       await createApprovalRuleAction(formData);
@@ -114,7 +111,6 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
         {
           stage: "before_merge",
           issueTypeId: "type-design",
-          severity: "critical",
           fileGlob: "app/(app)/billing/**",
         },
       );

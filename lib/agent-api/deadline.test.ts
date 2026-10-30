@@ -30,7 +30,7 @@ const claim = {
   id: "claim",
   deliverBy: new Date("2026-10-19T12:15:00.000Z"),
   extendedAt: null,
-  bug: { severity: "medium", projectId: "project", pullRequestUrl: null },
+  bug: { projectId: "project", pullRequestUrl: null },
 };
 
 beforeEach(() => {
@@ -84,11 +84,10 @@ describe("claim extension (#593)", () => {
     expect(result.deliverBy).toEqual(new Date("2026-10-19T12:45:00.000Z"));
   });
 
-  it("uses the high-priority window even when the project asks for less", async () => {
-    db.issueClaim.findFirst.mockResolvedValue({ ...claim, bug: { ...claim.bug, severity: "high" } });
+  it("takes a short project window as given, with no floor for any issue", async () => {
     db.projectWorkflow.findUnique.mockResolvedValue({ deliveryMinutes: 15 });
     const result = await extendClaim(agent, "project", "issue", "still testing");
-    expect(result.deliverBy).toEqual(new Date("2026-10-19T13:15:00.000Z"));
+    expect(result.deliverBy).toEqual(new Date("2026-10-19T12:30:00.000Z"));
   });
 
   it("refuses a second extension", async () => {

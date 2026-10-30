@@ -10,7 +10,6 @@ import {
   deletedSummary,
   editedSummary,
   restoredSummary,
-  severityChangedSummary,
   statusChangedSummary,
   typeChangedSummary,
   unboostedSummary,
@@ -27,12 +26,9 @@ describe("activity summary helpers", () => {
     expect(summarized).not.toContain(long);
   });
 
-  it("summarizes status and severity changes", () => {
+  it("summarizes status changes", () => {
     expect(statusChangedSummary("open", "resolved")).toBe(
       "changed status from Open to Live",
-    );
-    expect(severityChangedSummary("low", "critical")).toBe(
-      "changed severity from Low to Critical",
     );
   });
 
@@ -95,8 +91,8 @@ describe("activity summary helpers", () => {
     expect(editedSummary(["title", "description"])).toBe(
       "edited title and description",
     );
-    expect(editedSummary(["title", "description", "severity"])).toBe(
-      "edited title, description, and severity",
+    expect(editedSummary(["title", "description", "type"])).toBe(
+      "edited title, description, and type",
     );
   });
 

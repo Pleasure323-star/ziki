@@ -22,7 +22,6 @@ export type DashboardData = {
   medianResolutionSeconds: number | null;
   byPlatform: Breakdown[];
   byType: Breakdown[];
-  bySeverity: Breakdown[];
   totalOpened: number;
   totalClosed: number;
 };
@@ -50,7 +49,7 @@ const FIRST_CLOSE = Prisma.sql`
 export async function fetchDashboard(range: DateRange): Promise<DashboardData> {
   const { from, to } = range;
 
-  const [byStatus, weekly, medians, byPlatform, byType, bySeverity] =
+  const [byStatus, weekly, medians, byPlatform, byType] =
     await Promise.all([
       prisma.$queryRaw<{ status: string; count: bigint }[]>`
         SELECT b.status::text AS status, COUNT(*) AS count
@@ -143,18 +142,6 @@ export async function fetchDashboard(range: DateRange): Promise<DashboardData> {
         GROUP BY 1
         ORDER BY count DESC, label
       `,
-
-      prisma.$queryRaw<{ label: string; count: bigint }[]>`
-        SELECT b.severity::text AS label, COUNT(*) AS count
-        FROM "Bug" b
-        WHERE b."isDeleted" = false
-          AND b."createdAt" >= ${from} AND b."createdAt" < ${to}
-        -- Group by the enum itself, not the cast, so it can also be ordered
-        -- by. Postgres sorts an enum by declaration order, which here is
-        -- low, medium, high, critical — so DESC is most severe first.
-        GROUP BY b.severity
-        ORDER BY b.severity DESC
-      `,
     ]);
 
   const weeklyPoints: WeekPoint[] = weekly.map((row) => ({
@@ -170,7 +157,6 @@ export async function fetchDashboard(range: DateRange): Promise<DashboardData> {
     medianResolutionSeconds: maybeNum(medians[0]?.resolution),
     byPlatform: byPlatform.map((r) => ({ label: r.label, count: num(r.count) })),
     byType: byType.map((r) => ({ label: r.label, count: num(r.count) })),
-    bySeverity: bySeverity.map((r) => ({ label: r.label, count: num(r.count) })),
     totalOpened: weeklyPoints.reduce((sum, w) => sum + w.opened, 0),
     totalClosed: weeklyPoints.reduce((sum, w) => sum + w.closed, 0),
   };

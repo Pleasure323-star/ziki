@@ -10,7 +10,6 @@ export type IssueApprovalView = {
   status: string;
   rule?: {
     issueType?: { name: string } | null;
-    severity?: string | null;
     fileGlob?: string | null;
   } | null;
 };
@@ -58,9 +57,6 @@ export function IssueApprovalBanner({
   const ruleReasons: string[] = [];
   if (approval.rule?.issueType?.name) {
     ruleReasons.push(`type: ${approval.rule.issueType.name}`);
-  }
-  if (approval.rule?.severity) {
-    ruleReasons.push(`severity: ${approval.rule.severity}`);
   }
   if (approval.rule?.fileGlob) {
     ruleReasons.push(`files matching: ${approval.rule.fileGlob}`);

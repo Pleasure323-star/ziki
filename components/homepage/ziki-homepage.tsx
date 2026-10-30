@@ -508,9 +508,9 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   <tbody className="divide-y divide-slate-100 font-mono text-xs">
                     <tr className="hover:bg-slate-50/50">
                       <td className="px-6 py-3.5 font-sans font-medium text-slate-900">Solver</td>
-                      <td className="px-6 py-3.5 font-bold text-teal-700">450 / 750 / 1200 / 1800</td>
+                      <td className="px-6 py-3.5 font-bold text-teal-700">+750 pts</td>
                       <td className="px-6 py-3.5 text-slate-500">solver:&#123;bugId&#125;:&#123;userId&#125;</td>
-                      <td className="px-6 py-3.5 font-sans text-slate-600">Assigned issue marked resolved, by severity</td>
+                      <td className="px-6 py-3.5 font-sans text-slate-600">Assigned issue marked resolved</td>
                     </tr>
                     <tr className="hover:bg-slate-50/50">
                       <td className="px-6 py-3.5 font-sans font-medium text-slate-900">Reporter</td>

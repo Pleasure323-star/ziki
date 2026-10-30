@@ -192,8 +192,8 @@ describe("createIdeaWithPolicy: similar issues (#441)", () => {
 });
 
 describe("createIdeaWithPolicy: fields (#441)", () => {
-  it("ignores a client-supplied severity: ideas have none", async () => {
-    await createIdeaWithPolicy(input({ severity: "critical" }));
+  it("inserts no type when none is given", async () => {
+    await createIdeaWithPolicy(input({}));
     expect(insert.mock.calls[0][1]).toEqual({ typeId: null });
   });
 

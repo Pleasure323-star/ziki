@@ -66,7 +66,6 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     title: "A fix",
     assigneeId: "ada",
     project: { githubInstallationId: "app-1" },
-    severity: "medium",
     beneficiaryUserId: "ada",
     createdByAgentId: null,
     createdByAgent: null,

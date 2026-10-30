@@ -10,7 +10,6 @@ export type ClaimableIssue = {
   title: string;
   projectId: string;
   voteCount: number;
-  severity: string;
   createdAt: Date;
 };
 
@@ -56,7 +55,6 @@ export async function findClaimableIssues(
       title: true,
       projectId: true,
       voteCount: true,
-      severity: true,
       createdAt: true,
     },
   });

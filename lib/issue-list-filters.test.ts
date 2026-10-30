@@ -38,11 +38,14 @@ describe("parseBugListFilters", () => {
     expect(asAdmin.isDeletedView).toBe(true);
   });
 
-  it("applies status and severity only when they are real values", () => {
+  it("applies status only when it is a real value", () => {
     expect(parse({ status: "open" }).where.status).toBe("open");
-    expect(parse({ severity: "critical" }).where.severity).toBe("critical");
     expect(parse({ status: "sideways" }).where.status).toBeUndefined();
-    expect(parse({ severity: "spicy" }).where.severity).toBeUndefined();
+  });
+
+  it("has no severity filter: a severity param changes nothing", () => {
+    expect(parse({ severity: "critical" })).toEqual(parse({}));
+    expect(parse({ severity: "critical" }).where).not.toHaveProperty("severity");
   });
 
   it("filters every pipeline step by the one status", () => {
@@ -125,11 +128,10 @@ describe("parseBugListFilters", () => {
   });
 
   it("combines filters rather than letting the last one win", () => {
-    const where = parse({ status: "open", severity: "high", mine: "reported" }).where;
+    const where = parse({ status: "open", mine: "reported", q: "login" }).where;
     expect(where).toMatchObject({
       isDeleted: false,
       status: "open",
-      severity: "high",
       reporterId: "u1",
     });
   });

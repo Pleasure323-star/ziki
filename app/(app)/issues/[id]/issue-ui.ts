@@ -1,4 +1,4 @@
-import type { Severity, Status } from "@prisma/client";
+import type { Status } from "@prisma/client";
 
 /** Shared card shell for the issue detail redesign. */
 export const issueCardClass =
@@ -23,13 +23,6 @@ export const issueStatusChipClass: Record<Status, string> = {
   ready_to_merge: "bg-zk-ok-bg text-zk-ok-fg",
   resolved: "bg-zk-ok-bg text-zk-ok-fg",
   closed: "bg-zk-chip text-zk-text2",
-};
-
-export const issueSeverityChipClass: Record<Severity, string> = {
-  low: "bg-zk-chip text-zk-text2",
-  medium: "border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg",
-  high: "bg-zk-bad-bg text-zk-bad-fg",
-  critical: "border border-zk-bad-bd bg-zk-bad-bg text-zk-bad-fg",
 };
 
 export const issueChipBaseClass =

@@ -1,11 +1,4 @@
-import type { Severity, Status } from "@prisma/client";
-
-export const severityLabel: Record<Severity, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  critical: "Critical",
-};
+import type { Status } from "@prisma/client";
 
 export const statusLabel: Record<Status, string> = {
   requires_confirmation: "Requires confirmation",
@@ -18,15 +11,7 @@ export const statusLabel: Record<Status, string> = {
   closed: "Closed",
 };
 
-export const severityLabels = severityLabel;
 export const statusLabels = statusLabel;
-
-export const severityClass: Record<Severity, string> = {
-  low: "bg-slate-100 text-slate-800",
-  medium: "bg-amber-100 text-amber-950",
-  high: "bg-orange-100 text-orange-950",
-  critical: "bg-red-100 text-red-950",
-};
 
 export const statusClass: Record<Status, string> = {
   requires_confirmation: "bg-amber-100 text-amber-950",

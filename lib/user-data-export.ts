@@ -18,7 +18,6 @@ export type UserExportData = {
     title: string;
     description: string;
     status: string;
-    severity: string;
     createdAt: Date;
     updatedAt: Date;
     tenantId: string;
@@ -85,7 +84,6 @@ export async function exportUserData(
         title: true,
         description: true,
         status: true,
-        severity: true,
         createdAt: true,
         updatedAt: true,
         tenantId: true,

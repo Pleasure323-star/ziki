@@ -10,7 +10,7 @@ import { currentTenantAccess } from "@/lib/tenant-access";
 import { getBugOrderBy } from "@/lib/issues-sort";
 import { parseBugListFilters, type RawParams } from "@/lib/issue-list-filters";
 import { CSV_EOL, csvRow } from "@/lib/csv";
-import { severityLabel, statusLabel } from "@/lib/labels";
+import { statusLabel } from "@/lib/labels";
 
 /**
  * Hard ceiling on one export. Without it a single click can walk the whole
@@ -26,7 +26,6 @@ const COLUMNS = [
   "id",
   "title",
   "status",
-  "severity",
   "type",
   "platform",
   "area",
@@ -122,7 +121,6 @@ export async function GET(request: NextRequest) {
             id: true,
             title: true,
             status: true,
-            severity: true,
             voteCount: true,
             isBoosted: true,
             createdAt: true,
@@ -137,13 +135,12 @@ export async function GET(request: NextRequest) {
 
         batch.forEach((bug, i) => {
           if (json) {
-            // Raw status and severity values, which code can match on; the
+            // Raw status values, which code can match on; the
             // CSV keeps the labels people read in a spreadsheet.
             const issue: Record<(typeof COLUMNS)[number], unknown> = {
               id: bug.id,
               title: bug.title,
               status: bug.status,
-              severity: bug.severity,
               type: bug.type?.name ?? null,
               platform: bug.category?.name ?? null,
               area: bug.area?.name ?? null,
@@ -164,7 +161,6 @@ export async function GET(request: NextRequest) {
                 bug.id,
                 bug.title,
                 statusLabel[bug.status],
-                severityLabel[bug.severity],
                 bug.type?.name,
                 bug.category?.name,
                 bug.area?.name,

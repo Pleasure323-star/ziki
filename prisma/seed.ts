@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, Severity, Status } from "@prisma/client";
+import { Prisma, PrismaClient, Status } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -152,7 +152,6 @@ async function seedDemoData() {
   const samples: Array<{
     title: string;
     description: string;
-    severity: Severity;
     status: Status;
     reporterId: string;
     assigneeId?: string;
@@ -162,7 +161,6 @@ async function seedDemoData() {
       title: "Login button unresponsive on mobile Safari",
       description:
         "Tapping Sign in on iPhone 14 (iOS 18) does nothing. Console shows no network request. Repro: clear site data, open /login, enter credentials, tap button. Proof: first link is the frozen button; second is a screen recording of the tap.",
-      severity: "high",
       status: "open",
       reporterId: cara.id,
       assigneeId: bob.id,
@@ -175,7 +173,6 @@ async function seedDemoData() {
       title: "Bug list filter resets after navigation",
       description:
         "Selecting status=in_progress then opening a bug and going back loses the filter. Expected: preserve query params.",
-      severity: "medium",
       status: "in_progress",
       reporterId: alice.id,
       assigneeId: alice.id,
@@ -184,7 +181,6 @@ async function seedDemoData() {
       title: "Critical: seed script wipes production",
       description:
         "Running pnpm db:seed against a non-local DATABASE_URL deletes all rows. Add an environment guard before deleteMany. Screenshot shows wipe on staging.",
-      severity: "critical",
       status: "open",
       reporterId: bob.id,
       proofLinks: ["https://example.com/proof/seed-wipe-staging.png"],
@@ -193,7 +189,6 @@ async function seedDemoData() {
       title: "Comment timestamps show UTC only",
       description:
         "Detail page renders createdAt without local timezone. Prefer relative time or locale formatting.",
-      severity: "low",
       status: "resolved",
       reporterId: cara.id,
       assigneeId: alice.id,
@@ -202,7 +197,6 @@ async function seedDemoData() {
       title: "Assignee dropdown missing empty option",
       description:
         "Cannot unassign a bug once assigned. Need an Unassigned option that sets assigneeId null.",
-      severity: "medium",
       status: "open",
       reporterId: bob.id,
       assigneeId: cara.id,
@@ -211,16 +205,14 @@ async function seedDemoData() {
       title: "Empty state copy too vague",
       description:
         "When filters match nothing, show Clear filters CTA instead of a blank panel.",
-      severity: "low",
       status: "closed",
       reporterId: alice.id,
       assigneeId: bob.id,
     },
     {
-      title: "Severity badge contrast fails WCAG AA",
+      title: "Status badge contrast fails WCAG AA",
       description:
-        "Yellow medium badge on white background is ~2.8:1. Darken text or badge background. Link shows contrast check.",
-      severity: "medium",
+        "Yellow status badge on white background is ~2.8:1. Darken text or badge background. Link shows contrast check.",
       status: "in_progress",
       reporterId: cara.id,
       assigneeId: bob.id,
@@ -230,7 +222,6 @@ async function seedDemoData() {
       title: "Create bug allows blank description via spaces",
       description:
         "Trimming is missing on the server for description-only-whitespace. Zod trim should reject it.",
-      severity: "high",
       status: "open",
       reporterId: alice.id,
     },

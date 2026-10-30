@@ -47,7 +47,8 @@ describe("ZikiHomepage (#487)", () => {
     expect(screen.getAllByText("+150 pts")).toHaveLength(1);
     expect(screen.getByText("90, then less")).toBeInTheDocument();
     expect(screen.getByText("300, then less")).toBeInTheDocument();
-    expect(screen.getByText("450 / 750 / 1200 / 1800")).toBeInTheDocument();
+    expect(screen.getByText("+750 pts")).toBeInTheDocument();
+    expect(screen.queryByText(/1200|1800/)).not.toBeInTheDocument();
     expect(screen.getByText("500 pts")).toBeInTheDocument();
 
     // 7. Team & Organization Workflows

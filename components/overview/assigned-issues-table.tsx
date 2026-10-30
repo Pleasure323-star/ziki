@@ -1,17 +1,16 @@
 import Link from "next/link";
-import type { Severity, Status } from "@prisma/client";
+import type { Status } from "@prisma/client";
 import { OverviewVote } from "@/components/overview/overview-vote";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { issuePath } from "@/lib/issue-ref";
 import { formatTimeAgo } from "@/lib/format";
 import { issueStageLabels, type IssueStage } from "@/lib/issue-stage";
-import { severityLabel, statusLabels } from "@/lib/labels";
+import { statusLabels } from "@/lib/labels";
 
 export type OverviewAssignedIssue = {
   id: string;
   number: number;
   title: string;
-  severity: Severity;
   status: Status;
   voteCount: number;
   /** An idea's net verdict score; null once it is an issue (#idea-verdicts). */
@@ -22,36 +21,6 @@ export type OverviewAssignedIssue = {
   createdAt: string;
   stage: IssueStage | null;
 };
-
-function priorityTone(severity: Severity): {
-  bg: string;
-  fg: string;
-  bd: string;
-  label: string;
-} {
-  if (severity === "high" || severity === "critical") {
-    return {
-      bg: "bg-zk-bad-bg",
-      fg: "text-zk-bad-fg",
-      bd: "border-zk-bad-bd",
-      label: severity === "critical" ? "Critical" : "High",
-    };
-  }
-  if (severity === "medium") {
-    return {
-      bg: "bg-zk-warn-bg",
-      fg: "text-zk-warn-fg",
-      bd: "border-zk-warn-bd",
-      label: "Medium",
-    };
-  }
-  return {
-    bg: "bg-zk-chip",
-    fg: "text-zk-text2",
-    bd: "border-transparent",
-    label: severityLabel[severity],
-  };
-}
 
 function stageTone(stage: IssueStage | null): { bg: string; fg: string; label: string } | null {
   if (!stage) return null;
@@ -96,7 +65,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
       </div>
 
       <div className="overflow-x-auto">
-        <div className="min-w-[860px]">
+        <div className="min-w-[760px]">
           <div
             className="flex items-center gap-4 rounded-full bg-zk-tint px-4 py-3.5 text-xs font-bold uppercase tracking-[0.05em] text-zk-accent"
             role="row"
@@ -104,7 +73,6 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
             <abbr className="w-[52px] no-underline" title="Importance">Imp.</abbr>
             <span className="min-w-0 flex-1">Issue</span>
             <span className="w-[92px]">Type</span>
-            <span className="w-24">Priority</span>
             <span className="w-[76px]">Status</span>
             <span className="w-[104px]">Stage</span>
             <span className="w-[84px]">Reported</span>
@@ -118,7 +86,6 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
           ) : (
             <ul>
               {issues.map((issue, index) => {
-                const priority = priorityTone(issue.severity);
                 const stage = stageTone(issue.stage);
                 const statusOpen =
                   issue.status === "open" || issue.status === "in_progress";
@@ -195,13 +162,6 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
                     </Link>
                     <span className="w-[92px] shrink-0 text-[13px] text-zk-text2">
                       {issue.typeName ?? "—"}
-                    </span>
-                    <span className="w-24 shrink-0">
-                      <span
-                        className={`inline-block rounded-full border px-2.5 py-0.5 text-xs font-bold ${priority.bg} ${priority.fg} ${priority.bd}`}
-                      >
-                        {priority.label}
-                      </span>
                     </span>
                     <span className="w-[76px] shrink-0">
                       <span

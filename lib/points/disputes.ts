@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, DisputeStatus, Severity } from "@prisma/client";
+import type { Prisma, PrismaClient, DisputeStatus } from "@prisma/client";
 import { z } from "zod";
 import { award, type PointAward } from "./award";
 import { getProjectRewardConfig } from "./platform-rewards";
@@ -62,7 +62,6 @@ export type DisputableBug = {
   tenantId: string;
   reporterId: string;
   assigneeId: string | null;
-  severity: Severity;
   projectId?: string | null;
 };
 
@@ -80,7 +79,7 @@ export type GrantResult = { ok: true; awarded: boolean } | { ok: false; error: s
 
 /** The canonical entry for the award a "missing" dispute asks for; null when there is nobody to award. */
 export function missingAwardEntry(
-  bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "severity">,
+  bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId">,
   role: DisputeRole,
   rewardConfig?: ProjectRewardConfig | null,
 ): PointAward | null {
@@ -100,7 +99,7 @@ export function missingAwardEntry(
     userId: bug.assigneeId,
     bugId: bug.id,
     role: "solver",
-    points: calculateSolverPoints(bug.severity, rewardConfig),
+    points: calculateSolverPoints(rewardConfig),
     sourceKey: pointSourceKey("solver", bug.id, bug.assigneeId),
   };
 }
@@ -163,7 +162,7 @@ export async function grantMissingAward(
   db: Db,
   args: {
     dispute: DisputeRow;
-    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "severity" | "projectId">;
+    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "projectId">;
     role: DisputeRole;
     resolvedById: string;
   },
@@ -445,7 +444,6 @@ export async function creditMissingAwards(
       tenantId: true,
       reporterId: true,
       assigneeId: true,
-      severity: true,
       status: true,
       isDeleted: true,
       duplicateOfId: true,

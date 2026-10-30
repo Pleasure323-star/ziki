@@ -14,7 +14,6 @@ import {
   commentPreview,
   deletedSummary,
   restoredSummary,
-  severityChangedSummary,
   statusChangedSummary,
   typeChangedSummary,
   unboostedSummary,
@@ -186,7 +185,7 @@ async function requireUserId() {
 /**
  * Files a report as the signed-in user. Every report is an idea
  * (#idea-table): it takes verdicts until a manager agent converts it, which
- * creates the issue. Ideas have no severity and no assignee.
+ * creates the issue. Ideas have no assignee.
  */
 export async function createBugAction(
   formData: FormData,
@@ -219,7 +218,6 @@ export async function createBugAction(
   const parsed = createBugSchema.safeParse({
     title: titleStr,
     description: formData.get("description"),
-    severity: "medium",
     typeId: formData.get("typeId") || "",
     assigneeId: "",
     categoryId: formData.get("categoryId") || "",
@@ -339,7 +337,7 @@ export async function createBugAction(
   redirect(ideaPath(idea.number));
 }
 
-/** Updates status (assignee/admin) and severity/assignee (admin) and logs activity. */
+/** Updates status (assignee/admin) and type/assignee (admin) and logs activity. */
 export async function updateBugAction(
   bugId: string,
   formData: FormData,
@@ -426,7 +424,6 @@ export async function updateBugAction(
   const typeRaw = formData.get("typeId");
   const parsed = updateBugSchema.safeParse({
     status: requestedStatus,
-    severity: admin ? formData.get("severity") || undefined : undefined,
     typeId: admin
       ? typeRaw === "" || typeRaw === "none"
         ? null
@@ -487,7 +484,6 @@ export async function updateBugAction(
 
   const data: {
     status?: typeof parsed.data.status;
-    severity?: typeof parsed.data.severity;
     typeId?: string | null;
     assigneeId?: string | null;
     categoryId?: string | null;
@@ -499,7 +495,6 @@ export async function updateBugAction(
 
   if (parsed.data.status) data.status = parsed.data.status;
   if (admin) {
-    if (parsed.data.severity) data.severity = parsed.data.severity;
     if (parsed.data.typeId !== undefined) {
       data.typeId = parsed.data.typeId === "" ? null : parsed.data.typeId;
     }
@@ -550,18 +545,6 @@ export async function updateBugAction(
       type: "unboosted",
       summary: unboostedSummary(),
       metadata: { field: "isBoosted", to: "false" },
-    });
-  }
-
-  if (data.severity && data.severity !== existing.severity) {
-    pending.push({
-      type: "severity_changed",
-      summary: severityChangedSummary(existing.severity, data.severity),
-      metadata: {
-        field: "severity",
-        from: existing.severity,
-        to: data.severity,
-      },
     });
   }
 
@@ -815,7 +798,6 @@ export async function updateBugAction(
           tenantId: existing.tenantId,
           projectId: existing.projectId,
           pullRequestUrl: existing.pullRequestUrl,
-          severity: data.severity ?? existing.severity,
           assigneeId: data.assigneeId !== undefined ? data.assigneeId : existing.assigneeId,
         });
       }

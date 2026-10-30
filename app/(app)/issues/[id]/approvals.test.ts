@@ -140,7 +140,6 @@ describe("Issue page human approval banner (#598)", () => {
       title: "Test Bug",
       description: "Test Description",
       status: "open",
-      severity: "medium",
       voteCount: 0,
       proofLinks: [],
       reporterId: "reporter-1",
@@ -169,7 +168,6 @@ describe("Issue page human approval banner (#598)", () => {
       status: "pending",
       rule: {
         issueType: { name: "Design" },
-        severity: null,
         fileGlob: null,
       },
     });

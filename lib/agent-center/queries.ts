@@ -42,7 +42,7 @@ export async function loadAgentCenter(userId: string, tenantId: string | null, p
       select: {
         id: true, createdAt: true, stage: true, status: true,
         bug: { select: issueSelect },
-        rule: { select: { severity: true, fileGlob: true, issueType: { select: { name: true } } } },
+        rule: { select: { fileGlob: true, issueType: { select: { name: true } } } },
       },
     }) : Promise.resolve([]),
     prisma.issueClaim.findMany({

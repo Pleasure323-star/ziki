@@ -14,7 +14,6 @@ import { PROJECT_ALL, PROJECT_ALL_PARAM } from "@/lib/issue-list-filters";
  */
 export type IssueListFilterValues = {
   status: string | undefined;
-  severity: string | undefined;
   mine: string | null | undefined;
   q: string | undefined;
   sort: string | undefined;
@@ -36,7 +35,6 @@ export function issueListPaginationParams(values: IssueListFilterValues): Record
   const entries: [string, string | null | undefined][] = [
     ["status", values.status],
     [MILESTONE_PARAM, values.milestone],
-    ["severity", values.severity],
     ["mine", values.mine],
     ["q", values.q],
     [TAGS_PARAM, values.tags],

@@ -27,8 +27,7 @@ describe("llms.txt project example (#466)", () => {
       if (!match) throw new Error(`Missing ${role} points row`);
       return match[1].trim();
     };
-    const solver = Object.entries(SOLVER_POINTS).map(([severity, points]) => `${points} ${severity}`);
-    expect(row("Solver")).toBe(solver.join(", "));
+    expect(row("Solver")).toBe(String(SOLVER_POINTS));
     expect(row("Reporter")).toBe(String(project.rewardRules.reporter));
     expect(row("Reviewer")).toMatch(new RegExp(`^${project.rewardRules.reviewer}(?:,|$)`));
   });

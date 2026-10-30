@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
           AND (
             (table_name = 'User' AND column_name IN ('role', 'passwordHash', 'emailVerified')) OR
             (table_name = 'Vote' AND column_name IN ('value', 'userId', 'bugId')) OR
-            (table_name = 'Bug' AND column_name IN ('proofLinks', 'voteCount', 'severity', 'status')) OR
+            (table_name = 'Bug' AND column_name IN ('proofLinks', 'voteCount', 'status')) OR
             (table_name = 'BugActivity' AND column_name IN ('type', 'summary', 'metadata')) OR
             (table_name = 'Comment' AND column_name IN ('parentId', 'body'))
           )
@@ -136,7 +136,6 @@ export async function GET(request: NextRequest) {
             title: `Health Check Bug ${testId}`,
             description:
               "Testing bug creation and voting lifecycle in production DB",
-            severity: "low",
             status: "open",
             proofLinks: ["https://github.com/Zedu-Endor/bug-tracker/issues/99"],
             reporterId: user.id,

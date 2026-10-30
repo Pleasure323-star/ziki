@@ -63,7 +63,6 @@ export async function sweepPendingBids(options?: {
       tenantId: true,
       projectId: true,
       reporterId: true,
-      severity: true,
       voteCount: true,
       claims: { where: { releasedAt: null, status: "offered" }, select: { offeredAt: true } },
     },

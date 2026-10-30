@@ -383,7 +383,6 @@ body:has([data-app-shell]) {
   textarea,
   form,
   nav[aria-label="Pagination"],
-  [role="region"][aria-label^="Bulk actions"],
   [aria-live] {
     display: none !important;
   }

@@ -21,19 +21,18 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("claim delivery deadline (#593)", () => {
-  it("defaults to 240 minutes (4 hours) for work", () => {
-    expect(deliveryWindowMinutes("low")).toBe(DEFAULT_DELIVERY_WINDOW_MINUTES);
-    expect(deliveryWindowMinutes("medium")).toBe(240);
-    expect(deliveryWindowMinutes("high")).toBe(240);
-    expect(deliveryWindowMinutes("critical")).toBe(240);
+  it("defaults to one 240-minute (4 hour) window for every issue", () => {
+    expect(deliveryWindowMinutes()).toBe(DEFAULT_DELIVERY_WINDOW_MINUTES);
+    expect(DEFAULT_DELIVERY_WINDOW_MINUTES).toBe(240);
+    expect(deliveryWindowMinutes(null)).toBe(240);
   });
 
-  it("lets a project widen the window, never narrowing high-priority work below 60", () => {
-    expect(deliveryWindowMinutes("low", 30)).toBe(30);
-    expect(deliveryWindowMinutes("high", 30)).toBe(60);
-    expect(deliveryWindowMinutes("high", 90)).toBe(90);
-    expect(deliveryWindowMinutes("low", 0)).toBe(240);
-    expect(deliveryWindowMinutes("low", Number.NaN)).toBe(240);
+  it("takes the project's window as given, falling back to 240 when it is not positive", () => {
+    expect(deliveryWindowMinutes(30)).toBe(30);
+    expect(deliveryWindowMinutes(90)).toBe(90);
+    expect(deliveryWindowMinutes(90.7)).toBe(90);
+    expect(deliveryWindowMinutes(0)).toBe(240);
+    expect(deliveryWindowMinutes(Number.NaN)).toBe(240);
   });
 
   it("counts the deadline from acceptance", () => {

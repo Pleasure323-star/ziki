@@ -13,16 +13,13 @@ import {
   REPORTER_POINTS,
   REVIEWER_POINTS,
   reviewerPointsAt,
-  solverPoints,
+  SOLVER_POINTS,
   TARGET_POINTS,
 } from "./rules";
 
 describe("point rules (#428)", () => {
-  it("awards solver points by severity", () => {
-    expect(solverPoints("low")).toBe(450);
-    expect(solverPoints("medium")).toBe(750);
-    expect(solverPoints("high")).toBe(1200);
-    expect(solverPoints("critical")).toBe(1800);
+  it("awards one flat solver amount for every issue", () => {
+    expect(SOLVER_POINTS).toBe(750);
   });
 
   it("has the reporter, reviewer and target numbers from the epic", () => {

@@ -1,18 +1,11 @@
-import type { Severity } from "@prisma/client";
-
 /**
  * Point rules for the contributor ledger (#428). Amounts are the original
  * epic (#422) figures multiplied by 30. The points goal stays at 500.
  * Super admins can override them.
  */
 
-/** Solver points by the severity stored on the issue when it is resolved. */
-export const SOLVER_POINTS: Record<Severity, number> = {
-  low: 450,
-  medium: 750,
-  high: 1200,
-  critical: 1800,
-};
+/** Solver points for a resolved issue: one amount for every issue. */
+export const SOLVER_POINTS = 750;
 
 /** Reporter points, once the bug is accepted as real and not a duplicate. */
 export const REPORTER_POINTS = 150;
@@ -142,10 +135,6 @@ export function duplicateMarkerSourceKey(bugId: string, userId: string): string 
 /** The idempotency key for a job-submission award (#617). */
 export function jobSubmissionSourceKey(jobId: string, submissionId: string): string {
   return `job:${jobId}:submission:${submissionId}`;
-}
-
-export function solverPoints(severity: Severity): number {
-  return SOLVER_POINTS[severity];
 }
 
 /**

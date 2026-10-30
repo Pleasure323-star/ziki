@@ -1,5 +1,4 @@
 import type { Prisma } from "@prisma/client";
-import { severities } from "@/lib/validations/issue";
 import { statusFilterWhere } from "@/lib/issue-state";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import { MILESTONE_PARAM, milestoneWhere, parseMilestoneFilter } from "@/lib/milestones";
@@ -77,7 +76,6 @@ export function parseBugListFilters({
 }): ParsedBugFilters {
   const q = toSingleQueryParam(params.q);
   const status = toSingleQueryParam(params.status);
-  const severity = toSingleQueryParam(params.severity);
   const deleted = toSingleQueryParam(params.deleted);
   const mine = parseMineFilter(params.mine);
 
@@ -101,9 +99,6 @@ export function parseBugListFilters({
   const statusWhere = statusFilterWhere(status);
   if (statusWhere !== undefined) {
     where.status = statusWhere;
-  }
-  if (severity && (severities as readonly string[]).includes(severity)) {
-    where.severity = severity as Prisma.BugWhereInput["severity"];
   }
 
   // Platform filter. An id that no longer exists resolves to no filter

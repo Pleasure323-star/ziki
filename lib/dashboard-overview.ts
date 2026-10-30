@@ -38,7 +38,6 @@ export type OverviewIssue = {
   number: number;
   title: string;
   status: Status;
-  severity: string | null;
   /** When it first reached resolved/closed, from the activity log. */
   resolvedAt: Date | null;
 };
@@ -114,13 +113,13 @@ export async function loadWorkspaceOverview({
         where: { ...base, status: { in: [...UNRESOLVED_STATUSES] } },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: PREVIEW_LIMIT,
-        select: { id: true, number: true, title: true, status: true, severity: true },
+        select: { id: true, number: true, title: true, status: true },
       }),
       prisma.$queryRaw<
-        { id: string; number: number; title: string; status: string; severity: string | null; resolved_at: Date }[]
+        { id: string; number: number; title: string; status: string; resolved_at: Date }[]
       >`
         SELECT b."id", b."number", b."title", b."status"::text AS status,
-               b."severity"::text AS severity, fc.closed_at AS resolved_at
+               fc.closed_at AS resolved_at
         FROM (${firstCloseForTenant(tenantId)}) fc
         JOIN "Bug" b ON b."id" = fc.bug_id
         WHERE b."tenantId" = ${tenantId}
@@ -140,7 +139,6 @@ export async function loadWorkspaceOverview({
     resolvedCount,
     recentUnresolved: recentUnresolved.map((bug) => ({
       ...bug,
-      severity: bug.severity ?? null,
       resolvedAt: null,
     })),
     recentResolved: resolvedRows.map((row) => ({
@@ -148,7 +146,6 @@ export async function loadWorkspaceOverview({
       number: row.number,
       title: row.title,
       status: row.status as Status,
-      severity: row.severity,
       resolvedAt: row.resolved_at,
     })),
     assignedToMe,

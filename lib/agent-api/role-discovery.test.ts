@@ -192,15 +192,14 @@ describe("Role-based discovery functions", () => {
           title: "Ready to work",
           projectId: "p1",
           voteCount: 4,
-          severity: "high",
           createdAt: new Date(),
         },
       ]);
 
       // Readiness comes from one confirmation read; only ready ids reach the query (#714).
       const confirmations = new Map([
-        ["bug-4", { stage: "ready" as const, accepts: 2, rejects: 0, needed: 2 }],
-        ["bug-5", { stage: "confirming" as const, accepts: 1, rejects: 0, needed: 2 }],
+        ["bug-4", { stage: "ready" as const, accepts: 2, rejects: 0, needed: 2, confirmed: true }],
+        ["bug-5", { stage: "confirming" as const, accepts: 1, rejects: 0, needed: 2, confirmed: false }],
       ]);
       const issues = await findClaimableIssues(contributor, "p1", 25, confirmations);
       expect(issues).toHaveLength(1);
@@ -212,7 +211,7 @@ describe("Role-based discovery functions", () => {
     });
 
     it("returns nothing without querying issues when none is ready", async () => {
-      const confirmations = new Map([["bug-5", { stage: "confirming" as const, accepts: 0, rejects: 0, needed: 2 }]]);
+      const confirmations = new Map([["bug-5", { stage: "confirming" as const, accepts: 0, rejects: 0, needed: 2, confirmed: false }]]);
       await expect(findClaimableIssues(contributor, "p1", 25, confirmations)).resolves.toEqual([]);
       expect(db.bug.findMany).not.toHaveBeenCalled();
     });

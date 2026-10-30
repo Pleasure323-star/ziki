@@ -76,31 +76,20 @@ export function nextProjectSlug(
 
 export function parseRewardConfigFromFormData(formData: FormData) {
   const hasCustomRewards =
-    formData.has("solverPointsLow") ||
-    formData.has("solverPointsMedium") ||
-    formData.has("solverPointsHigh") ||
-    formData.has("solverPointsCritical") ||
+    formData.has("solverPoints") ||
     formData.has("reporterPoints") ||
     formData.has("reviewerPoints") ||
     formData.has("rewardGuidelines");
 
   if (!hasCustomRewards) return null;
 
-  const low = formData.get("solverPointsLow");
-  const medium = formData.get("solverPointsMedium");
-  const high = formData.get("solverPointsHigh");
-  const critical = formData.get("solverPointsCritical");
+  const solver = formData.get("solverPoints");
   const reporter = formData.get("reporterPoints");
   const reviewer = formData.get("reviewerPoints");
   const guidelines = String(formData.get("rewardGuidelines") ?? "").trim();
 
   return {
-    solver: {
-      low: low ? Number(low) : undefined,
-      medium: medium ? Number(medium) : undefined,
-      high: high ? Number(high) : undefined,
-      critical: critical ? Number(critical) : undefined,
-    },
+    solver: solver ? Number(solver) : undefined,
     reporter: reporter ? Number(reporter) : undefined,
     reviewer: reviewer ? Number(reviewer) : undefined,
     guidelines: guidelines || null,

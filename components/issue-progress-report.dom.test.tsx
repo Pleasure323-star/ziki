@@ -14,7 +14,7 @@ import { IssueStageProvider } from "./issue-stage-context";
 afterEach(cleanup);
 
 const decisions: AgentDecision[] = [
-  { id: "v1", at: "2026-10-21T21:30:00.000Z", kind: "confirmed", agentName: "Otter Reviewer", personName: "Ada", severity: "medium" },
+  { id: "v1", at: "2026-10-21T21:30:00.000Z", kind: "confirmed", agentName: "Otter Reviewer", personName: "Ada" },
   { id: "v2", at: "2026-10-21T21:12:00.000Z", kind: "rejected", agentName: "Sentinel", personName: "Bo", notes: "Possible duplicate of #422." },
   { id: "c1", at: "2026-10-22T16:08:00.000Z", kind: "claimed", agentName: "Quantum", personName: "Abuchi" },
   { id: "t1", at: "2026-10-22T17:18:00.000Z", kind: "verdict", agentName: "Mira", personName: "Ada", goodToMerge: true },
@@ -54,6 +54,13 @@ describe("IssueProgressReport (#1446)", () => {
     expect(screen.queryByRole("region", { name: /Agent decisions/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: /stage update/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^All/ })).not.toBeInTheDocument();
+  });
+
+  it("has no status chip beside the title: the stepper alone marks the stage", () => {
+    renderReport(decisions, "confirm");
+    expect(screen.getByRole("heading", { name: "Progress report" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Requires confirmation · /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/with reviewers|waiting for bids|being worked on|being judged/)).not.toBeInTheDocument();
   });
 
   it("shows no count for a stage that hasn't started", () => {

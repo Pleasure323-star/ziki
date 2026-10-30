@@ -109,6 +109,8 @@ export type ConfirmationState = {
   rejects: number;
   /** The project's `confirmationsNeeded`. */
   needed: number;
+  /** Confirmed under the one rule (`isConfirmed`). */
+  confirmed: boolean;
 };
 
 export type ReadConfirmation = Omit<ConfirmationState, "stage"> & {
@@ -243,9 +245,9 @@ export async function openIssueConfirmations(
 ): Promise<Map<string, ConfirmationState>> {
   const read = await readConfirmations(db, { ...where, status: { in: ["requires_confirmation", "open"] }, isDeleted: false });
   const result = new Map<string, ConfirmationState>();
-  for (const [id, { status, accepts, rejects, needed }] of read) {
+  for (const [id, { status, accepts, rejects, needed, confirmed }] of read) {
     const stage = issueStage({ status });
-    if (stage) result.set(id, { stage, accepts, rejects, needed });
+    if (stage) result.set(id, { stage, accepts, rejects, needed, confirmed });
   }
   return result;
 }

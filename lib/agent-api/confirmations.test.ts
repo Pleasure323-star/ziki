@@ -9,8 +9,6 @@ type Entry = {
   verdict: "confirm" | "reject" | "neutral";
   summary: string;
   description: string;
-  severity: string | null;
-  previousSeverity: string | null;
   duplicateOfId: string | null;
   undoneAt: Date | null;
   createdAt: Date;
@@ -65,7 +63,6 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     tenantId: "t1",
     projectId: "p1",
     status: "requires_confirmation",
-    severity: "medium",
     isDeleted: false,
     reporterId: "ada",
     beneficiaryUserId: "ada",
@@ -145,12 +142,13 @@ beforeEach(() => {
 
 describe("confirmationSchema (#issue-confirmations)", () => {
   it("takes a verdict with a summary and a description", () => {
-    expect(confirmationSchema.safeParse(body("confirm", { severity: "high" })).success).toBe(true);
+    expect(confirmationSchema.safeParse(body("confirm")).success).toBe(true);
     expect(confirmationSchema.safeParse(body("reject", { duplicateOfId: "3" })).success).toBe(true);
     expect(confirmationSchema.safeParse(body("neutral")).success).toBe(true);
   });
 
-  it("refuses severity off confirm, duplicateOfId off reject, and unknown fields", () => {
+  it("refuses any severity, duplicateOfId off reject, and unknown fields", () => {
+    expect(confirmationSchema.safeParse(body("confirm", { severity: "high" })).success).toBe(false);
     expect(confirmationSchema.safeParse(body("reject", { severity: "high" })).success).toBe(false);
     expect(confirmationSchema.safeParse(body("confirm", { duplicateOfId: "3" })).success).toBe(false);
     expect(confirmationSchema.safeParse(body("confirm", { kind: "real" })).success).toBe(false);
@@ -159,11 +157,10 @@ describe("confirmationSchema (#issue-confirmations)", () => {
 
 describe("giveConfirmation (#issue-confirmations)", () => {
   it("records an agent's entry for its owner, and two independent confirms confirm the issue", async () => {
-    const first = await giveConfirmation(agentOf("agent-bob", "bob"), scope, "bug1", body("confirm", { severity: "high" }));
+    const first = await giveConfirmation(agentOf("agent-bob", "bob"), scope, "bug1", body("confirm"));
     expect(first).toMatchObject({ replaced: false, confirmed: false, newlyConfirmed: false, confirmations: 1, confirmationsNeeded: 2 });
-    expect(first.confirmation).toMatchObject({ verdict: "confirm", severity: "high", onBehalfOfUserId: "bob", agentId: "agent-bob" });
-    // Severity escalates from medium to high.
-    expect(state.bug.severity).toBe("high");
+    expect(first.confirmation).toMatchObject({ verdict: "confirm", onBehalfOfUserId: "bob", agentId: "agent-bob" });
+    expect(first.confirmation).not.toHaveProperty("severity");
 
     const second = await giveConfirmation(person("cara"), scope, "7", body("confirm"));
     expect(second).toMatchObject({ confirmed: true, newlyConfirmed: true, confirmations: 2 });
@@ -206,6 +203,14 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(db.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
+  it("refuses a severity: confirmations take none, and nothing is written", async () => {
+    const withSeverity = await rejection(giveConfirmation(person("bob"), scope, "bug1", body("confirm", { severity: "high" })));
+    expect(withSeverity.status).toBe(400);
+    expect(withSeverity.body).toMatchObject({ error: "invalid_request" });
+    expect(db.issueConfirmation.upsert).not.toHaveBeenCalled();
+    expect(db.bug.update).not.toHaveBeenCalled();
+  });
+
   it("keeps independence: not the filing agent, the reporter (agent or person), or whoever holds the claim", async () => {
     expect((await rejection(giveConfirmation(agentOf("agent-ada", "ada"), scope, "bug1", body("confirm")))).body).toMatchObject({ error: "creator_cannot_confirm" });
     expect((await rejection(giveConfirmation(person("ada"), scope, "bug1", body("confirm")))).body).toMatchObject({ error: "not_independent" });
@@ -224,7 +229,7 @@ describe("giveConfirmation (#issue-confirmations)", () => {
 
   it("marks a duplicate with a reject naming another issue, and pays the marker", async () => {
     const given = await giveConfirmation(person("bob"), scope, "bug1", body("reject", { duplicateOfId: "#3" }));
-    expect(given.confirmation).toMatchObject({ verdict: "reject", duplicateOfId: "bug0", severity: null });
+    expect(given.confirmation).toMatchObject({ verdict: "reject", duplicateOfId: "bug0" });
     expect(state.points.map((p) => p.sourceKey)).toEqual(["duplicate-marker:bug1:bob"]);
     expect((await rejection(giveConfirmation(person("cara"), scope, "bug1", body("reject", { duplicateOfId: "bug1" })))).body).toMatchObject({ field: "duplicateOfId" });
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  severityClass,
   statusClass,
   authorBadgeClass,
   categoryBadgeClass,
@@ -115,16 +114,6 @@ function parseBgAndTextColor(className: string): { bg: string; text: string } {
 
 describe("Badge WCAG 2.1 AA 4.5:1 Contrast Ratio Verification (#366)", () => {
   const WCAG_AA_MINIMUM = 4.5;
-
-  describe("Severity badge contrast", () => {
-    for (const [severity, cls] of Object.entries(severityClass)) {
-      it(`severity "${severity}" (${cls}) achieves at least 4.5:1 contrast`, () => {
-        const { bg, text } = parseBgAndTextColor(cls);
-        const ratio = getContrastRatio(bg, text);
-        expect(ratio).toBeGreaterThanOrEqual(WCAG_AA_MINIMUM);
-      });
-    }
-  });
 
   describe("Status badge contrast", () => {
     for (const [status, cls] of Object.entries(statusClass)) {

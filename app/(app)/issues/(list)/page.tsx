@@ -3,10 +3,9 @@ import { newIssueHref } from "@/lib/reported-from";
 import "./issues.css";
 import { Avatar } from "@/components/avatar";
 import { Suspense } from "react";
-import type { Prisma, Severity } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getIssueTypes, getPlatforms } from "@/lib/lookups";
-import { activeBulkOptions, loadBulkAssignees } from "@/lib/admin-list-lookups";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 
@@ -16,12 +15,10 @@ import { StageSidebar } from "@/components/stage-sidebar";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
 import { RowAge, RowAssignee } from "@/components/issue-row-meta";
-import { VoteButton } from "@/components/vote-button";
 import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
-import { severityLabels } from "@/lib/labels";
-import { severities, statuses } from "@/lib/validations/issue";
+import { statuses } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
   hasMatch,
@@ -44,12 +41,10 @@ import { calculatePagination } from "@/lib/pagination";
 import { issueListPaginationParams } from "@/lib/issue-list-pagination";
 import { DUPLICATES_PARAM, SHOW_DUPLICATES, duplicatesWhere, parseShowDuplicates } from "@/lib/duplicates";
 import { PaginationControls } from "@/components/pagination-controls";
-import { fetchVoterSummaries } from "@/lib/voter-summaries";
 import { dueDateValue, MILESTONE_PARAM, milestoneParamValue, milestoneWhere, parseMilestoneFilter } from "@/lib/milestones";
 import { loadMilestoneSummaries } from "@/lib/milestone-stats";
 import { MilestoneProgressBar } from "@/components/milestone-progress";
 import { MilestoneDue } from "@/components/milestone-due";
-import { createEmptyVoterSummary } from "@/lib/voters";
 import {
   bugSortDescriptions,
   getBugOrderBy,
@@ -61,10 +56,6 @@ import type { OrganizationRole } from "@/lib/organization-role";
 import { defaultSortFor, mineFilterWhere, parseMineFilter } from "@/lib/mine-filter";
 import { finishedWatchedWhere } from "@/lib/watching";
 import { UnwatchButton, UnwatchFinishedButton } from "@/components/unwatch-button";
-import {
-  BulkCheckbox,
-  BulkSelectionProvider,
-} from "@/components/bulk-selection";
 import { parseTagFilter, serializeTags, tagTypeIds } from "@/lib/tag-filter";
 import { bugInTenant, currentTenantIdFor, isMissingTenantColumnError } from "@/lib/tenant-context";
 import { activeProjectIdFor } from "@/lib/project-context";
@@ -81,14 +72,13 @@ import {
   platformFilterWhere,
 } from "@/lib/platform-filter";
 import { PlatformMenu, type PlatformTab } from "@/components/platform-tabs";
-import { IssueRowStatus } from "@/components/issue-row-status";
+import { ConfirmationCountBadge, IssueRowStatus } from "@/components/issue-row-status";
 import { mergePathOf } from "@/lib/merge-history";
 import { IssuesToolsToggle } from "@/components/issues-tools-toggle";
 import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
 import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
-import { voteDirection } from "@/lib/voting";
 import { issuePath } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 
@@ -154,7 +144,6 @@ const FEATURE_ICON_PATH =
 type SearchParams = Promise<{
   q?: string | string[];
   status?: string | string[];
-  severity?: string | string[];
   platform?: string | string[];
   area?: string | string[];
   sort?: string | string[];
@@ -164,10 +153,6 @@ type SearchParams = Promise<{
   tags?: string | string[];
   [key: string]: string | string[] | undefined;
 }>;
-
-function isSeverity(value: string | undefined): value is Severity {
-  return !!value && (severities as readonly string[]).includes(value);
-}
 
 async function loadOrEmpty<T>(label: string, load: () => Promise<T>, empty: T): Promise<T> {
   try {
@@ -242,7 +227,6 @@ export default async function BugsPage({
   const statusParam =
     toSingleQueryParam(params.status) ??
     (toSingleQueryParam(params.deleted) === "true" ? undefined : toSingleQueryParam(params.q)?.trim() ? ALL_STATUS : IDEAS_STATUS);
-  const severityParam = toSingleQueryParam(params.severity);
   const sortParam = toSingleQueryParam(params.sort);
   const pageParam = toSingleQueryParam(params.page);
   const deletedParam = toSingleQueryParam(params.deleted);
@@ -336,9 +320,6 @@ export default async function BugsPage({
   if (statusParam === DUPLICATE_STATUS && !isDeletedView) {
     where.duplicateOfId = { not: null };
   }
-  if (isSeverity(severityParam)) {
-    where.severity = severityParam;
-  }
   // Platform filter: one category, or the issues with none set.
   const selectedPlatform = parsePlatformFilter(params.platform, platforms);
   Object.assign(where, platformFilterWhere(selectedPlatform));
@@ -390,11 +371,13 @@ export default async function BugsPage({
   let stages = new Map<string, IssueStage>();
   // How many independent people confirmed each open issue, under the one rule (#issue-confirmations).
   let confirmationCounts = new Map<string, number>();
+  let confirmationStates = new Map<string, { accepts: number; needed: number; confirmed: boolean }>();
   if (!isDeletedView) {
     try {
       const confirmations = await openIssueConfirmations(prisma, where);
       stages = new Map([...confirmations].map(([id, c]) => [id, c.stage]));
       confirmationCounts = new Map([...confirmations].map(([id, c]) => [id, c.accepts]));
+      confirmationStates = new Map([...confirmations].map(([id, c]) => [id, { accepts: c.accepts, needed: c.needed, confirmed: c.confirmed }]));
     } catch (error) {
       console.error("[bugs] issue stage lookup failed", error);
     }
@@ -529,7 +512,6 @@ export default async function BugsPage({
         number: true,
         title: true,
         status: true,
-        severity: true,
         voteCount: true,
         projectId: true,
         isDeleted: true,
@@ -552,9 +534,6 @@ export default async function BugsPage({
         },
         category: { select: { id: true, name: true } },
         area: { select: { id: true, name: true } },
-        votes: userId
-          ? { where: { userId }, select: { id: true, value: true }, take: 1 }
-          : false,
         _count: {
           select: {
             comments: true,
@@ -670,7 +649,6 @@ export default async function BugsPage({
     }
   }
 
-  const bugIds = bugs.map((bug) => bug.id);
 
   // #289: filtering on one milestone shows its progress above the list.
   let milestoneSummary: Awaited<ReturnType<typeof loadMilestoneSummaries>>[number] | null = null;
@@ -719,25 +697,8 @@ export default async function BugsPage({
     }
   }
 
-  // Only admins get bulk actions. The type and platform menus reuse the
-  // lookups above, which already survived a missing table. The assignee
-  // query is the one extra read, and it must not take the list down either.
-  const bulkTypes = canDelete ? activeBulkOptions(tagTypes) : [];
-  const bulkPlatforms = canDelete ? activeBulkOptions(platforms) : [];
-  const bulkUsers = canDelete ? await loadBulkAssignees(tenantId) : [];
-
-  let voterSummaries = new Map<string, ReturnType<typeof createEmptyVoterSummary>>();
-  try {
-    voterSummaries = await fetchVoterSummaries(bugIds);
-  } catch (error) {
-    console.error("[bugs] voter summaries failed", error);
-    voterSummaries = new Map();
-  }
-
-  // The key is the current query string, so changing a filter or a page
-  // remounts the provider and clears the selection — which is what the bar
-  // tells the user will happen.
-  const selectionKey = new URLSearchParams(
+  // The current query string, which the status links build on.
+  const currentQuery = new URLSearchParams(
     Object.entries(params).flatMap(([k, v]) => {
       const single = toSingleQueryParam(v);
       return single ? [[k, single] as [string, string]] : [];
@@ -766,7 +727,7 @@ export default async function BugsPage({
   // The All tab stays selected on its own filters (Closed, Rejected, Duplicates).
   const allSelected = ALL_FILTERS.some((filter) => filter.value === statusParam);
   const statusHref = (status: string | null) => {
-    const next = new URLSearchParams(selectionKey);
+    const next = new URLSearchParams(currentQuery);
     next.delete("page");
     next.delete("stage");
     next.delete(SHOW_RESOLVED_PARAM);
@@ -779,13 +740,12 @@ export default async function BugsPage({
   // just means that tab is empty, so the empty state names the tab.
   const onlyStatusTab =
     Boolean(statusParam && (statuses as readonly string[]).includes(statusParam)) &&
-    !qParam && !severityParam && !tagsParam && !selectedPlatform && !selectedMilestone && !mineFilter;
+    !qParam && !tagsParam && !selectedPlatform && !selectedMilestone && !mineFilter;
   const emptyPlatform =
     Boolean(selectedPlatform) &&
     !isWatchingView &&
     !qParam &&
     !statusParam &&
-    !severityParam &&
     !tagsParam &&
     !selectedMilestone &&
     !selectedArea &&
@@ -793,6 +753,8 @@ export default async function BugsPage({
 
   // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
   const currentStatus = ideasView === "rejected" ? REJECTED_IDEAS_STATUS : isIdeasView ? IDEAS_STATUS : statusParam;
+  // Requires confirmation: the left column counts confirmations, and the importance votes sit at the end of the row.
+  const confirmationsView = currentStatus === "requires_confirmation" && !isDeletedView;
   const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
   const statusCount = (value: string) =>
     value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : countForStatus(value);
@@ -840,7 +802,7 @@ export default async function BugsPage({
         <div className="issues-actions flex flex-wrap items-center gap-2 print:hidden">
           {finishedWatched > 0 ? <UnwatchFinishedButton count={finishedWatched} /> : null}
           <IssuesToolsToggle
-            active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || isSeverity(severityParam) || selectedMilestone)}
+            active={Boolean(searchText || selectedPlatform || selectedTags.length > 0 || selectedMilestone)}
           />
           {/* Phones: the + beside the title, since the tools row is collapsed there.
               Desktop uses the one in the tools row, unless that row has no platform menu yet. */}
@@ -907,7 +869,7 @@ export default async function BugsPage({
         ) : bugs.length === 0 ? (
           <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
             <p className="font-bold text-zk-text">
-              {isWatchingView && !qParam && !statusParam && !severityParam && !tagsParam && !selectedPlatform && !selectedMilestone
+              {isWatchingView && !qParam && !statusParam && !tagsParam && !selectedPlatform && !selectedMilestone
                 ? "You're not watching any issues."
                 : emptyPlatform
                   ? "No issues on this platform"
@@ -948,21 +910,18 @@ export default async function BugsPage({
             <div className="issues-table relative">
               <div>
                 <div className="issues-table-heading">
-                  {canDelete && !isDeletedView ? <span className="issues-selection" aria-hidden="true" /> : null}
-                  <abbr className="w-[52px] no-underline" title="Importance">Imp.</abbr>
+                  {confirmationsView ? (
+                    <abbr className="w-[52px] no-underline" title="Confirmations">Conf.</abbr>
+                  ) : (
+                    <span className="w-[76px] shrink-0 text-center">Importance</span>
+                  )}
                   <span className="min-w-0 flex-1">Issue</span>
                   <span className="issues-status-cell">Status</span>
-                  <span className="issues-priority">Priority</span>
+                  {confirmationsView ? <span className="issues-vote-end">Importance</span> : null}
                   <span className="w-10" aria-hidden="true" />
                 </div>
                 <ul>
                   {bugs.map((bug, index) => {
-                    const userVote =
-                      Array.isArray(bug.votes) && bug.votes.length > 0
-                        ? voteDirection(bug.votes[0].value ?? 1)
-                        : 0;
-                    const voterSummary =
-                      voterSummaries.get(bug.id) ?? createEmptyVoterSummary();
                     const stage = stages.get(bug.id);
                     const typeName = bug.type?.name ?? "—";
                     const isSecurity = /security/i.test(typeName);
@@ -973,8 +932,20 @@ export default async function BugsPage({
                     const work = claim || bug.status === "in_progress"
                       ? { person: claim?.beneficiary?.name ?? bug.assignee?.name ?? null, since: claim ? (claim.claimedAt ?? claim.createdAt) : null }
                       : null;
+                    // Importance in a list is a number to read, not a button: it is marked on the issue's page.
+                    const importance = (
+                      <span
+                        data-testid="importance-count"
+                        className="issues-importance tabular-nums"
+                        title={`Importance ${bug.voteCount}`}
+                        aria-label={`Importance ${bug.voteCount}`}
+                      >
+                        {bug.voteCount}
+                      </span>
+                    );
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
+                        confirmed={confirmationStates.get(bug.id)?.confirmed ?? false}
                         bids={bug.status === "open" ? bug._count.bids : undefined}
                         offeredTo={bug.status === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}
                         mergePath={bug.status === "resolved" && bug.pullRequestUrl ? mergePathOf(bug) : null} />
@@ -983,27 +954,17 @@ export default async function BugsPage({
                     return (
                       <li
                         key={bug.id}
-                        data-severity={bug.severity}
                         className={`issues-row flex items-center gap-2 px-2 py-3.5 lg:gap-4 lg:px-4 ${
                           index < bugs.length - 1 ? "border-b border-zk-divider" : ""
                         }`}
                       >
-                        {canDelete && !isDeletedView ? (
-                          <div className="issues-selection shrink-0">
-                            <BulkCheckbox id={bug.id} title={bug.title} />
+                        {confirmationsView ? (
+                          <div className="w-[52px] shrink-0">
+                            <ConfirmationCountBadge {...(confirmationStates.get(bug.id) ?? { accepts: 0, needed: 0, confirmed: false })} />
                           </div>
-                        ) : null}
-                        <div className="issues-vote w-[52px] shrink-0">
-                          <VoteButton
-                            bugId={bug.id}
-                            voteCount={bug.voteCount}
-                            userVote={userVote}
-                            likeCount={voterSummary.likes.count}
-                            size="sm"
-                            chevron
-                            readOnly={isDeletedView}
-                          />
-                        </div>
+                        ) : (
+                          <div className="issues-vote w-[76px] shrink-0">{importance}</div>
+                        )}
                         <Link
                           href={issuePath(bug.number)}
                           data-issue-link=""
@@ -1061,10 +1022,9 @@ export default async function BugsPage({
                           </span>
                         </Link>
                         <span className="issues-status-cell" aria-hidden="true">{rowStatus}</span>
-                        <span className="issues-priority" title={`${severityLabels[bug.severity]} priority`}>
-                          <span className="sr-only">{severityLabels[bug.severity]} priority</span>
-                          <span className="issues-priority-bars" aria-hidden="true">{[0, 1, 2].map((bar) => <i key={bar} data-active={bar < ({ low: 1, medium: 2, high: 3, critical: 3 }[bug.severity])} />)}</span>
-                        </span>
+                        {confirmationsView ? (
+                          <div className="issues-vote issues-vote-end shrink-0">{importance}</div>
+                        ) : null}
                         <span
                           className={`w-10 shrink-0 items-center justify-end gap-2 ${
                             isWatchingView && !bug.isDeleted ? "flex" : "hidden lg:flex"
@@ -1099,7 +1059,6 @@ export default async function BugsPage({
               to={pagination.to}
               queryParams={issueListPaginationParams({
                 status: statusParam,
-                severity: severityParam,
                 mine: mineFilter,
                 q: qParam,
                 sort: sortParam,
@@ -1156,19 +1115,7 @@ export default async function BugsPage({
           />
         ) : null}
         <div className="min-w-0 flex-1">
-          {canDelete && !isDeletedView ? (
-            <BulkSelectionProvider
-              key={selectionKey}
-              pageIds={bugIds}
-              types={bulkTypes}
-              platforms={bulkPlatforms}
-              users={bulkUsers}
-            >
-              {listContent}
-            </BulkSelectionProvider>
-          ) : (
-            listContent
-          )}
+          {listContent}
         </div>
       </div>
     </div>

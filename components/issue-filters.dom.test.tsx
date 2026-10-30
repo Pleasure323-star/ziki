@@ -56,7 +56,7 @@ describe("Issues compact toolbar", () => {
     ["closed", "Closed"],
     ["all", "All"],
   ])("names the %s status chip like its tab", (status, label) => {
-    nav.params = new URLSearchParams(`status=${status}&severity=high`);
+    nav.params = new URLSearchParams(`status=${status}&milestone=none`);
     render(<IssueFilters compact />);
     expect(screen.getByText(`Status: ${label}`)).toBeInTheDocument();
   });
@@ -271,7 +271,7 @@ describe("IssueFilters unified Filter button popover (#762)", () => {
   });
 
   it("displays active filter count on the Filter button when filters are active", () => {
-    nav.params = new URLSearchParams("status=open&severity=high");
+    nav.params = new URLSearchParams("status=open&milestone=none");
     render(<IssueFilters tagTypes={tagTypes} />);
     const filterBtn = screen.getByRole("button", { name: /filter \(2 active\)/i });
     expect(filterBtn).toBeInTheDocument();

@@ -15,7 +15,7 @@ export function ProjectRewardRulesDisplay({
   customized,
 }: ProjectRewardRulesDisplayProps) {
   const fallback = defaults ?? {
-    solver: { ...SOLVER_POINTS },
+    solver: SOLVER_POINTS,
     reporter: REPORTER_POINTS,
     reviewer: REVIEWER_POINTS,
     guidelines: null,
@@ -43,26 +43,11 @@ export function ProjectRewardRulesDisplay({
         )}
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl bg-zk-tint p-2.5 border border-zk-divider">
-          <span className="text-xs text-zk-muted">Low Severity</span>
-          <p className="text-sm font-bold text-zk-text">{solver.low} pts</p>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="flex items-center justify-between rounded-xl bg-zk-tint px-3 py-2 border border-zk-divider">
+          <span className="text-xs font-medium text-zk-text2">Solver Reward</span>
+          <span className="text-sm font-bold text-zk-text">{solver} pts</span>
         </div>
-        <div className="rounded-xl bg-zk-tint p-2.5 border border-zk-divider">
-          <span className="text-xs text-zk-muted">Medium Severity</span>
-          <p className="text-sm font-bold text-zk-text">{solver.medium} pts</p>
-        </div>
-        <div className="rounded-xl bg-zk-tint p-2.5 border border-zk-divider">
-          <span className="text-xs text-zk-muted">High Severity</span>
-          <p className="text-sm font-bold text-zk-text">{solver.high} pts</p>
-        </div>
-        <div className="rounded-xl bg-zk-tint p-2.5 border border-zk-divider">
-          <span className="text-xs text-zk-muted">Critical Severity</span>
-          <p className="text-sm font-bold text-zk-text">{solver.critical} pts</p>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="flex items-center justify-between rounded-xl bg-zk-tint px-3 py-2 border border-zk-divider">
           <span className="text-xs font-medium text-zk-text2">Reporter Bounty</span>
           <span className="text-sm font-bold text-zk-text">{reporter} pts</span>

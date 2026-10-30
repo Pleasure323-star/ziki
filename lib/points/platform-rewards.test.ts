@@ -20,7 +20,7 @@ describe("platform reward config", () => {
 
   it("keeps custom platform amounts when valid", () => {
     const parsed = parsePlatformRewardConfig({
-      solver: { low: 7, medium: 10, high: 20, critical: 40 },
+      solver: 40,
       reporter: 7,
       reviewer: 12,
       confirmationReviewer: 4,
@@ -29,7 +29,7 @@ describe("platform reward config", () => {
       dispatcher: 3,
       target: 600,
     });
-    expect(parsed.solver.low).toBe(7);
+    expect(parsed.solver).toBe(40);
     expect(parsed.reporter).toBe(7);
     expect(parsed.target).toBe(600);
   });
@@ -49,7 +49,7 @@ describe("platform reward config", () => {
       platformSettings: {
         findUnique: vi.fn().mockResolvedValue({
           rewardConfig: {
-            solver: { low: 7, medium: 10, high: 20, critical: 40 },
+            solver: 40,
             reporter: 7,
             reviewer: 12,
           },
@@ -63,7 +63,7 @@ describe("platform reward config", () => {
     };
     const config = await getProjectRewardConfig(db as never, "proj-1");
     expect(config.reporter).toBe(9);
-    expect(config.solver.low).toBe(7);
+    expect(config.solver).toBe(40);
     expect(config.reviewer).toBe(12);
   });
 });

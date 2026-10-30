@@ -51,7 +51,6 @@ function createRequestHash(body: typeof validBody, beneficiaryUserId = "owner-a"
     categoryId: null,
     proofLinks: [],
     typeId: null,
-    severity: null,
     acknowledgeSimilar: body.acknowledgeSimilar ?? null,
   });
 }
@@ -191,10 +190,10 @@ describe("agent issue API authentication", () => {
 describe("agent issue reads", () => {
   it("combines filters with tenant/project scope and the shared cursor", async () => {
     const cursor = encodeCursor({ id: "previous", createdAt: issue.createdAt });
-    const response = await list(request("GET", undefined, `?projectId=project-a&status=open&severity=high&platform=windows&assignee=person-a&limit=1&cursor=${cursor}`));
+    const response = await list(request("GET", undefined, `?projectId=project-a&status=open&platform=windows&assignee=person-a&limit=1&cursor=${cursor}`));
     expect(response.status).toBe(200);
     expect(db.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false, status: "open", severity: "high", categoryId: "windows", assigneeId: "person-a",
+      where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false, status: "open", categoryId: "windows", assigneeId: "person-a",
         OR: [{ createdAt: { lt: issue.createdAt } }, { createdAt: issue.createdAt, id: { lt: "previous" } }] },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 2,
     }));
@@ -289,10 +288,9 @@ describe("agent issue reads", () => {
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 
-  it("names invalid status, severity, stage and assignee filters (#406)", async () => {
+  it("names invalid status and assignee filters (#406)", async () => {
     const cases: [string, string][] = [
       ["status=unknown", "status must be one of requires_confirmation, open, in_progress, delivered, done, ready_to_merge, resolved, closed."],
-      ["severity=urgent", "severity must be one of low, medium, high, critical."],
       ["assignee=%20", 'assignee must be "none" or a valid user id.'],
     ];
     for (const [query, error] of cases) {
@@ -363,8 +361,8 @@ describe("agent comment paging (#604)", () => {
 });
 
 describe("agent idea creation via the real shared create policy (#idea-table)", () => {
-  it("stores the owner as reporter and the agent as author, and ignores client severity", async () => {
-    const response = await create(request("POST", { ...validBody, areaId: "area-ui", severity: "critical" }));
+  it("stores the owner as reporter and the agent as author", async () => {
+    const response = await create(request("POST", { ...validBody, areaId: "area-ui" }));
     expect(response.status).toBe(201);
     const data = db.idea.create.mock.calls[0][0].data;
     expect(data).toMatchObject({
@@ -388,8 +386,16 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
     expect(db.idempotencyKey.update).not.toHaveBeenCalled();
   });
 
-  it("defaults the beneficiary to the owner, including when severity is invalid", async () => {
-    expect((await create(request("POST", { ...validBody, severity: { arbitrary: true } }, ""))).status).toBe(201);
+  it("rejects a severity with 422: ideas and issues have none", async () => {
+    for (const severity of ["critical", "medium", { arbitrary: true }]) {
+      expect((await create(request("POST", { ...validBody, severity }))).status).toBe(422);
+    }
+    expect(db.idea.create).not.toHaveBeenCalled();
+    expect(db.idempotencyKey.update).not.toHaveBeenCalled();
+  });
+
+  it("defaults the beneficiary to the owner", async () => {
+    expect((await create(request("POST", validBody, ""))).status).toBe(201);
     expect(db.membership.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId_userId: { tenantId: "tenant-a", userId: "owner-a" } } }));
     expect(db.idea.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ beneficiaryUserId: "owner-a" }) }));
   });
@@ -697,7 +703,6 @@ describe("issue read confirmation", () => {
       status: "open",
       assigneeId: null,
       voteCount: 0,
-      severity: "medium",
       reporterId: "ada",
       beneficiaryUserId: "ada",
       duplicateOfId: null,
@@ -720,7 +725,6 @@ describe("issue read confirmation", () => {
       verdict: "confirm",
       summary: "Reproduced it.",
       description: "Steps and result.",
-      severity: "high",
       duplicateOfId: null,
       agentId: "r1",
       onBehalfOfUserId: "rob",
@@ -743,7 +747,7 @@ describe("issue read confirmation", () => {
   }
 
   it("returns confirmation entries newest-first and confirmed false with no confirms", async () => {
-    const older = confirmation("v-old", "2026-10-19T10:00:00Z", { verdict: "neutral", severity: null });
+    const older = confirmation("v-old", "2026-10-19T10:00:00Z", { verdict: "neutral" });
     const newer = confirmation("v-new", "2026-10-19T12:00:00Z");
     db.bug.findFirst.mockResolvedValue({ ...issue, confirmations: [newer, older] });
     db.issueConfirmation.findMany.mockResolvedValue([]);
@@ -761,7 +765,6 @@ describe("issue read confirmation", () => {
         verdict: true,
         summary: true,
         description: true,
-        severity: true,
         duplicateOfId: true,
         agentId: true,
         onBehalfOfUserId: true,

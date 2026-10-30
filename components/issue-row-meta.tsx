@@ -70,18 +70,6 @@ export function RowAge({ date, sort }: { date: Date; sort: "newest" | "updated" 
   return <ShortTime date={date} label={sort === "newest" ? "Opened" : "Updated"} />;
 }
 
-export function severityPillClass(severity: string): string {
-  switch (severity) {
-    case "critical":
-    case "high":
-      return "border-zk-bad-bd bg-zk-bad-bg text-zk-bad-fg";
-    case "medium":
-      return "border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg";
-    default:
-      return "border-transparent bg-zk-chip text-zk-text2";
-  }
-}
-
 export function statusPillClass(status: string): string {
   switch (status) {
     case "open":

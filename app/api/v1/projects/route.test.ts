@@ -50,7 +50,7 @@ describe("agent project discovery (#607)", () => {
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3,
           }, openIssueCount: 3,
-          rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: { critical: 1800, high: 1200, low: 450, medium: 750 } } },
+          rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: 750 } },
         { id: "project-api", slug: "api", name: "API", goal: null, repoUrl: null, stagingUrl: null,
           workUrl: expect.stringMatching(/\/api\/work$/),
           notesUrl: "/api/v1/projects/project-api/notes", notesCommentsUrl: "/api/v1/projects/project-api/notes/comments",
@@ -59,7 +59,7 @@ describe("agent project discovery (#607)", () => {
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3,
           }, openIssueCount: 0,
-          rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: { critical: 1800, high: 1200, low: 450, medium: 750 } } },
+          rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: 750 } },
       ],
     });
     expect(db.project.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-a" } }));

@@ -50,7 +50,7 @@ function request(method: "GET" | "POST", body?: unknown, { auth = true, path = "
   });
 }
 
-const entry = { verdict: "confirm", summary: "Reproduced it.", description: "Steps and result.", severity: "high" };
+const entry = { verdict: "confirm", summary: "Reproduced it.", description: "Steps and result." };
 
 beforeEach(() => {
   vi.resetAllMocks();

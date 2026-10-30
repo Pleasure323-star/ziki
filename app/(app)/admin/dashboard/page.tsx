@@ -10,7 +10,7 @@ import {
   parseDateRange,
   presetRange,
 } from "@/lib/dashboard-range";
-import { severityLabel, statusLabel } from "@/lib/labels";
+import { statusLabel } from "@/lib/labels";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -81,20 +81,11 @@ export default async function DashboardPage({
 
       <WeeklyChart points={data.weekly} />
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <BreakdownCard
           title="By status"
           rows={data.byStatus.map((s) => ({
             label: statusLabel[s.status as keyof typeof statusLabel] ?? s.status,
-            count: s.count,
-          }))}
-          total={statusTotal}
-        />
-        <BreakdownCard
-          title="By severity"
-          rows={data.bySeverity.map((s) => ({
-            label:
-              severityLabel[s.label as keyof typeof severityLabel] ?? s.label,
             count: s.count,
           }))}
           total={statusTotal}

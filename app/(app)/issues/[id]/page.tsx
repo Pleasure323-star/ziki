@@ -33,7 +33,6 @@ import {
 import { absoluteUrl } from "@/lib/site-url";
 import { SHARE_IMAGE } from "@/lib/share-image";
 import {
-  severityLabels,
   statusLabels,
 } from "@/lib/labels";
 import { ActivityTimeline, type ActivityEntry } from "@/components/activity-timeline";
@@ -98,7 +97,6 @@ import { SubmissionEvidence } from "@/components/submission-evidence";
 import { voteDirection } from "@/lib/voting";
 import {
   issueChipBaseClass,
-  issueSeverityChipClass,
   issueStatusChipClass,
 } from "./issue-ui";
 import "./issue-detail.css";
@@ -219,7 +217,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
   // Unauthenticated link-preview bots get the title and status only (#117).
   // They're recognised by User-Agent, which anyone can fake, so nothing more
-  // sensitive (reporter, severity, description) may appear here.
+  // sensitive (reporter, description) may appear here.
   if (!userId) {
     // A bare number needs the viewer's organisation, so a signed-out preview
     // can only resolve the internal id (#457).
@@ -463,7 +461,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 id: true,
                 updatedAt: true,
                 verdict: true,
-                severity: true,
                 summary: true,
                 agent: { select: { name: true } },
                 onBehalfOf: { select: { name: true } },
@@ -564,7 +561,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     kind: "confirmed",
                     agentName: v.agent?.name ?? v.onBehalfOf.name,
                     personName: v.agent ? v.onBehalfOf.name : "",
-                    severity: v.severity,
                   },
             ),
             ...claims.flatMap<AgentDecision>((c) => {
@@ -962,7 +958,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               <AgentResolvedNotice bugId={bug.id} resolution={agentResolution} canReopen={canUpdateStatus} />
             ) : null}
 
-            {/* Taxonomy (#687). Status, severity, stage and the opened date are in the Status box. */}
+            {/* Taxonomy (#687). Status, stage and the opened date are in the Status box. */}
             {bug.type || bug.category ? (
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-zk-muted">
                 {bug.type ? (
@@ -1158,9 +1154,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.status]}`}>
                 <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
                 {statusLabels[bug.status]}
-              </Badge>
-              <Badge className={`${issueChipBaseClass} ${issueSeverityChipClass[bug.severity]}`}>
-                {severityLabels[bug.severity]}
               </Badge>
               {bug.isBoosted && !bug.isDeleted ? (
                 <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>

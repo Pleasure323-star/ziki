@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
  * reach the project's threshold. The reporter is always the agent's owner
  * (#494). Supply projectId in the query or body and an Idempotency-Key
  * header. Optional categoryId, areaId, typeId, proofLinks, attachmentIds,
- * acknowledgeSimilar. Client severity is ignored.
+ * acknowledgeSimilar.
  */
 export async function POST(request: NextRequest) {
   return agentIssueRequest(request, "ideas.create", "working", null, (agent) => createAgentIdea(agent, request));

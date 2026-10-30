@@ -37,7 +37,7 @@ describe("giveConfirmationAction (#issue-confirmations)", () => {
     giveConfirmation.mockResolvedValue({ replaced: false, confirmed: false, confirmations: 1, confirmationsNeeded: 2 });
   });
 
-  it("gives the entry as the person, in their tenant, with severity on confirm", async () => {
+  it("gives the entry as the person, in their tenant, and sends no severity", async () => {
     expect(await giveConfirmationAction("bug-1", form({ severity: "high" }))).toEqual({
       ok: true,
       replaced: false,
@@ -50,7 +50,7 @@ describe("giveConfirmationAction (#issue-confirmations)", () => {
       { tenantId: "tenant-1", userId: "bob" },
       { tenantId: "tenant-1", projectId: "project-1" },
       "bug-1",
-      { verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps on Chrome.", severity: "high" },
+      { verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps on Chrome." },
     );
     expect(revalidatePath).toHaveBeenCalledWith("/issues");
     expect(revalidatePath).toHaveBeenCalledWith("/issues/7");

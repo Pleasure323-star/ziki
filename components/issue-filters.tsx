@@ -3,8 +3,8 @@
 import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { severities, statuses } from "@/lib/validations/issue";
-import { severityLabel, statusLabel } from "@/lib/labels";
+import { statuses } from "@/lib/validations/issue";
+import { statusLabel } from "@/lib/labels";
 import { FINISHED_STATUS_FILTER, statusFilterLabel } from "@/lib/issue-state";
 import {
   BUG_SORT_OPTIONS,
@@ -80,7 +80,6 @@ const FILTER_PARAMS = [
   TAGS_PARAM,
   "mine",
   "status",
-  "severity",
   PLATFORM_PARAM,
   AREA_PARAM,
   "sort",
@@ -397,7 +396,6 @@ export function IssueFilters({
   const activeFilterCount = [
     Boolean(currentStage),
     Boolean(params.get("status")),
-    Boolean(params.get("severity")),
     Boolean(currentMine),
     selectedNames.length > 0,
     currentPlatform === PLATFORM_NONE,
@@ -595,13 +593,6 @@ export function IssueFilters({
                     </FilterSelect>
                   </div>
                   <div>
-                    <label htmlFor="severity" className={fieldLabelClass}>Severity</label>
-                    <FilterSelect aria-label="Severity" id="severity" className={selectClass} value={params.get("severity") ?? ""} onValueChange={(value) => update("severity", value)}>
-                      <option value="">All</option>
-                      {severities.map((severity) => (<option key={severity} value={severity}>{severityLabel[severity]}</option>))}
-                    </FilterSelect>
-                  </div>
-                  <div>
                     <label htmlFor="category" className={fieldLabelClass}>Category</label>
                     <FilterSelect aria-label="Category" id="category" className={selectClass} value={selectedNames[0] ?? ""} onValueChange={(value) => update(TAGS_PARAM, serializeTags([value]))}>
                       <option value="">All</option>
@@ -694,12 +685,6 @@ export function IssueFilters({
             <span className="inline-flex items-center gap-1 rounded-full border border-transparent bg-zk-ok-bg py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-ok-fg">
               Status: {statusFilterLabel(params.get("status") ?? "")}
               <button type="button" onClick={() => update("status", "")} aria-label="Remove status filter" className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
-            </span>
-          ) : null}
-          {params.get("severity") ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-zk-warn-bd bg-zk-warn-bg py-0.5 pl-2.5 pr-1.5 text-xs font-bold text-zk-warn-fg">
-              Severity: {severityLabel[params.get("severity") as keyof typeof severityLabel] ?? params.get("severity")}
-              <button type="button" onClick={() => update("severity", "")} aria-label="Remove severity filter" className="ml-0.5 rounded-full p-0.5 hover:bg-zk-chip">✕</button>
             </span>
           ) : null}
           {selectedTags.map((type) => (

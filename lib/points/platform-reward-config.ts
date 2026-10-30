@@ -13,12 +13,7 @@ import {
 } from "./rules";
 
 const hardCodedValues = {
-  solver: {
-    low: SOLVER_POINTS.low,
-    medium: SOLVER_POINTS.medium,
-    high: SOLVER_POINTS.high,
-    critical: SOLVER_POINTS.critical,
-  },
+  solver: SOLVER_POINTS,
   reporter: REPORTER_POINTS,
   reviewer: REVIEWER_POINTS,
   confirmationReviewer: CONFIRMATION_REVIEWER_POINTS,
@@ -31,14 +26,7 @@ const hardCodedValues = {
 
 export const platformRewardConfigSchema = z
   .object({
-    solver: z
-      .object({
-        low: z.coerce.number().int().min(0).max(POINT_AWARD_MAX),
-        medium: z.coerce.number().int().min(0).max(POINT_AWARD_MAX),
-        high: z.coerce.number().int().min(0).max(POINT_AWARD_MAX),
-        critical: z.coerce.number().int().min(0).max(POINT_AWARD_MAX),
-      })
-      .default({ ...hardCodedValues.solver }),
+    solver: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(SOLVER_POINTS),
     reporter: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(REPORTER_POINTS),
     reviewer: z.coerce.number().int().min(0).max(POINT_AWARD_MAX).default(REVIEWER_POINTS),
     confirmationReviewer: z.coerce
@@ -60,7 +48,7 @@ export type PlatformRewardConfig = z.infer<typeof platformRewardConfigSchema>;
 /** Hard-coded ledger amounts — ultimate fallback when DB config is missing. */
 export function hardCodedPlatformRewards(): PlatformRewardConfig {
   return {
-    solver: { ...hardCodedValues.solver },
+    solver: hardCodedValues.solver,
     reporter: hardCodedValues.reporter,
     reviewer: hardCodedValues.reviewer,
     confirmationReviewer: hardCodedValues.confirmationReviewer,
@@ -87,12 +75,7 @@ export function parsePlatformRewardConfigFromFormData(formData: FormData): Platf
     return Number.isFinite(value) ? value : fallback;
   };
   return platformRewardConfigSchema.parse({
-    solver: {
-      low: num("solverPointsLow", hard.solver.low),
-      medium: num("solverPointsMedium", hard.solver.medium),
-      high: num("solverPointsHigh", hard.solver.high),
-      critical: num("solverPointsCritical", hard.solver.critical),
-    },
+    solver: num("solverPoints", hard.solver),
     reporter: num("reporterPoints", hard.reporter),
     reviewer: num("reviewerPoints", hard.reviewer),
     confirmationReviewer: num("confirmationReviewerPoints", hard.confirmationReviewer),

@@ -63,7 +63,7 @@ describe("GET /issues/export", () => {
 
     const text = await res.text();
     // Headers row
-    expect(text).toContain("id,title,status,severity,type,platform,area,reporter,assignee,importance,boosted,created_at,updated_at");
+    expect(text).toContain("id,title,status,type,platform,area,reporter,assignee,importance,boosted,created_at,updated_at");
   });
 
   it("streams rows matching query", async () => {
@@ -72,7 +72,6 @@ describe("GET /issues/export", () => {
         id: "bug-1",
         title: "Button broken",
         status: "open",
-        severity: "high",
         voteCount: 5,
         isBoosted: false,
         createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -89,7 +88,7 @@ describe("GET /issues/export", () => {
     const res = await GET(req);
     const text = await res.text();
 
-    expect(text).toContain("bug-1,Button broken,Open,High,Bug,Web,Frontend,Alice,Bob,5,false");
+    expect(text).toContain("bug-1,Button broken,Open,Bug,Web,Frontend,Alice,Bob,5,false");
   });
 
   it("applies the selected project area to exports", async () => {
@@ -113,7 +112,6 @@ describe("GET /issues/export?format=json (#664)", () => {
       id,
       title: `Title with "quotes", commas\nand a newline ${id}`,
       status: "in_progress",
-      severity: "high",
       voteCount: 5,
       isBoosted: true,
       createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -150,7 +148,6 @@ describe("GET /issues/export?format=json (#664)", () => {
           id: "bug-1",
           title: 'Title with "quotes", commas\nand a newline bug-1',
           status: "in_progress",
-          severity: "high",
           type: "Bug",
           platform: null,
           area: null,

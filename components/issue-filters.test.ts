@@ -117,7 +117,6 @@ describe("IssueFilters clear all filters (#336)", () => {
       "tags=Design",
       "mine=assigned",
       "status=open",
-      "severity=high",
       "platform=none",
       "area=area-web",
       "milestone=m1",
@@ -127,6 +126,12 @@ describe("IssueFilters clear all filters (#336)", () => {
       const html = await renderFilters(params);
       expect(html, params).toContain("Clear all filters");
     }
+  });
+
+  it("has no severity filter, so a severity param offers nothing to clear", async () => {
+    const html = await renderFilters("severity=high");
+    expect(html).not.toContain("Clear all filters");
+    expect(html).not.toMatch(/severity/i);
   });
 
   it("hides the button when only paging is set", async () => {

@@ -50,7 +50,6 @@ describe("sweepPendingBids - Direct Fair Bid Auto-Assignment", () => {
     tenantId: "tenant-zedu",
     projectId: "proj-web",
     reporterId: "user-reporter",
-    severity: "high",
     voteCount: 5,
     claims: [] as { offeredAt: Date | null }[],
   };

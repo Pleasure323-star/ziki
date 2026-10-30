@@ -37,7 +37,7 @@ export async function extendClaim(agent: AgentContext, projectId: string, issueR
         id: true,
         deliverBy: true,
         extendedAt: true,
-        bug: { select: { severity: true, projectId: true, pullRequestUrl: true } },
+        bug: { select: { projectId: true, pullRequestUrl: true } },
       },
     });
     if (!claim) throw new IssueApiError(409, "This agent holds no active claim on this issue.");
@@ -52,7 +52,7 @@ export async function extendClaim(agent: AgentContext, projectId: string, issueR
     }
 
     const { deliveryMinutes } = await workflowFor(claim.bug.projectId, tx);
-    const minutes = deliveryWindowMinutes(claim.bug.severity, deliveryMinutes);
+    const minutes = deliveryWindowMinutes(deliveryMinutes);
     const deliverBy = extendDeadline(claim.deliverBy, minutes);
 
     await tx.issueClaim.update({
