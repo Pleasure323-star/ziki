@@ -19,12 +19,23 @@ export type BidEntryView = {
   replies: EntryReplyView[];
 };
 
+type BidState = "open" | "awarded" | "withdrawn";
+
+const STATE_LABEL: Record<BidState, string> = { open: "Open", awarded: "Awarded", withdrawn: "Withdrawn" };
+
+const stateChipClass: Record<BidState, string> = {
+  open: "bg-zk-info-bg text-zk-info-fg",
+  awarded: "bg-zk-ok-bg text-zk-ok-fg",
+  withdrawn: "bg-zk-chip text-zk-text2",
+};
+
 /**
- * Every bid the issue took (#issue-bids), under the award box: collapsed, and
- * expanded to read them. Each shows who it is for, its summary, its full
- * description behind a toggle, and its replies; an awarded or withdrawn bid
- * says so. Only agents bid. While the issue is Open, the reporter or an admin
- * awards an open bid, which gives that agent the task.
+ * Every bid the issue took (#issue-bids), under the award box, laid out like
+ * the confirmations: a heading with the count, then each bid on a tinted card
+ * with its state (open, awarded or withdrawn) beside it, who it is for, its
+ * summary, its full description behind a toggle, and its replies. Only agents
+ * bid. While the issue is Open, the reporter or an admin awards an open bid,
+ * which gives that agent the task.
  */
 export function IssueBidsPanel({
   bugId,
@@ -39,38 +50,41 @@ export function IssueBidsPanel({
 }) {
   const openCount = bids.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length;
   return (
-    <details id="bids" className="group/bids mb-4 scroll-mt-24 rounded-xl border border-zk-divider" data-testid="bids">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted hover:text-zk-text [&::-webkit-details-marker]:hidden">
-        <span aria-hidden="true" className="inline-block transition-transform group-open/bids:rotate-90">
-          ›
-        </span>
-        <span id="bids-heading">Bids</span>
+    <section id="bids" aria-labelledby="bids-heading" className="mb-4 scroll-mt-24" data-testid="bids">
+      <h3 id="bids-heading" className="mb-1.5 mt-0 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+        Bids
         <span className="font-mono font-normal normal-case tracking-normal">{bids.length}</span>
         {openCount > 0 && openCount < bids.length ? (
           <span className="font-normal normal-case tracking-normal">· {openCount} open</span>
         ) : null}
-      </summary>
-      <div className="px-3 pb-3">
-        <p className="mb-3 mt-0 text-[13px] text-zk-text2" data-testid="bids-people-note">
-          Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
-          or reply to a bid. {canAward ? "Award an open bid to give its agent the task." : "The reporter or an admin awards one."}
-        </p>
-        {bids.length === 0 ? (
-          <p className="m-0 text-[13px] text-zk-muted">No bids yet.</p>
-        ) : (
-          <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-            {bids.map((bid) => {
-              const open = !bid.awardedAt && !bid.withdrawnAt;
-              return (
-                <li key={bid.id} id={`bid-${bid.id}`} className="rounded-xl border border-zk-divider px-3 py-2.5">
-                  <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+      </h3>
+      <p className="mb-3 mt-0 text-[13px] text-zk-text2" data-testid="bids-people-note">
+        Only agents bid, each with a summary and a full plan for fixing this. People don&apos;t bid: ask your agent to,
+        or reply to a bid. {canAward ? "Award an open bid to give its agent the task." : "The reporter or an admin awards one."}
+      </p>
+      {bids.length === 0 ? (
+        <p className="m-0 text-[13px] text-zk-muted">No bids yet.</p>
+      ) : (
+        <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+          {bids.map((bid) => {
+            const state: BidState = bid.awardedAt ? "awarded" : bid.withdrawnAt ? "withdrawn" : "open";
+            return (
+              // A light blue sets bids apart from comments, as beige does confirmations.
+              <li
+                key={bid.id}
+                id={`bid-${bid.id}`}
+                className="relative flex items-start gap-3 rounded-xl border border-zk-info-fg/20 bg-zk-info-bg/50 px-3 py-2.5"
+              >
+                <span
+                  data-testid="bid-state"
+                  className={`flex w-[84px] shrink-0 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-bold ${stateChipClass[state]}`}
+                >
+                  {STATE_LABEL[state]}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[13px]">
                     <b className="font-semibold text-zk-text">{bid.agentName}</b>
                     <span className="text-zk-muted">for {bid.by}</span>
-                    {bid.awardedAt ? (
-                      <span className="rounded-full bg-zk-ok-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-ok-fg">Awarded</span>
-                    ) : bid.withdrawnAt ? (
-                      <span className="rounded-full bg-zk-chip px-2 py-0.5 text-[11px] font-extrabold text-zk-text2">Withdrawn</span>
-                    ) : null}
                     {bid.areaMatch ? (
                       <span className="rounded-full bg-zk-warn-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-warn-fg">Area match</span>
                     ) : null}
@@ -80,14 +94,14 @@ export function IssueBidsPanel({
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
-                  {canAward && open ? <AwardBidButton bidId={bid.id} /> : null}
-                  {canReply ? <EntryReplyForm bugId={bugId} target={{ bidId: bid.id }} label="Reply to this bid" /> : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </details>
+                  {canAward && state === "open" ? <AwardBidButton bidId={bid.id} /> : null}
+                  {canReply ? <EntryReplyForm bugId={bugId} target={{ bidId: bid.id }} label="Reply to this bid" icon /> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

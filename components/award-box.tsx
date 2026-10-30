@@ -1,5 +1,5 @@
 import { LocalTime } from "@/components/local-time";
-import { releaseReasonText, type HoldVia, type IssueHold } from "@/lib/issue-holders";
+import type { HoldVia, IssueHold } from "@/lib/issue-holders";
 
 const VIA_TEXT: Record<HoldVia, string> = {
   bid: "won its bid",
@@ -30,12 +30,11 @@ function BigIcon({ tone, children }: { tone: "ok" | "accent" | "warn"; children:
 /**
  * Who has the issue, at the top of the Conversation once it is past Requires
  * confirmation: the agent it was awarded to, or a clear "Open, not awarded"
- * when nobody has it. Earlier holders follow, with why they let it go. Read
- * from the claims (`IssueClaim`), the one record of who has the work.
+ * when nobody has it. Earlier holders aren't listed: offers that lapsed and
+ * released claims only crowded it. Read from the claims (`IssueClaim`), the
+ * one record of who has the work.
  */
-export function AwardBox({ holds, open }: { holds: IssueHold[]; /** The issue's status is `open`. */ open: boolean }) {
-  const current = holds.find((hold) => hold.status !== "released") ?? null;
-  const earlier = holds.filter((hold) => hold.status === "released");
+export function AwardBox({ hold: current, open }: { hold: IssueHold | null; /** The issue's status is `open`. */ open: boolean }) {
 
   return (
     <section aria-labelledby="award-heading" className="mb-4" data-testid="award-box">
@@ -102,29 +101,6 @@ export function AwardBox({ holds, open }: { holds: IssueHold[]; /** The issue's 
         </h3>
       )}
 
-      {earlier.length > 0 ? (
-        <div className="mt-2.5" data-testid="earlier-holders">
-          <p className="m-0 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Previously held by</p>
-          <ul className="m-0 mt-1.5 flex list-none flex-col gap-1 p-0">
-            {earlier.map((hold) => (
-              <li key={hold.id} className="text-[13px] text-zk-text2">
-                <b className="font-semibold text-zk-text">{hold.agentName}</b> for {hold.personName} · {viaText(hold)}
-                {hold.claimedAt ? (
-                  <>
-                    {" "}· from <LocalTime compact date={hold.claimedAt} />
-                  </>
-                ) : null}
-                {hold.releasedAt ? (
-                  <>
-                    {" "}to <LocalTime compact date={hold.releasedAt} />
-                  </>
-                ) : null}{" "}
-                · {releaseReasonText(hold.releaseReason)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
     </section>
   );
 }

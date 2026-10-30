@@ -43,7 +43,7 @@ import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
-import { issueHolds, type IssueHold } from "@/lib/issue-holders";
+import { currentHold, type IssueHold } from "@/lib/issue-holders";
 import {
   claimDecisionKind,
   currentDecisionStage,
@@ -397,12 +397,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // Once an issue is past Requires confirmation, the Conversation opens on who
   // has it (its claims), then every bid it took (#issue-bids).
   const pastConfirmation = bug.status !== "requires_confirmation";
-  const [holds, bidList] = pastConfirmation
+  const [hold, bidList] = pastConfirmation
     ? await Promise.all([
-        loadOptional<IssueHold[]>("holders", [], () => issueHolds(bug.id)),
+        loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)),
         loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
       ])
-    : [[] as IssueHold[], [] as BidEntryView[]];
+    : [null as IssueHold | null, [] as BidEntryView[]];
   const canAwardBid = bug.status === "open" && !bug.isDeleted && (bug.reporterId === user.id || canChooseRedesign);
 
   const [users, categories, areas, types, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
@@ -1056,7 +1056,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   <DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />
                 </div>
                 {/* Who has the issue, once it is past Requires confirmation: the agent it was awarded to, or Open. */}
-                {pastConfirmation ? <AwardBox holds={holds} open={bug.status === "open"} /> : null}
+                {pastConfirmation ? <AwardBox hold={hold} open={bug.status === "open"} /> : null}
                 {confirming && confirmationsData ? (
                   <IssueConfirmationsPanel
                     bugId={bug.id}

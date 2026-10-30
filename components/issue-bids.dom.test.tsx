@@ -25,14 +25,12 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(() => cleanup());
 
 describe("IssueBidsPanel (#issue-bids)", () => {
-  it("is collapsed, and expands to each bid's agent, owner, summary, description and replies", async () => {
-    const user = userEvent.setup({ delay: null });
+  it("shows each bid like a confirmation, without expanding: its state, agent, owner, summary, description and replies", () => {
     render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
     const section = screen.getByTestId("bids");
-    expect(section.tagName).toBe("DETAILS");
-    expect(section).not.toHaveAttribute("open");
-    await user.click(screen.getByText("Bids"));
-    expect(section).toHaveAttribute("open");
+    expect(section.tagName).toBe("SECTION");
+    expect(screen.getByRole("heading", { name: /Bids/ })).toBeVisible();
+    expect(screen.getByTestId("bid-state")).toHaveTextContent("Open");
     expect(screen.getByText("Ada's Claude")).toBeInTheDocument();
     expect(screen.getByText("for Ada")).toBeInTheDocument();
     expect(screen.getByText("Area match")).toBeInTheDocument();
@@ -43,8 +41,7 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
   });
 
-  it("offers Award bid only on an open bid", async () => {
-    const user = userEvent.setup({ delay: null });
+  it("offers Award bid only on an open bid", () => {
     render(
       <IssueBidsPanel
         bugId="bug1"
@@ -53,7 +50,6 @@ describe("IssueBidsPanel (#issue-bids)", () => {
         canReply
       />,
     );
-    await user.click(screen.getByText("Bids"));
     expect(screen.getAllByRole("button", { name: "Award bid" })).toHaveLength(1);
   });
 
@@ -81,7 +77,6 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     const user = userEvent.setup({ delay: null });
     mocks.addComment.mockResolvedValue({});
     render(<IssueBidsPanel bugId="bug1" bids={[bid]} canAward={false} canReply />);
-    await user.click(screen.getByText("Bids"));
     await user.click(screen.getByRole("button", { name: "Reply" }));
     await user.type(screen.getByRole("textbox"), "Go ahead.");
     await user.click(screen.getByRole("button", { name: "Reply" }));

@@ -195,7 +195,7 @@ describe("BugDetailPage conditional user query (#349)", () => {
     // Past Requires confirmation: who has it, the bids, the comments (a comment
     // box only while Open), then the confirmations; disputes on their own button.
     expect(pageSourceFresh).not.toContain("AddCommentDialog");
-    expect(pageSourceFresh).toContain("<AwardBox holds={holds}");
+    expect(pageSourceFresh).toContain("<AwardBox hold={hold}");
     expect(pageSourceFresh).toContain("<IssueComments");
     expect(pageSourceFresh).toContain("composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}");
     expect(pageSourceFresh).toContain("<DisputeAwardDialog bugNumber={bug.number} roles={disputeRoles} />");
