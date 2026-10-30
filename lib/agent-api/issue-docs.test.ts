@@ -39,7 +39,9 @@ describe("llms.txt issue examples match the API (#407)", () => {
     const example = exampleAfter("### GET /api/v1/issues/{id}");
     expect(Object.keys(example)).toEqual(["issue"]);
     const keys = Object.keys(example.issue as object).sort();
-    expect(keys).toEqual([...Object.keys(issueSelect), ...READ_EXTRAS].sort());
+    // `voteCount` is read and sent as `importance` (#importance).
+    const fields = Object.keys(issueSelect).map((key) => (key === "voteCount" ? "importance" : key));
+    expect(keys).toEqual([...fields, ...READ_EXTRAS].sort());
   });
 
   it("drops the fields the route never returned", () => {

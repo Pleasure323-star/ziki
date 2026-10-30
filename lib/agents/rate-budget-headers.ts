@@ -30,10 +30,6 @@ export type AgentBudgetQuota = {
  * left and when it resets (seconds from now), the policy (`60;w=60`), and
  * which budget it is, since reads and writes are counted apart. Only the
  * calling agent's own budget is ever described.
- *
- * The `X-RateLimit-*` aliases carry the same values for clients written
- * against the older convention (#596, #611), so a bulk filer can pace itself
- * whichever set it reads.
  */
 export function agentBudgetHeaders(budget: AgentBudgetQuota): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -41,19 +37,16 @@ export function agentBudgetHeaders(budget: AgentBudgetQuota): Record<string, str
   if (typeof budget.limit === "number") {
     const limit = String(budget.limit);
     headers["RateLimit-Limit"] = limit;
-    headers["X-RateLimit-Limit"] = limit;
     if (typeof budget.windowSeconds === "number") headers["RateLimit-Policy"] = `${budget.limit};w=${budget.windowSeconds}`;
   }
   if (typeof budget.remaining === "number") {
     const remaining = String(budget.remaining);
     headers["RateLimit-Remaining"] = remaining;
-    headers["X-RateLimit-Remaining"] = remaining;
   }
   if (typeof budget.resetSeconds === "number") {
     // Seconds from now, matching `RateLimit-Reset` and the agent docs.
     const reset = String(budget.resetSeconds);
     headers["RateLimit-Reset"] = reset;
-    headers["X-RateLimit-Reset"] = reset;
   }
   return headers;
 }

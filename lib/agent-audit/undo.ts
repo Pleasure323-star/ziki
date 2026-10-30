@@ -15,7 +15,7 @@ import { isConfirmed } from "@/lib/agent-api/confirmations";
  * the agent on the row being undone.
  *
  * Supported reversible actions:
- * - `issue.validated` — an agent's confirmation entry: it stops counting,
+ * - `issue.confirmation` — an agent's confirmation entry: it stops counting,
  *   the severity it set is restored, the issue goes back to Requires
  *   confirmation if it is no longer confirmed, and the reporter points the
  *   confirmation awarded are reversed.
@@ -138,7 +138,7 @@ export async function undoAuditEvent(
     }
 
     switch (event.action) {
-      case "issue.validated":
+      case "issue.confirmation":
         return undoConfirmation(tx, event);
       default:
         return { ok: true, message: "Action marked undone." };
@@ -147,9 +147,8 @@ export async function undoAuditEvent(
 }
 
 /**
- * Reverse an `issue.validated` audit event: the agent's confirmation entry
- * (#issue-confirmations; events from before keep the entry's id as
- * `validationId`). The entry stays, marked undone, so it stops counting; it
+ * Reverse an `issue.confirmation` audit event: the agent's confirmation entry
+ * (#issue-confirmations). The entry stays, marked undone, so it stops counting; it
  * restores the severity it set, reverses the reporter points if it confirmed
  * the issue, and an Open issue that is no longer confirmed goes back to
  * Requires confirmation. If the entry was given again since, the newer entry
@@ -158,11 +157,10 @@ export async function undoAuditEvent(
 async function undoConfirmation(tx: Db, event: AuditEvent): Promise<UndoResult> {
   const payload = (event.payload as {
     confirmationId?: string;
-    validationId?: string;
     entryAt?: string;
     confirmed?: boolean;
   } | null) ?? {};
-  const confirmationId = payload.confirmationId ?? payload.validationId;
+  const confirmationId = payload.confirmationId;
   if (!confirmationId) {
     return { ok: true, message: "Confirmation marked undone." };
   }

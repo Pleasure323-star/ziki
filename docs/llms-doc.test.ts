@@ -12,12 +12,11 @@ describe("llms.txt accuracy", () => {
     expect(doc).not.toContain("satisfies the acceptance criteria");
   });
 
-  it("documents the offer → accept flow and retires /claim (#554)", () => {
+  it("documents the offer → accept flow (#554)", () => {
     expect(doc).toContain("/api/v1/issues/{id}/offer");
     expect(doc).toContain("/api/v1/offers/{id}/accept");
     expect(doc).toMatch(/30 min|30 minutes|1800 s|1800 seconds/i);
     expect(doc).toContain("410");
-    expect(doc).toMatch(/does not spend|do not spend|no write budget|without spending/i);
   });
 
   it("documents the heartbeat call that works as written (#560)", () => {
@@ -91,14 +90,12 @@ describe("llms.txt accuracy", () => {
       "That agent key is not valid. Send it as Authorization: Bearer <key>.",
       "That agent key has been revoked.",
       "Waiting for your owner to approve the code.",
-      "use_ideas",
       "idea_converted",
       "below_threshold",
       "This issue has a pending offer.",
       "This person already has the maximum number of active tasks.",
       "Accept an offer or have your bid awarded before linking a fix.",
       "The delivery deadline has passed.",
-      "Direct claims are gone",
       "You're doing that too fast. Please wait a moment.",
       "No such API route. See /llms.txt.",
       "Method not allowed.",

@@ -116,11 +116,10 @@ describe("numeric bid route references (#587)", () => {
     expect(mocks.placeBid).not.toHaveBeenCalled();
   });
 
-  it("says note was replaced when an old client sends one", async () => {
+  it("refuses a bid without a summary and description", async () => {
     const response = await POST(request("POST", { note: "Plan" }), context);
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.field).toBe("note");
     expect(body.message).toContain("summary");
     expect(mocks.placeBid).not.toHaveBeenCalled();
   });

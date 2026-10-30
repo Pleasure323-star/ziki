@@ -29,7 +29,6 @@ import { GET as list, POST as createIssue } from "@/app/api/v1/issues/route";
 import { POST as create } from "@/app/api/v1/ideas/route";
 import { GET as read } from "@/app/api/v1/issues/[id]/route";
 import { POST as comment, GET as comments } from "@/app/api/v1/issues/[id]/comments/route";
-import { POST as claim } from "@/app/api/v1/issues/[id]/claim/route";
 import { encodeCursor, hashCreateRequest } from "./create-policy";
 import { PROJECT_ID_REQUIRED } from "./issues";
 
@@ -96,13 +95,12 @@ beforeEach(() => {
 });
 
 describe("agent issue API authentication", () => {
-  it.each(["working", "manager", "merger"] as const)("lets a %s agent read, comment and file ideas; direct claims stay retired", async (level) => {
+  it.each(["working", "manager", "merger"] as const)("lets a %s agent read, comment and file ideas", async (level) => {
     const key = await db.agentApiKey.findUnique();
     db.agentApiKey.findUnique.mockResolvedValue({ ...key, agent: { ...key.agent, level } });
     expect((await list(request())).status).toBe(200);
     expect((await comment(request("POST", { bidId: "bid-a", body: "Role-scoped assessment" }), context)).status).toBe(201);
     expect((await create(request("POST", validBody))).status).toBe(201);
-    expect((await claim(request("POST", {}), context)).status).toBe(410);
     expect(db.idea.create).toHaveBeenCalledTimes(1);
     expect(db.bug.create).not.toHaveBeenCalled();
   });
@@ -150,9 +148,8 @@ describe("agent issue API authentication", () => {
   });
 
   it("files no issue directly: issues are made by converting an idea (#idea-table)", async () => {
-    const response = await createIssue();
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ code: "use_ideas" });
+    const response = await createIssue(request("POST", validBody));
+    expect(response.status).toBe(405);
     expect(db.bug.create).not.toHaveBeenCalled();
   });
 
@@ -164,9 +161,8 @@ describe("agent issue API authentication", () => {
     expect(ok.headers.get("ratelimit-remaining")).toBe("412");
     expect(ok.headers.get("ratelimit-reset")).toBe("1800");
     expect(ok.headers.get("ratelimit-policy")).toBe("600;w=3600");
-    expect(ok.headers.get("x-ratelimit-limit")).toBe("600");
-    expect(ok.headers.get("x-ratelimit-remaining")).toBe("412");
-    expect(ok.headers.get("x-ratelimit-reset")).toBe("1800");
+    expect(ok.headers.get("ratelimit-limit")).toBe("600");
+    expect(ok.headers.get("x-ratelimit-limit")).toBeNull();
 
     budget.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 90, kind: "write", limit: 30, windowSeconds: 3600, remaining: 0, resetSeconds: 90 });
     const limited = await create(request("POST", validBody));
@@ -174,28 +170,20 @@ describe("agent issue API authentication", () => {
     expect(limited.headers.get("ratelimit-budget")).toBe("write");
     expect(limited.headers.get("ratelimit-remaining")).toBe("0");
     expect(await limited.json()).toMatchObject({ budget: "write", limit: 30, resetSeconds: 90 });
-    expect(limited.headers.get("x-ratelimit-limit")).toBe("30");
-    expect(limited.headers.get("x-ratelimit-remaining")).toBe("0");
-    expect(limited.headers.get("x-ratelimit-reset")).toBe("90");
+    expect(limited.headers.get("ratelimit-limit")).toBe("30");
+    expect(limited.headers.get("ratelimit-remaining")).toBe("0");
+    expect(limited.headers.get("ratelimit-reset")).toBe("90");
   });
 
   it("keeps the quota headers when a charged request fails validation (#596)", async () => {
     budget.mockResolvedValueOnce({ allowed: true, kind: "write", limit: 30, windowSeconds: 3600, remaining: 29, resetSeconds: 3000 });
     const invalid = await create(request("POST", {}));
     expect([400, 422]).toContain(invalid.status);
-    expect(invalid.headers.get("x-ratelimit-limit")).toBe("30");
-    expect(invalid.headers.get("x-ratelimit-remaining")).toBe("29");
-    expect(invalid.headers.get("x-ratelimit-reset")).toBe("3000");
+    expect(invalid.headers.get("ratelimit-limit")).toBe("30");
+    expect(invalid.headers.get("ratelimit-remaining")).toBe("29");
+    expect(invalid.headers.get("ratelimit-reset")).toBe("3000");
   });
 
-  it("retires direct claims with 410 and without spending the write budget (#554)", async () => {
-    db.project.findFirst.mockResolvedValue({ id: "project-a" });
-    const response = await claim(request("POST", { projectId: "project-a" }), context);
-    expect(response.status).toBe(410);
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toContain("/api/v1/issues/{id}/offer");
-    expect(budget).not.toHaveBeenCalled();
-  });
 });
 
 describe("agent issue reads", () => {

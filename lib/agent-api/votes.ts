@@ -24,9 +24,6 @@ export const importanceSchema = z.object({
 /** Removing a mark takes no reason; the body is optional. */
 export const removeImportanceSchema = z.object({ projectId: id.optional() }).strict();
 
-/** @deprecated The old name, kept for the `/vote` alias. */
-export const voteSchema = importanceSchema;
-
 export type ImportanceReason = { summary: string; description: string };
 
 /** What a bare mark, or one with a bad reason, is told. */
@@ -36,11 +33,10 @@ export const IMPORTANCE_REASON_REQUIRED =
 type Tx = Prisma.TransactionClient;
 
 export type AgentVoteResult = {
-  voted: boolean;
-  /** The issue's importance after the call (same number as `voteCount`). */
+  /** The owner has a mark on the issue after the call. */
+  important: boolean;
+  /** The issue's importance after the call. */
   importance: number;
-  /** @deprecated Use `importance`. */
-  voteCount: number;
   /** True when this call changed the owner's vote. A repeat is false. */
   changed: boolean;
   /** How many upvotes the owner's vote counts as; 0 when there is none. */
@@ -115,7 +111,7 @@ export async function upvoteIssue(
     ) {
       const current = await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } });
       const count = current?.voteCount ?? 0;
-      return { voted: true, importance: count, voteCount: count, changed: false, weight };
+      return { important: true, importance: count, changed: false, weight };
     }
     const data = { value: weight, agentId: caller.agentId, summary, description };
     if (existing) {
@@ -123,17 +119,17 @@ export async function upvoteIssue(
     } else {
       await tx.vote.create({ data: { userId: caller.ownerId, bugId, ...data } });
     }
-    const voteCount = existing?.value === weight
+    const importance = existing?.value === weight
       ? (await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } }))?.voteCount ?? 0
       : await recount(tx, bugId);
     await publish(tx, {
       tenantId: caller.tenantId,
-      type: "issue.voted",
+      type: "issue.importance",
       actorAgentId: caller.agentId,
       bugId,
-      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance: voteCount, voteCount, voted: true, weight, summary },
+      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance, important: true, weight, summary },
     });
-    return { voted: true, importance: voteCount, voteCount, changed: true, weight };
+    return { important: true, importance, changed: true, weight };
   });
 }
 
@@ -151,17 +147,17 @@ export async function removeUpvote(
     if (!existing) {
       const issue = await tx.bug.findUnique({ where: { id: bugId }, select: { voteCount: true } });
       const count = issue?.voteCount ?? 0;
-      return { voted: false, importance: count, voteCount: count, changed: false, weight: 0 };
+      return { important: false, importance: count, changed: false, weight: 0 };
     }
     await tx.vote.delete({ where: { id: existing.id } });
-    const voteCount = await recount(tx, bugId);
+    const importance = await recount(tx, bugId);
     await publish(tx, {
       tenantId: caller.tenantId,
-      type: "issue.voted",
+      type: "issue.importance",
       actorAgentId: caller.agentId,
       bugId,
-      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance: voteCount, voteCount, voted: false },
+      payload: { issueId: bugId, projectId, userId: caller.ownerId, importance, important: false },
     });
-    return { voted: false, importance: voteCount, voteCount, changed: true, weight: 0 };
+    return { important: false, importance, changed: true, weight: 0 };
   });
 }

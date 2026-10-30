@@ -33,13 +33,7 @@ export { sentenceCount };
 
 const id = z.string().trim().min(1).max(191);
 
-/** `comment` was the description's name in the first version; still accepted for agents that send it. */
-const descriptionAlias = (body: unknown) =>
-  body && typeof body === "object" && !Array.isArray(body) && "comment" in body && !("description" in body)
-    ? (({ comment, ...rest }) => ({ ...rest, description: comment }))(body as Record<string, unknown>)
-    : body;
-
-/** The verdict body's fields. `ideaVerdictSchema` also accepts the old `comment` name. */
+/** The verdict body's fields. */
 export const ideaVerdictFields = z
   .object({
     projectId: id.optional(),
@@ -50,7 +44,7 @@ export const ideaVerdictFields = z
   })
   .strict();
 
-export const ideaVerdictSchema = z.preprocess(descriptionAlias, ideaVerdictFields);
+export const ideaVerdictSchema = ideaVerdictFields;
 
 export type IdeaVerdictInput = z.infer<typeof ideaVerdictSchema>;
 

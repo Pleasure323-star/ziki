@@ -33,28 +33,24 @@ describe("working on issues together", () => {
   });
 
   it("waits for confirmation before taking bids", async () => {
-    await refused("bob", "volunteer", { id, summary: "Too early.", description: "Not confirmed yet." }, 409);
+    await refused("bob", "bid", { id, summary: "Too early.", description: "Not confirmed yet." }, 409);
   });
 
   it("takes bids once the issue is ready (converted and confirmed): summary and description required, a new bid replaces, replies and withdraw work", async () => {
     await confirm(id, ["ada", "bob"]);
     // A confirmed issue is not offered automatically, so it is open to bids.
     expect(await offeredTo(id)).toBeNull();
-    // A bare bid is refused: every entry explains itself. The retired interest route points to bids.
+    // A bare bid is refused: every entry explains itself.
     const { projectId } = (await ok("eli", "get-issue", { id })).issue;
-    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/bid?projectId=${projectId}`, "--body", JSON.stringify({ note: "I can fix this today." }), "--as", "eli");
+    const bare = await ziki("request", "POST", `/api/v1/issues/${id}/bid?projectId=${projectId}`, "--body", JSON.stringify({}), "--as", "eli");
     expect(bare.code).toBe(1);
     expect(bare.json?.status).toBe(400);
     expect(bare.out + bare.err).toMatch(/summary/);
-    const gone = await ziki("request", "POST", `/api/v1/issues/${id}/interest?projectId=${projectId}`, "--body", JSON.stringify({ note: "Happy to take this." }), "--as", "bob");
-    expect(gone.code).toBe(1);
-    expect(gone.json?.status).toBe(410);
-    expect(gone.out + gone.err).toMatch(/\/bid/);
-    const bid = await ok("eli", "volunteer", { id, summary: "I can fix this today.", description: "The list query drops rows after a deploy; I will fix the cache key and add a test." });
+    const bid = await ok("eli", "bid", { id, summary: "I can fix this today.", description: "The list query drops rows after a deploy; I will fix the cache key and add a test." });
     expect(bid.bid_id).toBeTruthy();
     expect(bid.replaced).toBe(false);
     // Bidding again replaces the same bid.
-    const again = await ok("eli", "volunteer", { id, summary: "I can fix this within the hour.", description: "Same plan, sooner." });
+    const again = await ok("eli", "bid", { id, summary: "I can fix this within the hour.", description: "Same plan, sooner." });
     expect(again).toMatchObject({ bid_id: bid.bid_id, replaced: true, summary: "I can fix this within the hour." });
     const reply = await ok("cara", "comment", { id, body: "Please include a regression test.", bidId: bid.bid_id });
     expect(reply.comment).toMatchObject({ bidId: bid.bid_id, parentId: null });
@@ -78,10 +74,6 @@ describe("working on issues together", () => {
     await refused("ada", "comment", { id, body: "Me too.", parentId: reply.id }, 422);
     // One place per comment.
     await refused("ada", "comment", { id, body: "Me too.", parentId: comment.id, confirmationId: "c0000000000000000000000000" }, 422);
-  });
-
-  it("says direct claiming is retired and points to offers and bids", async () => {
-    await refused("bob", "claim-issue", { id }, 410);
   });
 
   it("releases a claim it no longer wants, so the issue can be offered again", async () => {

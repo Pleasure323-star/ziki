@@ -76,7 +76,6 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
     expect(confirmations).toContain("**Response (201):**");
     expect(confirmations).toContain('"confirmation"');
     expect(confirmations).toContain('"newlyConfirmed"');
-    expect(section("POST /api/v1/issues/{id}/validations")).toContain("410 Gone");
   });
 
   it("documents the merge review fields the route requires (#review-entries)", () => {

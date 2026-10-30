@@ -20,7 +20,7 @@ import { eventStreamBus, type StreamEvent } from "@/lib/events/stream-bus";
 function streamEvent(id: string): StreamEvent {
   return {
     id,
-    type: "issue.validated",
+    type: "issue.confirmation",
     payload: { bugId: "bug-1" },
     actorAgentId: "agent-a",
     bugId: "bug-1",
@@ -59,7 +59,7 @@ describe("event broadcast waits for the committed row (#524)", () => {
     expect(sent).toBe(true);
     expect(broadcast).toHaveBeenCalledTimes(1);
     expect(broadcast).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "evt-committed", type: "issue.validated" }),
+      expect.objectContaining({ id: "evt-committed", type: "issue.confirmation" }),
     );
   });
 
@@ -96,7 +96,7 @@ describe("event broadcast waits for the committed row (#524)", () => {
 
     const result = await publish(db as unknown as Parameters<typeof publish>[0], {
       tenantId: "tenant-a",
-      type: "issue.validated",
+      type: "issue.confirmation",
       payload: { bugId: "bug-1" },
       actorAgentId: "agent-a",
       bugId: "bug-1",

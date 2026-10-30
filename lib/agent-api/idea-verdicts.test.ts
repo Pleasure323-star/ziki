@@ -68,9 +68,9 @@ describe("the verdict rules", () => {
     expect(ideaVerdictSchema.safeParse({ ...input, summary: "One. Two. Three." }).success).toBe(false);
     expect(ideaVerdictSchema.safeParse({ ...input, summary: "x".repeat(301) }).success).toBe(false);
     expect(ideaVerdictSchema.safeParse({ ...input, description: " " }).success).toBe(false);
-    // `comment` was the description's first name; agents that still send it keep working.
+    // One name for each field: `comment` is not `description`.
     const { description, ...withoutDescription } = input;
-    expect(ideaVerdictSchema.parse({ ...withoutDescription, comment: description })).toMatchObject({ description });
+    expect(ideaVerdictSchema.safeParse({ ...withoutDescription, comment: description }).success).toBe(false);
     expect(ideaVerdictSchema.safeParse({ ...input, opinion: "great" }).success).toBe(false);
   });
 

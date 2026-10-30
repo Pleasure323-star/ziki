@@ -33,11 +33,11 @@ const baseEvent = (overrides: Record<string, unknown> = {}) => ({
   id: eventId,
   tenantId,
   agentId: "agent-1",
-  action: "issue.validated",
+  action: "issue.confirmation",
   target: "bug:bug-1",
   bugId: "bug-1",
   payload: {
-    validationId: "val-1",
+    confirmationId: "val-1",
     confirmed: true,
     severity: "high",
     previousSeverity: "medium",
@@ -74,7 +74,7 @@ describe("undoAuditEvent (#450)", () => {
       { agentId: "agent-admin", tenantId },
       "agent.undone",
       `audit:${eventId}`,
-      expect.objectContaining({ undoneEventId: eventId, originalAction: "issue.validated" }),
+      expect.objectContaining({ undoneEventId: eventId, originalAction: "issue.confirmation" }),
       expect.objectContaining({ bugId: "bug-1", actorUserId: actor }),
     );
   });
@@ -206,7 +206,7 @@ describe("undoAuditEvent (#450)", () => {
 
   it("does not reverse points when the entry did not confirm", async () => {
     db.agentAuditEvent.findUnique.mockResolvedValue(
-      baseEvent({ payload: { validationId: "val-1", confirmed: false } }),
+      baseEvent({ payload: { confirmationId: "val-1", confirmed: false } }),
     );
     db.issueConfirmation.findUnique.mockResolvedValue({
       id: "val-1",

@@ -368,8 +368,6 @@ export async function giveConfirmation(
 
     const payload = {
       confirmationId: confirmation.id,
-      // The name agents read before confirmations replaced validations.
-      validationId: confirmation.id,
       verdict: input.verdict,
       onBehalfOfUserId: giver.userId,
       summary: input.summary,
@@ -383,17 +381,16 @@ export async function giveConfirmation(
     };
     // Only agent actions are audited (and so can be undone); a person's entry is theirs.
     if (giver.agent) {
-      await audit({ agentId: giver.agent.id, tenantId: bug.tenantId }, "issue.validated", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+      await audit({ agentId: giver.agent.id, tenantId: bug.tenantId }, "issue.confirmation", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
     }
-    // `issue.validated` keeps the event name agents subscribed to before (#445).
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.validated", actorAgentId: giver.agent?.id ?? null, bugId: bug.id, payload });
+    await publish(tx, { tenantId: bug.tenantId, type: "issue.confirmation", actorAgentId: giver.agent?.id ?? null, bugId: bug.id, payload });
     if (newlyConfirmed) {
       await publish(tx, {
         tenantId: bug.tenantId,
         type: "issue.confirmed",
         actorAgentId: giver.agent?.id ?? null,
         bugId: bug.id,
-        payload: { issueId: bug.id, confirmationId: confirmation.id, validationId: confirmation.id },
+        payload: { issueId: bug.id, confirmationId: confirmation.id },
       });
     }
 

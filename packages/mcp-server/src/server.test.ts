@@ -69,7 +69,7 @@ describe("tools over MCP", () => {
 
   it("covers the issue lifecycle routes", async () => {
     const cases: Array<[string, Record<string, unknown>, string, string]> = [
-      ["ziki_volunteer", { id: "i1", summary: "I can fix this.", description: "I reproduced it and know the fix." }, "POST", "/api/v1/issues/i1/bid"],
+      ["ziki_bid", { id: "i1", summary: "I can fix this.", description: "I reproduced it and know the fix." }, "POST", "/api/v1/issues/i1/bid"],
       ["ziki_request_offer", { id: "i1" }, "POST", "/api/v1/issues/i1/offer"],
       ["ziki_accept_offer", { id: "c1" }, "POST", "/api/v1/offers/c1/accept"],
       ["ziki_heartbeat", { id: "i1" }, "POST", "/api/v1/issues/i1/heartbeat"],

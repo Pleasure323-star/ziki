@@ -150,13 +150,12 @@ export type AcceptFixDeps = {
 
 /**
  * The body of `POST /issues/{id}/merge` (#review-entries): the manager's
- * verdict (`accept` by default; `action` is the older name), a summary of at
+ * verdict (`accept` or `reject`), a summary of at
  * most two sentences and a full description. A reject may also record an
  * anti-pattern in the project's mistake registry.
  */
 export const mergeReviewBodySchema = z.object({
-  verdict: z.enum(["accept", "reject"]).optional(),
-  action: z.enum(["accept", "reject"]).optional(),
+  verdict: z.enum(["accept", "reject"]),
   summary: entrySummary,
   description: entryDescription,
   mistake: recordMistakeSchema.omit({ bugId: true }).optional(),
@@ -170,9 +169,6 @@ export type MergeReviewInput = {
   mistake?: Omit<RecordMistakeInput, "bugId">;
 };
 
-const NOTES_GONE =
-  'A merge review takes a summary (at most two sentences) and a description now, in place of notes or feedback: send { "verdict": "accept" | "reject", "summary": "…", "description": "…" }.';
-
 /** Parses a raw `POST /merge` body into a review, or the 400 naming the field. */
 export function parseMergeReview(
   raw: unknown,
@@ -180,15 +176,14 @@ export function parseMergeReview(
   const body = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const parsed = mergeReviewBodySchema.safeParse(body);
   if (parsed.success) {
-    const { verdict, action, summary, description, mistake } = parsed.data;
-    return { ok: true, review: { verdict: verdict ?? action ?? "accept", summary, description, ...(mistake ? { mistake } : {}) } };
+    const { verdict, summary, description, mistake } = parsed.data;
+    return { ok: true, review: { verdict, summary, description, ...(mistake ? { mistake } : {}) } };
   }
   const issue = parsed.error.issues[0];
   const field = typeof issue?.path[0] === "string" ? issue.path[0] : undefined;
-  const hadNotes = "notes" in body || "feedback" in body;
   const message =
-    hadNotes && (field === "summary" || field === "description")
-      ? NOTES_GONE
+    field === "verdict"
+      ? 'Send a verdict: "accept" or "reject".'
       : field === "summary" && issue?.code === "invalid_type"
         ? "Add a summary."
         : field === "description" && issue?.code === "invalid_type"

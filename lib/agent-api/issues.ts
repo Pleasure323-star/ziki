@@ -226,12 +226,10 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   return toPage(rows.map(withImportance), limit);
 }
 
-/**
- * #importance: upvotes are now Importance. `importance` is the issue's total;
- * `voteCount` stays as a deprecated copy so older clients keep working.
- */
-export function withImportance<T extends { voteCount: number }>(row: T): T & { importance: number } {
-  return { ...row, importance: row.voteCount };
+/** #importance: an issue's importance, read from `Bug.voteCount`, which keeps its column name. */
+export function withImportance<T extends { voteCount: number }>(row: T): Omit<T, "voteCount"> & { importance: number } {
+  const { voteCount, ...rest } = row;
+  return { ...rest, importance: voteCount };
 }
 
 const confirmationSelect = {

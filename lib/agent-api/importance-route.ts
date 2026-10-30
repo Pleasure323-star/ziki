@@ -11,9 +11,7 @@ import {
 } from "@/lib/agent-api/votes";
 
 /**
- * The handlers behind `POST/DELETE /api/v1/issues/{id}/importance` and its
- * deprecated alias `/vote` (#importance). Both routes call these, so they
- * validate and answer the same way.
+ * The handlers behind `POST/DELETE /api/v1/issues/{id}/importance` (#importance).
  */
 
 async function readBody(request: NextRequest): Promise<unknown> {
@@ -38,7 +36,7 @@ export async function markImportanceResponse(agent: AgentContext, request: NextR
   const result = await upvoteIssue(agent, scope.projectId, bugId, parsed.data);
   return NextResponse.json(
     {
-      important: result.voted,
+      important: result.important,
       importance: result.importance,
       changed: result.changed,
       weight: result.weight,
@@ -46,9 +44,6 @@ export async function markImportanceResponse(agent: AgentContext, request: NextR
       agentId: agent.agentId,
       summary: parsed.data.summary,
       description: parsed.data.description,
-      // Deprecated names, kept so older clients keep working.
-      voted: result.voted,
-      voteCount: result.voteCount,
     },
     { status: result.changed ? 201 : 200 },
   );
@@ -61,11 +56,9 @@ export async function removeImportanceResponse(agent: AgentContext, request: Nex
   const scope = await issueProject(agent, request.nextUrl.searchParams, parsed.data.projectId);
   const result = await removeUpvote(agent, scope.projectId, bugId);
   return NextResponse.json({
-    important: result.voted,
+    important: result.important,
     importance: result.importance,
     changed: result.changed,
     userId: agent.ownerId,
-    voted: result.voted,
-    voteCount: result.voteCount,
   });
 }

@@ -75,7 +75,7 @@ describe("POST /api/v1/issues/{id}/heartbeat (#556)", () => {
     const response = await heartbeat(request(), context);
     expect(response.status).toBe(200);
     expect(response.headers.get("ratelimit-budget")).toBe("heartbeat");
-    expect(response.headers.get("x-ratelimit-limit")).toBe("120");
+    expect(response.headers.get("ratelimit-limit")).toBe("120");
     // The write budget is untouched by a heartbeat call.
     expect((await consumeAgentBudget({ id: "agent-a", burst: false, burstUntil: null }, "write")).remaining).toBe(AGENT_RATE_BUDGETS.standard.write.max - 1);
   });

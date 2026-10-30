@@ -91,12 +91,12 @@ export function retryAfterMs(headers, now = Date.now()) {
 
 /**
  * Pause until the budget resets when the server says nothing is left.
- * Reads X-RateLimit-Remaining and X-RateLimit-Reset (seconds until reset, or an
+ * Reads RateLimit-Remaining and RateLimit-Reset (seconds until reset, or an
  * epoch in seconds). Returns null when the headers are absent.
  */
 export function budgetPauseMs(headers, now = Date.now()) {
-  const remaining = headers?.get?.("x-ratelimit-remaining");
-  const reset = headers?.get?.("x-ratelimit-reset");
+  const remaining = headers?.get?.("ratelimit-remaining");
+  const reset = headers?.get?.("ratelimit-reset");
   if (
     remaining === null ||
     remaining === undefined ||

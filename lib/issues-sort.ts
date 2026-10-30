@@ -78,28 +78,10 @@ export function parseBugSort(
   ) {
     return "severity";
   }
-  // #importance: `top_votes` and `lowest_votes` were the names before
-  // upvotes became Importance; old links keep working.
-  if (
-    normalized === "importance" ||
-    normalized === "most_important" ||
-    normalized === "important" ||
-    normalized === "top_votes" ||
-    normalized === "top" ||
-    normalized === "topvotes" ||
-    normalized === "votes_desc"
-  ) {
+  if (normalized === "importance" || normalized === "most_important" || normalized === "important") {
     return "importance";
   }
-  if (
-    normalized === "least_important" ||
-    normalized === "least_importance" ||
-    normalized === "importance_asc" ||
-    normalized === "lowest_votes" ||
-    normalized === "lowest" ||
-    normalized === "lowestvotes" ||
-    normalized === "votes_asc"
-  ) {
+  if (normalized === "least_important" || normalized === "least_importance" || normalized === "importance_asc") {
     return "least_important";
   }
   return fallback;

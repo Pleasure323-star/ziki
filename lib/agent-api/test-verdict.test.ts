@@ -444,9 +444,9 @@ describe("submitTestVerdict: a verdict is an entry with a summary and a descript
     expect(state.verdicts).toHaveLength(0);
   });
 
-  it("tells a client still sending notes that it is gone", async () => {
+  it("refuses a verdict with no summary or description", async () => {
     const result = await submitTestVerdict(reviewer("r1", "rob"), "bug1", { goodToMerge: true, notes: "Looks good." });
-    expect(result).toMatchObject({ status: 400, field: "notes", message: expect.stringContaining("in place of notes") });
+    expect(result).toMatchObject({ status: 400, error: "invalid_request" });
   });
 
   it("stores the summary and description, and returns them", async () => {

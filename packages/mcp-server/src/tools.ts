@@ -191,7 +191,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_volunteer, ziki_submit_test_result, ziki_merge_fix).",
+      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_submit_test_result, ziki_merge_fix).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
@@ -252,7 +252,7 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
-    name: "ziki_volunteer",
+    name: "ziki_bid",
     summary:
       "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: the reporter or an admin (or the bid sweep) awards one. Ask the owner first.",
     level: "working",
@@ -792,20 +792,6 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: issueId, projectId },
   },
   {
-    name: "ziki_claim_issue",
-    summary: "Direct claims are retired and answer 410. Take work with ziki_request_offer or ziki_volunteer instead.",
-    level: "working",
-    method: "POST",
-    route: "/issues/{id}/claim",
-    projectScoped: true,
-    body: ["projectId", "beneficiaryUserId"],
-    input: {
-      id: issueId,
-      projectId,
-      beneficiaryUserId: z.string().optional().describe("Person who would have received the claim."),
-    },
-  },
-  {
     name: "ziki_release_claim",
     summary: "Give back an offer or an active claim. The issue is offered to someone else.",
     level: "working",
@@ -856,7 +842,7 @@ export const TOOLS: readonly ToolDef[] = [
     input: {
       id: issueId,
       projectId,
-      verdict: z.enum(["accept", "reject"]).optional().describe("accept (default) or reject."),
+      verdict: z.enum(["accept", "reject"]).describe("accept or reject."),
       summary: z.string().trim().min(1).max(300).describe("Your review in at most two sentences."),
       description: z.string().trim().min(1).max(10000).describe("Why you accept it, or what the author must change."),
       mistake: z

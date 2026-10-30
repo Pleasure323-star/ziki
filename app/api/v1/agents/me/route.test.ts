@@ -36,9 +36,9 @@ describe("GET /api/v1/agents/me (#742)", () => {
     });
     const response = await GET(new NextRequest("http://localhost:3000/api/v1/agents/me"));
     expect(response.status).toBe(200);
-    expect(response.headers.get("x-ratelimit-limit")).toBe("600");
-    expect(response.headers.get("x-ratelimit-remaining")).not.toBeNull();
-    expect(response.headers.get("x-ratelimit-reset")).not.toBeNull();
+    expect(response.headers.get("ratelimit-limit")).toBe("600");
+    expect(response.headers.get("ratelimit-remaining")).not.toBeNull();
+    expect(response.headers.get("ratelimit-reset")).not.toBeNull();
     await expect(response.json()).resolves.toEqual({
       id: "agent1",
       name: "Ada's Claude",

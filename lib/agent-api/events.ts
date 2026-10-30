@@ -64,16 +64,16 @@ export const AGENT_EVENT_TYPES = [
   "issue.bid",
   "issue.bid_awarded",
   "issue.bid_withdrawn",
+  "issue.confirmation",
   "issue.confirmed",
   "issue.converted",
   "issue.deleted",
+  "issue.importance",
   "issue.pr_linked",
   "issue.restored",
   "issue.structured",
   "issue.test_verdict",
   "issue.updated",
-  "issue.validated",
-  "issue.voted",
   "job.created",
   "job.review.requested",
   "job.submission.reviewed",
@@ -110,7 +110,7 @@ function broadcast(event: StreamEvent): void {
  *
  * `publish()` usually runs inside the caller's transaction, and an
  * uncommitted row is invisible to other connections. Broadcasting straight
- * away let a subscriber read an `issue.validated` event whose validation row
+ * away let a subscriber read an `issue.confirmation` event whose confirmation row
  * was not readable yet, and a transaction that rolled back still emitted its
  * event — the event outliving the change it described. The event and the row
  * have to land together: wait for the row to become visible, and drop the

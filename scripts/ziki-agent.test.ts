@@ -159,20 +159,20 @@ describe("rate-limit helpers", () => {
     const now = Date.parse("2026-10-20T12:00:00Z");
     expect(
       budgetPauseMs(
-        headers({ "x-ratelimit-remaining": "3", "x-ratelimit-reset": "60" }),
+        headers({ "ratelimit-remaining": "3", "ratelimit-reset": "60" }),
         now,
       ),
     ).toBeNull();
     expect(
       budgetPauseMs(
-        headers({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": "60" }),
+        headers({ "ratelimit-remaining": "0", "ratelimit-reset": "60" }),
         now,
       ),
     ).toBe(60_000);
     const epoch = String(now / 1000 + 90);
     expect(
       budgetPauseMs(
-        headers({ "x-ratelimit-remaining": "0", "x-ratelimit-reset": epoch }),
+        headers({ "ratelimit-remaining": "0", "ratelimit-reset": epoch }),
         now,
       ),
     ).toBe(90_000);
@@ -438,7 +438,7 @@ describe("watch", () => {
     const { fetchFn } = fakeApi({
       "GET /api/v1/events": [
         {
-          headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "300" },
+          headers: { "RateLimit-Remaining": "0", "RateLimit-Reset": "300" },
           body: { events: [], cursor: "cur1", hasMore: false },
         },
       ],
@@ -679,7 +679,7 @@ describe("work", () => {
       "GET /ziki/work": [
         {
           body: feed([]),
-          headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "120" },
+          headers: { "RateLimit-Remaining": "0", "RateLimit-Reset": "120" },
         },
       ],
     });

@@ -8,7 +8,7 @@ describe("unsupported methods on /api/v1/issues", () => {
     );
 
     expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("GET, HEAD, POST, OPTIONS");
+    expect(response.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
     expect(response.headers.get("content-type")).toContain("application/json");
     await expect(response.json()).resolves.toEqual({
       error: "method_not_allowed",
@@ -20,6 +20,6 @@ describe("unsupported methods on /api/v1/issues", () => {
     const response = OPTIONS();
 
     expect(response.status).toBe(204);
-    expect(response.headers.get("allow")).toBe("GET, HEAD, POST, OPTIONS");
+    expect(response.headers.get("allow")).toBe("GET, HEAD, OPTIONS");
   });
 });

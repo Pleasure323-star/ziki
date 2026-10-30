@@ -117,17 +117,10 @@ type StoredVerdict = {
   updatedAt: Date;
 };
 
-const NOTES_GONE =
-  'Test verdicts take a summary (at most two sentences) and a description now, in place of notes: send { "goodToMerge": true, "summary": "…", "description": "…" }.';
-
 /** The 400 for a body that fails the schema, naming the field. */
-function invalidVerdict(rawBody: unknown, error: z.ZodError): { status: 400; error: "invalid_request"; message: string; field?: string } {
-  const body = rawBody && typeof rawBody === "object" ? (rawBody as Record<string, unknown>) : {};
+function invalidVerdict(error: z.ZodError): { status: 400; error: "invalid_request"; message: string; field?: string } {
   const issue = error.issues[0];
   const field = typeof issue?.path[0] === "string" ? issue.path[0] : undefined;
-  if ("notes" in body && (field === "summary" || field === "description")) {
-    return { status: 400, error: "invalid_request", message: NOTES_GONE, field: "notes" };
-  }
   const message =
     field === "summary" && issue?.code === "invalid_type"
       ? "Add a summary."
@@ -172,7 +165,7 @@ export async function submitTestVerdict(
   }
 
   const parsed = testVerdictBodySchema.safeParse(rawBody ?? {});
-  if (!parsed.success) return invalidVerdict(rawBody, parsed.error);
+  if (!parsed.success) return invalidVerdict(parsed.error);
   const body = parsed.data;
 
   const bug = await prisma.bug.findFirst({

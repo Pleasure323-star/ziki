@@ -9,7 +9,6 @@ import { createJobSchema, jobReviewSchema, submitJobSchema } from "@/lib/validat
 import { redesignSchema } from "@/lib/redesigns";
 import { missionCoverageSchema, nextMissionSchema } from "@/lib/missions";
 import { bidSchema } from "./bid";
-import { claimSchema } from "./claim";
 import { extendSchema } from "./deadline";
 import { releaseSchema } from "./offer";
 import { structureInputSchema } from "./structure";
@@ -29,7 +28,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_assign_issue: assignSchema,
   ziki_create_idea: createBugSchema,
   ziki_comment: commentSchema,
-  ziki_volunteer: bidSchema,
+  ziki_bid: bidSchema,
   ziki_extend_deadline: extendSchema,
   ziki_confirm_issue: confirmationSchema,
   ziki_give_idea_verdict: ideaVerdictFields,
@@ -37,7 +36,6 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_merge_fix: mergeReviewBodySchema,
   ziki_ask_owner: agentQuestionSchema,
   ziki_escalate: agentEscalationSchema,
-  ziki_claim_issue: claimSchema,
   ziki_release_claim: releaseSchema,
   ziki_structure_issue: structureInputSchema,
   ziki_create_goal: createGoalSchema,

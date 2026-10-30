@@ -195,16 +195,13 @@ describe("agent rate-limit quota headers (#646)", () => {
     if (result.allowed) throw new Error("expected a refusal");
     const response = agentBudgetExceededResponse(result.retryAfterSeconds, result);
     expect(response.status).toBe(429);
-    expect(Object.fromEntries(["Retry-After", "RateLimit-Budget", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"].map((h) => [h, response.headers.get(h)]))).toEqual({
+    expect(Object.fromEntries(["Retry-After", "RateLimit-Budget", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "RateLimit-Policy"].map((h) => [h, response.headers.get(h)]))).toEqual({
       "Retry-After": "2",
       "RateLimit-Budget": "write",
       "RateLimit-Limit": "60",
       "RateLimit-Remaining": "0",
       "RateLimit-Reset": "2",
       "RateLimit-Policy": "60;w=60",
-      "X-RateLimit-Limit": "60",
-      "X-RateLimit-Remaining": "0",
-      "X-RateLimit-Reset": "2",
     });
     expect(await response.json()).toMatchObject({ budget: "write", limit: 60, resetSeconds: 2 });
   });
@@ -213,9 +210,8 @@ describe("agent rate-limit quota headers (#646)", () => {
     const ok = withAgentBudgetHeaders(new Response("{}"), { kind: "read", limit: 600, windowSeconds: 3600, remaining: 12, resetSeconds: 90 });
     expect(ok.headers.get("RateLimit-Remaining")).toBe("12");
     expect(ok.headers.get("RateLimit-Reset")).toBe("90");
-    expect(ok.headers.get("X-RateLimit-Limit")).toBe("600");
-    expect(ok.headers.get("X-RateLimit-Remaining")).toBe("12");
-    expect(ok.headers.get("X-RateLimit-Reset")).toBe("90");
+    expect(ok.headers.get("RateLimit-Limit")).toBe("600");
+    expect(ok.headers.get("X-RateLimit-Limit")).toBeNull();
     const bare = withAgentBudgetHeaders(new Response("{}"), {});
     expect([...bare.headers.keys()].filter((h) => h.startsWith("ratelimit") || h.startsWith("x-ratelimit"))).toEqual([]);
   });

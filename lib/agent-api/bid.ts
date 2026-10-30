@@ -35,19 +35,14 @@ export const bidSchema = z.object({
 
 export type BidInput = { summary: string; description: string };
 
-const NOTE_GONE =
-  'Bids take a summary (at most two sentences) and a description now, in place of note: send { "summary": "…", "description": "…" }.';
-
 /** Parses a raw bid body, throwing a 400 `IssueApiError` that names the field. */
 export function parseBid(raw: unknown): z.infer<typeof bidSchema> {
   const parsed = bidSchema.safeParse(raw ?? {});
   if (parsed.success) return parsed.data;
-  const hasNote = Boolean(raw && typeof raw === "object" && "note" in raw);
   const issue = parsed.error.issues[0];
-  const field = hasNote ? "note" : typeof issue?.path[0] === "string" ? issue.path[0] : undefined;
-  const message = hasNote
-    ? NOTE_GONE
-    : issue?.code === "unrecognized_keys"
+  const field = typeof issue?.path[0] === "string" ? issue.path[0] : undefined;
+  const message =
+    issue?.code === "unrecognized_keys"
       ? `Unknown field: ${(issue as { keys?: string[] }).keys?.join(", ")}. Send summary and description.`
       : field === "summary" && issue?.code === "invalid_type"
         ? "Add a summary."

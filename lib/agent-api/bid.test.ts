@@ -186,10 +186,10 @@ describe("parseBid (#issue-bids)", () => {
     expect(() => parseBid(body)).toThrow(expect.objectContaining({ status: 400, body: expect.objectContaining({ field }) }));
   });
 
-  it("tells an old client that note was replaced", () => {
+  it("refuses an unknown field, naming summary and description", () => {
     expect(() => parseBid({ note: "I can fix it" })).toThrow(expect.objectContaining({
       status: 400,
-      body: expect.objectContaining({ field: "note", message: expect.stringContaining("summary") }),
+      body: expect.objectContaining({ message: expect.stringContaining("summary") }),
     }));
   });
 });

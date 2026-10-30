@@ -74,13 +74,11 @@ describe("parseBugSort", () => {
     expect(parseBugSort("votes_desc")).toBe("importance");
   });
 
-  it("parses least_important, and the old lowest_votes links", () => {
+  it("parses least_important; the old vote names are gone", () => {
     expect(parseBugSort("least_important")).toBe("least_important");
     expect(parseBugSort("least-important")).toBe("least_important");
-    expect(parseBugSort("lowest_votes")).toBe("least_important");
-    expect(parseBugSort("lowest-votes")).toBe("least_important");
-    expect(parseBugSort("lowest")).toBe("least_important");
-    expect(parseBugSort("votes_asc")).toBe("least_important");
+    expect(parseBugSort("lowest_votes")).toBe("importance");
+    expect(parseBugSort("votes_asc")).toBe("importance");
   });
 
   it("handles repeated query parameters as string array without throwing", () => {

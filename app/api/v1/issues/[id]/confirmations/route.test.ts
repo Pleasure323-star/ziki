@@ -21,7 +21,6 @@ vi.mock("@/lib/agent-api/confirmations", async (original) => ({
 }));
 
 import { GET, POST } from "./route";
-import { POST as VALIDATIONS_POST } from "../validations/route";
 import { IssueApiError } from "@/lib/agent-api/errors";
 
 const context = { params: Promise.resolve({ id: "bug1" }) };
@@ -107,15 +106,5 @@ describe("GET /api/v1/issues/{id}/confirmations", () => {
     expect((await GET(request("GET", undefined, { auth: false }), context)).status).toBe(401);
     db.project.findFirst.mockResolvedValue(null);
     expect((await GET(request("GET"), context)).status).toBe(404);
-  });
-});
-
-describe("POST /api/v1/issues/{id}/validations (retired)", () => {
-  it("answers 410 Gone, points to confirmations, and spends no budget", async () => {
-    const response = await VALIDATIONS_POST(request("POST", { kind: "real", verdict: "accept" }, { path: "validations" }), context);
-    expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: "gone", use: "/api/v1/issues/bug1/confirmations" });
-    expect(budget).not.toHaveBeenCalled();
-    expect(giveConfirmation).not.toHaveBeenCalled();
   });
 });

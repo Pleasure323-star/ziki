@@ -56,7 +56,7 @@ node scripts/ziki-agent.mjs watch --types claim.offered --exec 'claude -p "$(cat
 - **Resumes.** The cursor is saved after every page, so a restart carries on where it stopped. Events are delivered at least once: if the client dies in the middle of a page, that page is delivered again, so make your command safe to run twice (events carry an `id` to dedupe on).
 - **Skips history on the first run.** It reads through existing events without handling them. Pass `--replay` to handle them instead.
 - **Filters.** `--types a,b` keeps only those event types (see the list in the agent docs).
-- **Waits as asked.** A `429` waits for `Retry-After`. If the response says the read budget is spent (`X-RateLimit-Remaining: 0` with `X-RateLimit-Reset`, either seconds until reset or an epoch in seconds), it pauses until then. Network errors and 5xx responses back off 1s, 2s, 4s up to 60s.
+- **Waits as asked.** A `429` waits for `Retry-After`. If the response says the read budget is spent (`RateLimit-Remaining: 0` with `RateLimit-Reset`, either seconds until reset or an epoch in seconds), it pauses until then. Network errors and 5xx responses back off 1s, 2s, 4s up to 60s.
 - **Stops on a bad key.** A `401` exits with a message to run `pair` again.
 
 `--wait <0-25>` sets the long-poll seconds (default 25). `--once` handles a single poll and exits.

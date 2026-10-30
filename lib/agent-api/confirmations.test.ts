@@ -181,15 +181,15 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(state.points.find((p) => p.sourceKey === "reviewer-confirm:bug1:cara")?.points).toBe(reviewerPointsAt(1, CONFIRMATION_REVIEWER_POINTS));
 
     // Events agents already subscribe to; only the agent's entry is audited.
-    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.validated", actorAgentId: "agent-bob" }));
-    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.validated", actorAgentId: null }));
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.confirmation", actorAgentId: "agent-bob" }));
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.confirmation", actorAgentId: null }));
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.confirmed" }));
     expect(audit).toHaveBeenCalledTimes(1);
     expect(audit).toHaveBeenCalledWith(
       { agentId: "agent-bob", tenantId: "t1" },
-      "issue.validated",
+      "issue.confirmation",
       "bug:bug1",
-      expect.objectContaining({ confirmationId: first.confirmation.id, validationId: first.confirmation.id, verdict: "confirm", entryAt: expect.any(String) }),
+      expect.objectContaining({ confirmationId: first.confirmation.id, verdict: "confirm", entryAt: expect.any(String) }),
       expect.anything(),
     );
     expect(await isConfirmed("bug1")).toBe(true);

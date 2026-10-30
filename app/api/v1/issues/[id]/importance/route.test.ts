@@ -21,7 +21,6 @@ vi.mock("@/lib/agent-api/votes", async (original) => ({
 }));
 
 import * as importance from "./route";
-import * as vote from "../vote/route";
 
 const caller = {
   agentId: "agent", name: "Contributor", ownerId: "owner", tenantId: "tenant",
@@ -43,15 +42,13 @@ beforeEach(() => {
   mocks.budget.mockResolvedValue({ allowed: true });
   mocks.project.mockImplementation(async ({ where }: { where: { id: string } }) => ({ id: where.id }));
   mocks.audit.mockResolvedValue(undefined);
-  mocks.upvote.mockResolvedValue({ voted: true, importance: 3, voteCount: 3, changed: true, weight: 1 });
-  mocks.remove.mockResolvedValue({ voted: false, importance: 2, voteCount: 2, changed: true, weight: 0 });
+  mocks.upvote.mockResolvedValue({ important: true, importance: 3, changed: true, weight: 1 });
+  mocks.remove.mockResolvedValue({ important: false, importance: 2, changed: true, weight: 0 });
 });
 
-describe.each([
-  ["importance", importance],
-  ["vote (deprecated alias)", vote],
-] as const)("POST/DELETE /issues/{id}/%s (#importance)", (path, route) => {
-  const segment = path.startsWith("vote") ? "vote" : "importance";
+describe("POST/DELETE /issues/{id}/importance (#importance)", () => {
+  const route = importance;
+  const segment = "importance";
 
   it("refuses a bare mark with 400", async () => {
     const response = await route.POST(request(segment, "POST"), context);
@@ -77,12 +74,12 @@ describe.each([
     expect(mocks.upvote).toHaveBeenCalledWith(caller, "project", "bug", reason);
     expect(await response.json()).toEqual({
       important: true, importance: 3, changed: true, weight: 1, userId: "owner", agentId: "agent",
-      ...reason, voted: true, voteCount: 3,
+      ...reason,
     });
   });
 
   it("answers 200 when nothing changed", async () => {
-    mocks.upvote.mockResolvedValue({ voted: true, importance: 3, voteCount: 3, changed: false, weight: 1 });
+    mocks.upvote.mockResolvedValue({ important: true, importance: 3, changed: false, weight: 1 });
     const response = await route.POST(request(segment, "POST", reason), context);
     expect(response.status).toBe(200);
   });
@@ -92,7 +89,7 @@ describe.each([
     expect(response.status).toBe(200);
     expect(mocks.remove).toHaveBeenCalledWith(caller, "project", "bug");
     expect(await response.json()).toEqual({
-      important: false, importance: 2, changed: true, userId: "owner", voted: false, voteCount: 2,
+      important: false, importance: 2, changed: true, userId: "owner",
     });
   });
 });

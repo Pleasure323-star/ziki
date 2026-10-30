@@ -62,7 +62,7 @@ function defaultMockGhClient(overrides: Partial<GitHubClient> = {}): GitHubClien
 const PR = "https://github.com/Zedu-Endor/issue-tracker/pull/42";
 
 /** A written merge review (#review-entries): every call to /merge carries one. */
-const REVIEW = { summary: "Accept: small and tested.", description: "Two independent testers verified it on the linked commit." };
+const REVIEW = { verdict: "accept", summary: "Accept: small and tested.", description: "Two independent testers verified it on the linked commit." };
 
 /** `acceptFix` with a written accept unless the test sends its own body. */
 function acceptFix(
@@ -668,14 +668,14 @@ describe("acceptFix: a successful accept (#434)", () => {
     });
   });
 
-  it("reviewing again replaces the agent's review; `action` still names the verdict", async () => {
+  it("reviewing again replaces the agent's review", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow());
     db.mergeReview.findUnique.mockResolvedValue({ id: "review-0" });
 
     const result = await acceptFix(merger("m1", "mo", "manager"), "bug1", {}, {
-      action: "reject",
+      verdict: "reject",
       summary: "Reject again.",
-      description: "Feedback via action field.",
+      description: "The redirect still drops the session cookie.",
     });
 
     expect(result).toMatchObject({ status: 200, accepted: false, replaced: true, review: { id: "review-0", verdict: "reject" } });
@@ -684,14 +684,14 @@ describe("acceptFix: a successful accept (#434)", () => {
     expect(db.mergeReview.create).not.toHaveBeenCalled();
   });
 
-  it("refuses a bare review (400) before touching the issue, and tells old clients notes is gone", async () => {
+  it("refuses a bare review (400) before touching the issue", async () => {
     const bare = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "reject" });
     expect(bare).toMatchObject({ status: 400, error: "invalid_request", field: "summary" });
     const noDescription = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "reject", summary: "No." });
     expect(noDescription).toMatchObject({ status: 400, field: "description" });
-    const old = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { action: "reject", feedback: "Old client." });
-    expect(old).toMatchObject({ status: 400, message: expect.stringContaining("in place of notes or feedback") });
-    const tooLong = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { summary: "One. Two. Three.", description: "x" });
+    const noVerdict = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { summary: "No.", description: "Why." });
+    expect(noVerdict).toMatchObject({ status: 400, field: "verdict" });
+    const tooLong = await acceptFixRaw(merger("m1", "mo", "manager"), "bug1", {}, { verdict: "accept", summary: "One. Two. Three.", description: "x" });
     expect(tooLong).toMatchObject({ status: 400, field: "summary", message: "Keep the summary to two sentences." });
     expect(db.bug.findFirst).not.toHaveBeenCalled();
     expect(db.mergeReview.create).not.toHaveBeenCalled();
