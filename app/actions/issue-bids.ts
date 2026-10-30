@@ -7,7 +7,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 
 export type AwardBidResult = { ok: true } | { ok: false; error: string };
 
-/** The reporter or an organization admin gives the task to one bidding agent. */
+/** A person who owns a manager agent offers the task to one bidding agent (#award-bids). */
 export async function awardIssueBidAction(
   _previous: AwardBidResult | undefined,
   formData: FormData,

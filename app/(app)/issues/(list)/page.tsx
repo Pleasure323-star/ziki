@@ -3,6 +3,7 @@ import { newIssueHref } from "@/lib/reported-from";
 import "./issues.css";
 import { Avatar } from "@/components/avatar";
 import { Suspense } from "react";
+import { RememberIssueList } from "@/components/back-to-list";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getIssueTypes, getPlatforms } from "@/lib/lookups";
@@ -18,6 +19,7 @@ import { RowAge, RowAssignee } from "@/components/issue-row-meta";
 import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
+import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
 import { statuses } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
@@ -80,7 +82,8 @@ import { logLoadFailure } from "@/lib/load-error";
 import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
 import { issuePath } from "@/lib/issue-ref";
-import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
+import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
+import { CountBadge } from "@/components/count-badge";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
@@ -607,6 +610,18 @@ export default async function BugsPage({
         for (const id of new Set(rows.map((row) => row.projectId))) {
           thresholds.set(id, await workflowFor(id).then((w) => w.ideaThreshold).catch(() => null));
         }
+        // Each idea's votes, to mark the bad ones red (lib/idea-rejection.ts).
+        const voteRows = rows.length
+          ? await prisma.ideaVerdict.groupBy({
+              by: ["ideaId", "opinion"],
+              where: { ideaId: { in: rows.map((row) => row.id) } },
+              _sum: { votes: true },
+            })
+          : [];
+        const votesByIdea = new Map<string, { opinion: string; votes: number }[]>();
+        for (const row of voteRows) {
+          votesByIdea.set(row.ideaId, [...(votesByIdea.get(row.ideaId) ?? []), { opinion: row.opinion, votes: row._sum.votes ?? 0 }]);
+        }
         return rows.map((row) => ({
           id: row.id,
           number: row.number,
@@ -618,6 +633,8 @@ export default async function BugsPage({
           platform: row.category?.name ?? null,
           verdicts: row._count.verdicts,
           rejected: ideasView === "rejected",
+          bad: ideasView !== "rejected" && (thresholds.get(row.projectId) ?? null) !== null
+            && isBadIdea(ideaVotes(votesByIdea.get(row.id) ?? []), thresholds.get(row.projectId)!),
         }));
       }, [] as IdeaListRow[])
     : [];
@@ -860,7 +877,7 @@ export default async function BugsPage({
               ideasView === "drafts"
                 ? "No unstructured draft ideas are waiting to be structured."
                 : ideasView === "rejected"
-                  ? "No rejected ideas. A manager agent rejects an idea with more than 5 votes and fewer than 3 good ones."
+                  ? "No rejected ideas. A manager agent rejects a bad idea: one whose votes reach the threshold and whose bad and neutral votes outnumber its good ones."
                   : undefined
             }
           />
@@ -933,16 +950,7 @@ export default async function BugsPage({
                       ? { person: claim?.beneficiary?.name ?? bug.assignee?.name ?? null, since: claim ? (claim.claimedAt ?? claim.createdAt) : null }
                       : null;
                     // Importance in a list is a number to read, not a button: it is marked on the issue's page.
-                    const importance = (
-                      <span
-                        data-testid="importance-count"
-                        className="issues-importance tabular-nums"
-                        title={`Importance ${bug.voteCount}`}
-                        aria-label={`Importance ${bug.voteCount}`}
-                      >
-                        {bug.voteCount}
-                      </span>
-                    );
+                    const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} testId="importance-count" />;
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
                         confirmed={confirmationStates.get(bug.id)?.confirmed ?? false}
@@ -1080,6 +1088,10 @@ export default async function BugsPage({
 
   return (
     <>
+    {/* An issue's back arrow returns here, to this tab, filters and page. */}
+    <Suspense fallback={null}>
+      <RememberIssueList />
+    </Suspense>
     {/* The stages, centred, with Project notes at the right of the same row. */}
     <div className="relative mx-auto mb-4 flex min-h-8 w-full max-w-6xl items-start justify-center">
       {!isDeletedView ? (

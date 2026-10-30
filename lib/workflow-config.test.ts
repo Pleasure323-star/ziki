@@ -18,6 +18,8 @@ describe("project workflow defaults (#595)", () => {
       volunteerWindowSeconds: 120,
       autoMerge: true,
       ideaThreshold: 3,
+      abandonCheckMinutes: 360,
+      abandonThreshold: 3,
     });
   });
 
@@ -44,6 +46,8 @@ describe("workflowSettingsSchema (#595)", () => {
       deliveryMinutes: WORKFLOW_LIMITS.deliveryMinutes.max,
       maxActiveClaims: 20,
       volunteerWindowSeconds: 3600,
+      abandonCheckMinutes: WORKFLOW_LIMITS.abandonCheckMinutes.min,
+      abandonThreshold: WORKFLOW_LIMITS.abandonThreshold.max,
     }).success).toBe(true);
     expect(workflowSettingsSchema.safeParse({
       ...valid,
@@ -54,6 +58,8 @@ describe("workflowSettingsSchema (#595)", () => {
       deliveryMinutes: 1,
       maxActiveClaims: 1,
       volunteerWindowSeconds: 30,
+      abandonCheckMinutes: WORKFLOW_LIMITS.abandonCheckMinutes.max,
+      abandonThreshold: WORKFLOW_LIMITS.abandonThreshold.min,
     }).success).toBe(true);
   });
 
@@ -65,6 +71,10 @@ describe("workflowSettingsSchema (#595)", () => {
       ["verdictsNeeded", 6],
       ["offerWindowSeconds", 29],
       ["offerWindowSeconds", 3601],
+      ["abandonCheckMinutes", -1],
+      ["abandonCheckMinutes", 10081],
+      ["abandonThreshold", 0],
+      ["abandonThreshold", 101],
     ] as const) {
       expect(workflowSettingsSchema.safeParse({ ...valid, [field]: value }).success).toBe(false);
     }

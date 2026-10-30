@@ -12,7 +12,16 @@ import { REVIEW_OFFER_TTL_MS } from "@/lib/agent-api/review-offer";
 import { MAX_IDEA_VOTES } from "@/lib/agent-api/idea-verdicts";
 import { listJobs } from "@/lib/jobs/create";
 import { workflowFor } from "@/lib/workflow";
-import { canRejectIdea, ideaVotes } from "@/lib/idea-rejection";
+import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
+import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
+import { abandonTally, senseCheck } from "@/lib/agent-api/abandon";
+
+/** Why a hold is stale, in the work item's words (#reclaim). */
+const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
+  offer_expired: "Its offer was not accepted within the project's offer window.",
+  overdue: "Its work was not delivered by the deadline.",
+  silent: "Its agent stopped checking in and has delivered nothing.",
+};
 import { IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
 import { absoluteUrl } from "@/lib/site-url";
 import { ideaPath, issuePath } from "@/lib/issue-ref";
@@ -51,6 +60,8 @@ export type WorkKind =
   | "research_job"
   | "convert_idea"
   | "reject_idea"
+  | "reclaim_issue"
+  | "sense_check"
   | "accept_fix"
   | "merge_fix";
 
@@ -133,8 +144,12 @@ export type ProjectWork = {
   ideas: (IssueRef & { score: number })[];
   /** Open ideas at or past the project's threshold, waiting for a manager agent to convert them. */
   toConvert: (IssueRef & { score: number })[];
-  /** Open ideas a manager agent may reject: more than 5 votes, fewer than 3 good (lib/idea-rejection.ts). */
+  /** Bad open ideas a manager agent is advised to reject (lib/idea-rejection.ts). */
   toReject: (IssueRef & { totalVotes: number; goodVotes: number })[];
+  /** Issues held by a stale offer or undelivered work, to take back to Open (#reclaim). */
+  toReclaim: (IssueRef & { reason: StaleHold["kind"] })[];
+  /** In-progress work with no update for the project's sense-check window (#abandon). */
+  toSenseCheck: (IssueRef & { votes: number; threshold: number; holderOwners: string[]; voters: string[]; since: Date | null })[];
   /** Converted issues still being confirmed. */
   toConfirm: (IssueRef & { confirmations: number; needed: number })[];
   ideaThreshold: number;
@@ -217,9 +232,11 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
   });
 
-  const [toConvert, toReject] = await Promise.all([
+  const [toConvert, toReject, toReclaim, toSenseCheck] = await Promise.all([
     convertibleIdeas(tenantId, project.id, workflow.ideaThreshold),
     rejectableIdeas(tenantId, project.id),
+    staleIssues(tenantId, project.id),
+    senseChecks(tenantId, project.id),
   ]);
   const ids = new Set([...toConfirm.map((i) => i.id), ...tests.map((t) => t.id), ...toAccept.map((t) => t.id), ...toMerge.map((t) => t.id)]);
   return {
@@ -228,6 +245,8 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     ideas,
     toConvert,
     toReject,
+    toReclaim,
+    toSenseCheck,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -262,7 +281,53 @@ async function convertibleIdeas(tenantId: string, projectId: string, threshold: 
 }
 
 /** Open ideas a manager agent may reject, the most voted first. */
+/** Issues held by an expired offer or by undelivered work past its deadline or silent (#reclaim). */
+async function staleIssues(tenantId: string, projectId: string): Promise<ProjectWork["toReclaim"]> {
+  const holds = await prisma.issueClaim.findMany({
+    where: { releasedAt: null, status: { in: ["offered", "active"] }, bug: { tenantId, projectId, isDeleted: false, status: { in: ["open", "in_progress"] } } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 50,
+    select: { bug: { select: { id: true, number: true, title: true } } },
+  });
+  const seen = new Set<string>();
+  const stale: ProjectWork["toReclaim"] = [];
+  for (const { bug } of holds) {
+    if (seen.has(bug.id) || stale.length >= PER_KIND_LIMIT) continue;
+    seen.add(bug.id);
+    const hold = await staleHold(bug.id);
+    if (hold) stale.push({ ...bug, reason: hold.kind });
+  }
+  return stale;
+}
+
+/** In-progress work due a sense check, with its Abandoned votes so far (#abandon). */
+async function senseChecks(tenantId: string, projectId: string): Promise<ProjectWork["toSenseCheck"]> {
+  const held = await prisma.issueClaim.findMany({
+    where: { status: "active", releasedAt: null, bug: { tenantId, projectId, isDeleted: false, status: "in_progress" } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 50,
+    select: { beneficiaryUserId: true, agent: { select: { ownerUserId: true } }, bug: { select: { id: true, number: true, title: true } } },
+  });
+  const due: ProjectWork["toSenseCheck"] = [];
+  for (const claim of held) {
+    if (due.length >= PER_KIND_LIMIT) break;
+    const check = await senseCheck(claim.bug.id);
+    if (!check) continue;
+    const { voters } = await abandonTally(check.claimId);
+    due.push({
+      ...claim.bug,
+      votes: check.votes,
+      threshold: check.threshold,
+      holderOwners: [claim.beneficiaryUserId, claim.agent.ownerUserId],
+      voters,
+      since: check.lastUpdate,
+    });
+  }
+  return due;
+}
+
 async function rejectableIdeas(tenantId: string, projectId: string): Promise<ProjectWork["toReject"]> {
+  const { ideaThreshold } = await workflowFor(projectId);
   const sums = await prisma.ideaVerdict.groupBy({
     by: ["ideaId", "opinion"],
     where: { idea: { tenantId, projectId, isDeleted: false, status: "open" } },
@@ -276,7 +341,7 @@ async function rejectableIdeas(tenantId: string, projectId: string): Promise<Pro
   }
   const rejectable = [...votesByIdea]
     .map(([id, rows]) => ({ id, votes: ideaVotes(rows) }))
-    .filter(({ votes }) => canRejectIdea(votes))
+    .filter(({ votes }) => isBadIdea(votes, ideaThreshold))
     .sort((a, b) => b.votes.total - a.votes.total)
     .slice(0, CONVERT_LIMIT);
   if (!rejectable.length) return [];
@@ -609,6 +674,36 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       actions: [
         { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
         { name: "reject_idea", minimumRole: "manager", method: "POST", path: ideaApiPath(idea.id, "reject", pid), cli: `reject-idea --id ${idea.id}` },
+      ],
+    });
+  }
+  for (const issue of work.toSenseCheck) {
+    // Not for the holder's own owner, nor for someone who already voted.
+    if (issue.holderOwners.includes(owner) || issue.voters.includes(owner)) continue;
+    items.push({
+      kind: "sense_check",
+      key: `sense_check:${issue.id}`,
+      title: `Is #${issue.number} still being worked on?`,
+      detail: `In progress with no update${issue.since ? ` since ${issue.since.toISOString()}` : ""}. Check it; if nobody is on it, vote Abandoned with a short reason. ${issue.votes} of ${issue.threshold} Abandoned votes so far; a manager agent's vote counts 3, and at the threshold it goes back to Open.`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(issue),
+      actions: [
+        { name: "vote_abandoned", minimumRole: "working", method: "POST", path: apiPath(issue.id, "abandon-votes", pid), cli: `vote-abandoned --id ${issue.id} --summary <why it looks abandoned>` },
+      ],
+    });
+  }
+  for (const issue of work.toReclaim) {
+    items.push({
+      kind: "reclaim_issue",
+      key: `reclaim_issue:${issue.id}:${issue.reason}`,
+      title: `Take #${issue.number} back to Open?`,
+      detail: `${RECLAIM_WHY[issue.reason]} Managers are advised to cancel it; any agent can ask the site to, and the site checks it before it puts the issue back to Open.`,
+      minimumRole: "working",
+      ...roleGate("working"),
+      issue: issueRef(issue),
+      actions: [
+        { name: "reclaim_issue", minimumRole: "working", method: "POST", path: apiPath(issue.id, "reclaim", pid), cli: `reclaim-issue --id ${issue.id}` },
       ],
     });
   }

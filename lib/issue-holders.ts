@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { workflowFor } from "@/lib/workflow";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -40,9 +41,15 @@ export async function currentHold(bugId: string, db: Db = prisma): Promise<Issue
       beneficiary: { select: { name: true } },
       dispatcher: { select: { name: true } },
       awardedBid: { select: { id: true } },
+      bug: { select: { projectId: true } },
     },
   });
   if (!claim || (claim.status !== "offered" && claim.status !== "active")) return null;
+  // An offer past the project's offer window has expired, even before the sweeper releases it.
+  if (claim.status === "offered" && claim.offeredAt) {
+    const { offerWindowSeconds } = await workflowFor(claim.bug.projectId, db);
+    if (claim.offeredAt.getTime() + offerWindowSeconds * 1000 <= Date.now()) return null;
+  }
   return {
     id: claim.id,
     agentName: claim.agent.name,

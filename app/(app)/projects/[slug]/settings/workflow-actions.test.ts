@@ -43,6 +43,8 @@ function form(values: Record<string, string | number | boolean> = {}) {
     maxActiveClaims: 2,
     volunteerWindowSeconds: 120,
     autoMerge: true,
+    abandonCheckMinutes: 360,
+    abandonThreshold: 3,
     ...values,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -124,6 +126,18 @@ describe("updateProjectWorkflowAction (#595)", () => {
       fieldErrors: { ideaThreshold: expect.any(String) },
     });
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("saves the sense check settings (#abandon)", async () => {
+    await expect(updateProjectWorkflowAction(undefined, form({ abandonCheckMinutes: 120, abandonThreshold: 5 }))).resolves.toEqual({ ok: true });
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ abandonCheckMinutes: 120, abandonThreshold: 5 }) }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        changes: expect.objectContaining({ abandonCheckMinutes: { from: 360, to: 120 }, abandonThreshold: { from: 3, to: 5 } }),
+      }),
+    });
   });
 
   it("does not audit or invalidate an unchanged save", async () => {

@@ -40,13 +40,20 @@ const issue = { id: "issue-a", title: "A distinct issue", createdAt: new Date("2
 // Every report is an idea (#idea-table): agents file ideas, and converting one makes the issue.
 const idea = { id: "idea-a", number: 1, title: "A distinct issue", description: "An adequate description of the issue.", status: "open", score: 0, projectId: "project-a", issue: null, attachments: [] };
 const context = { params: Promise.resolve({ id: issue.id }) };
-const validBody = { projectId: "project-a", title: issue.title, description: "An adequate description of the issue.", acknowledgeSimilar: true };
+const validBody = {
+  projectId: "project-a",
+  title: issue.title,
+  summary: "The login page drops the session after the redirect.",
+  description: "An adequate description of the issue.",
+  acknowledgeSimilar: true,
+};
 
 function createRequestHash(body: typeof validBody, beneficiaryUserId = "owner-a") {
   return hashCreateRequest({
     projectId: body.projectId,
     beneficiaryUserId,
     title: body.title,
+    summary: body.summary,
     description: body.description,
     categoryId: null,
     proofLinks: [],
@@ -367,6 +374,7 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
     const data = db.idea.create.mock.calls[0][0].data;
     expect(data).toMatchObject({
       tenantId: "tenant-a", projectId: "project-a", reporterId: "owner-a", beneficiaryUserId: "owner-a", createdByAgentId: "agent-a", areaId: "area-ui",
+      summary: validBody.summary,
     });
     expect(data).not.toHaveProperty("severity");
     expect(db.bug.create).not.toHaveBeenCalled();
@@ -377,6 +385,20 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
     }) }));
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "idea.created", target: "idea:idea-a" }) }));
     expect((await response.json()).idea).toMatchObject({ id: idea.id, number: 1, ideaThreshold: 3, convertible: false });
+  });
+
+  it("requires a plain summary of up to three lines (#report-summary)", async () => {
+    const { summary: _summary, ...withoutSummary } = validBody;
+    void _summary;
+    for (const body of [
+      withoutSummary,
+      { ...validBody, summary: "Too short." },
+      { ...validBody, summary: "## The login page drops the session" },
+      { ...validBody, summary: "One line here.\nTwo lines here.\nThree lines here.\nFour lines here." },
+    ]) {
+      expect((await create(request("POST", body))).status).toBe(422);
+    }
+    expect(db.idea.create).not.toHaveBeenCalled();
   });
 
   it("refuses a body that names a beneficiary (#494)", async () => {

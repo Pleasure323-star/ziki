@@ -43,8 +43,9 @@ describe("Bug detail header responsive layout (#698)", () => {
   });
 
   it("places an accessible back link to the issues list (#451)", () => {
+    // BackToList returns to the list you came from, else to this issue's status list.
     expect(pageSource).toMatch(
-      /href="\/issues"[\s\S]*?aria-label="Back to issues"/
+      /<BackToList fallback=\{`\/issues\?status=\$\{bug\.status\}`\} label="Back to issues" \/>/
     );
   });
 });

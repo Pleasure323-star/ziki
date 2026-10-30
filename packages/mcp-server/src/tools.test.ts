@@ -89,7 +89,7 @@ describe("buildRequest", () => {
   });
 
   it("sends the idempotency key as a header, deriving a stable one unless given (#633)", () => {
-    const input = { title: "Bug title", description: "Steps to reproduce" };
+    const input = { title: "Bug title", summary: "Pressing Save does nothing on the page.", description: "Steps to reproduce" };
     const a = buildRequest(tool("ziki_create_idea"), input, { projectId: "p" });
     const b = buildRequest(tool("ziki_create_idea"), input, { projectId: "p" });
     expect(a.headers?.["Idempotency-Key"]).toBeTruthy();
@@ -103,7 +103,7 @@ describe("buildRequest", () => {
   it("lets a caller repeat an identical action on purpose with an explicit key (#633)", () => {
     // The derived key deduplicates retries, so a deliberate repeat — filing the
     // same report twice on purpose — has to opt out by supplying its own key.
-    const input = { title: "Same title", description: "Same description" };
+    const input = { title: "Same title", summary: "Pressing Save does nothing on the page.", description: "Same description" };
     const derived = buildRequest(tool("ziki_create_idea"), input, { projectId: "p" });
     const first = buildRequest(tool("ziki_create_idea"), { ...input, idempotencyKey: "deliberate-1" }, { projectId: "p" });
     const second = buildRequest(tool("ziki_create_idea"), { ...input, idempotencyKey: "deliberate-2" }, { projectId: "p" });
@@ -117,7 +117,7 @@ describe("buildRequest", () => {
   it("derives a different idempotency key for a different call (#633)", () => {
     const key = (input: Record<string, unknown>, projectId: string | null = "p") =>
       buildRequest(tool("ziki_create_idea"), input, { projectId }).headers?.["Idempotency-Key"];
-    const base = { title: "Bug title", description: "Steps to reproduce" };
+    const base = { title: "Bug title", summary: "Pressing Save does nothing on the page.", description: "Steps to reproduce" };
     expect(key(base)).not.toBe(key({ ...base, title: "Another title" }));
     expect(key(base)).not.toBe(key({ ...base, description: "Different steps" }));
     expect(key(base)).not.toBe(key(base, "other-project"));

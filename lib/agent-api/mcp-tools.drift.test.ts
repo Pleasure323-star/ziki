@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { TOOLS } from "../../packages/mcp-server/src/tools";
 import { agentEscalationSchema, agentQuestionSchema } from "@/lib/agent-questions";
-import { commentSchema, createBugSchema } from "@/lib/validations/issue";
+import { commentSchema } from "@/lib/validations/issue";
 import { createGoalSchema, splitGoalPoolSchema, updateGoalStatusSchema } from "@/lib/validations/goal";
 import { createJobSchema, jobReviewSchema, submitJobSchema } from "@/lib/validations/job";
 import { redesignSchema } from "@/lib/redesigns";
@@ -18,6 +18,8 @@ import { confirmationSchema } from "./confirmations";
 import { ideaVerdictFields } from "./idea-verdicts";
 import { recordMistakeSchema } from "./mistakes";
 import { assignSchema } from "./assign";
+import { createIdeaSchema } from "./ideas";
+import { abandonVoteSchema } from "./abandon";
 
 /**
  * The MCP server (packages/mcp-server) builds its tool inputs from its own zod
@@ -28,7 +30,7 @@ import { assignSchema } from "./assign";
 const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_deliver: deliveryBodySchema,
   ziki_assign_issue: assignSchema,
-  ziki_create_idea: createBugSchema,
+  ziki_create_idea: createIdeaSchema,
   ziki_comment: commentSchema,
   ziki_bid: bidSchema,
   ziki_extend_deadline: extendSchema,
@@ -50,16 +52,17 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_next_mission: nextMissionSchema,
   ziki_cover_mission: missionCoverageSchema.extend({ projectId: z.string().trim().min(1) }),
   ziki_record_project_mistake: recordMistakeSchema,
+  ziki_vote_abandoned: abandonVoteSchema,
 };
 
-// The agent routes extend the shared issue and comment schemas with attachmentIds, and
-// idea creation with acknowledgeSimilar (lib/agent-api/ideas.ts `createIdeaSchema`).
+// The agent comment route extends the shared comment schema with attachmentIds; idea
+// creation's own schema (lib/agent-api/ideas.ts `createIdeaSchema`) already has both.
 const AGENT_LAYER_FIELDS = new Set(["attachmentIds", "acknowledgeSimilar"]);
 
 // Fields on the shared schema that the agent route deliberately does not take (it picks only some of
 // them), so a tool must not offer them.
 const NOT_OFFERED_TO_AGENTS: Record<string, readonly string[]> = {
-  ziki_create_idea: ["typeId", "assigneeId"],
+  ziki_create_idea: ["typeId"],
   // `action` is the older name for `verdict`, kept for old clients only.
   ziki_merge_fix: ["action"],
 };

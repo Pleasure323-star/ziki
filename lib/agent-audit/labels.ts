@@ -13,6 +13,7 @@ const ACTION_LABELS: Record<string, string> = {
   "idea.created": "Filed an idea",
   "idea.converted": "Converted an idea",
   "idea.rejected": "Rejected an idea",
+  "issue.abandon_voted": "Voted that work is abandoned",
   "idea.structured": "Structured an idea",
   "issue.updated": "Updated",
   "issue.structured": "Structured",

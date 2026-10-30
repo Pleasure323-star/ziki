@@ -50,11 +50,6 @@ const verdictChipClass: Record<ConfirmationVerdictName, string> = {
   neutral: "bg-zk-chip text-zk-text2",
 };
 
-/** "1 of 2 confirmations". */
-export function confirmationsText(confirmations: number, needed: number): string {
-  return `${confirmations} of ${needed} confirmation${needed === 1 ? "" : "s"}`;
-}
-
 /**
  * Whether the issue is confirmed, at the top of its confirmations: the status
  * decides (an issue past Requires confirmation was confirmed); the people are
@@ -98,21 +93,7 @@ function ConfirmationBanner({ data, confirmed }: { data: ConfirmationsData; conf
       </div>
     );
   }
-  return (
-    <div data-testid="confirmation-banner" data-confirmed="false" className="mb-4 flex items-start gap-3 rounded-2xl border-2 border-zk-warn-fg/40 bg-zk-warn-bg px-4 py-3">
-      <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zk-warn-fg text-white">
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
-          <path d="M12 7v6M12 17h.01" />
-        </svg>
-      </span>
-      <div className="min-w-0">
-        <p className="m-0 text-[15px] font-extrabold text-zk-text">Not confirmed yet</p>
-        <p className="m-0 mt-0.5 text-[13px] text-zk-text2">
-          {confirmationsText(data.confirmations, data.confirmationsNeeded)} from independent people.
-        </p>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 /**
@@ -227,7 +208,8 @@ export function IssueConfirmationsPanel({
 
   return (
     <section id="confirmations" aria-labelledby="confirmations-heading" className="mb-4 scroll-mt-24">
-      <ConfirmationBanner data={data} confirmed={confirmed} />
+      {/* Not confirmed yet is said by the next-step bar above (#next-step). */}
+      {confirmed ? <ConfirmationBanner data={data} confirmed /> : null}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h3 id="confirmations-heading" className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
           Confirmations

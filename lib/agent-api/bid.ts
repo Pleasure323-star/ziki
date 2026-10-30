@@ -3,16 +3,14 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
-import { isTenantAdmin } from "@/lib/agents/membership";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
-import { isOfferExpired } from "@/lib/agent-api/offer";
+import { ownsManagerAgent } from "@/lib/bid-award-permission";
+import { isOfferExpired, scheduleOfferExpiry } from "@/lib/agent-api/offer";
+import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { assertRedesignOpen } from "@/lib/redesigns";
-import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
-import { assigneeChangedSummary, statusChangedSummary } from "@/lib/activity-log";
-import { ensureWatching } from "@/lib/watch";
 import type { AppRole } from "@/lib/roles";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
@@ -156,6 +154,15 @@ export type BidEntry = {
   areaMatch: boolean;
   /** Set on a bid that was awarded (it got the task), for the read-only history. */
   awardedAt?: Date | null;
+  /**
+   * The award's claim was released (let go, expired or revoked), so the issue
+   * went back to Open: it is no longer the issue's award.
+   */
+  awardReleasedAt?: Date | null;
+  /** The award is an offer its agent has not accepted yet; the issue stays Open meanwhile. */
+  awardPending?: boolean;
+  /** The award's offer was not accepted within the project's offer window. */
+  awardExpired?: boolean;
   /** Set on a bid that was withdrawn. */
   withdrawnAt?: Date | null;
   createdAt: Date;
@@ -187,6 +194,7 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       id: true,
       awardedAt: true,
       withdrawnAt: true,
+      claim: { select: { status: true, releasedAt: true, releaseReason: true, claimedAt: true, offeredAt: true, bug: { select: { projectId: true } } } },
       agentId: true,
       beneficiaryUserId: true,
       summary: true,
@@ -209,9 +217,22 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       },
     },
   });
+  // An offer past the project's offer window is expired even before the sweeper releases it.
+  const projectId = rows.find((row) => row.claim)?.claim?.bug.projectId;
+  const offerWindowMs = projectId ? (await workflowFor(projectId, db)).offerWindowSeconds * 1000 : 0;
+  const now = Date.now();
   return rows
-    .map(({ agent, beneficiary, replies, ...bid }) => ({
+    .map(({ agent, beneficiary, replies, claim, ...bid }) => {
+      const lapsed = claim?.status === "offered" && isOfferExpired(claim.offeredAt, now, offerWindowMs);
+      const expired = Boolean(bid.awardedAt && claim && !claim.claimedAt
+        && (lapsed || (claim.status === "released" && claim.releaseReason === "expired")));
+      return {
       ...bid,
+      // Awarded only while its claim is current: an award whose claim was released, or
+      // that has no claim on record (older data), no longer holds the task.
+      awardReleasedAt: bid.awardedAt && (!claim || claim.status === "released") ? (claim?.releasedAt ?? bid.awardedAt) : null,
+      awardPending: Boolean(bid.awardedAt && claim?.status === "offered" && !lapsed),
+      awardExpired: expired,
       agentName: agent.name,
       by: beneficiary.name ?? "A member",
       areaMatch: Boolean(bug.areaId && agent.areaPreferences.length),
@@ -220,7 +241,8 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
         authorName: author.name ?? "A member",
         agentName: replyAgent?.name ?? null,
       })),
-    }))
+      };
+    })
     .sort((a, b) => Number(b.areaMatch) - Number(a.areaMatch) || a.createdAt.getTime() - b.createdAt.getTime());
 }
 
@@ -268,8 +290,10 @@ export async function withdrawBid(caller: AgentContext, projectId: string, bugId
 }
 
 /**
- * A person picks one bid. The reporter or a tenant admin may award it.
- * The agent's owner becomes the assignee, and the bid becomes an active claim.
+ * A bid is picked by a manager agent, or by a person who owns one. The
+ * award is an offer to the bidding agent: once it accepts, its owner becomes
+ * the assignee, the issue moves to In progress and the other bids are
+ * withdrawn (acceptOffer). An offer that lapses frees the issue for another award.
  */
 export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentContext) {
   if (dispatcher) requireLevel(dispatcher, "manager");
@@ -287,8 +311,9 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
         if (dispatcher.tenantId !== bid.bug.tenantId) throw new IssueApiError(404, "Bid not found.");
         assertKeyProject(dispatcher, bid.bug.projectId);
       }
-      const allowed = bid.bug.reporterId === actor.id || await isTenantAdmin(actor, bid.bug.tenantId);
-      if (!allowed) throw new IssueApiError(403, "Only the reporter or an organization admin can award a bid.");
+      // A manager agent (the dispatcher), the platform's own sweep, or a person who owns a manager agent.
+      const allowed = Boolean(dispatcher) || actor.role === "super_admin" || await ownsManagerAgent(actor.id, bid.bug.tenantId, tx);
+      if (!allowed) throw new IssueApiError(403, "Only a manager agent, or a person who owns one, can award a bid.");
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bid.bugId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Bid not found.");
       const fresh = await tx.issueBid.findUnique({
@@ -330,17 +355,18 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
         });
       }
 
-      const workflow = await workflowFor(fresh.bug.projectId, tx);
+      // The award is an offer: the agent accepts it (POST /api/v1/offers/{id}/accept)
+      // before it has the task. Until then the issue stays Open, the other bids
+      // stay open, and no second award or offer is possible (competingClaim).
+      const { offerWindowSeconds } = await workflowFor(fresh.bug.projectId, tx);
       const claim = await tx.issueClaim.create({
         data: {
           bugId: fresh.bugId,
           beneficiaryUserId: fresh.beneficiaryUserId,
           agentId: fresh.agentId,
           ...(dispatcher ? { dispatcherUserId: dispatcher.ownerId } : {}),
-          status: "active",
-          claimedAt: now,
-          lastHeartbeatAt: now,
-          deliverBy: deliveryDeadline(now, deliveryWindowMinutes(workflow.deliveryMinutes)),
+          status: "offered",
+          offeredAt: now,
         },
       });
       const marked = await tx.issueBid.updateMany({
@@ -348,44 +374,32 @@ export async function awardBid(actor: Actor, bidId: string, dispatcher?: AgentCo
         data: { awardedAt: now, claimId: claim.id },
       });
       if (marked.count !== 1) throw new IssueApiError(409, "This bid is no longer open.");
-      await tx.issueBid.updateMany({
-        where: { bugId: fresh.bugId, id: { not: fresh.id }, withdrawnAt: null, awardedAt: null },
-        data: { withdrawnAt: now },
+      await publish(tx, {
+        tenantId: fresh.bug.tenantId,
+        type: "claim.offered",
+        actorAgentId: fresh.agentId,
+        bugId: fresh.bugId,
+        payload: {
+          claimId: claim.id,
+          issueId: fresh.bugId,
+          projectId: fresh.bug.projectId,
+          beneficiaryUserId: fresh.beneficiaryUserId,
+          bidId: fresh.id,
+          expiresAt: new Date(now.getTime() + offerWindowSeconds * 1000).toISOString(),
+        },
       });
-      await tx.bug.update({
-        where: { id: fresh.bugId },
-        data: { assigneeId: fresh.beneficiaryUserId, status: "in_progress" },
-      });
-      await tx.bugActivity.createMany({
-        data: [
-          ...(fresh.bug.assigneeId !== fresh.beneficiaryUserId
-            ? [{
-                bugId: fresh.bugId,
-                actorId: actor.id,
-                type: "assignee_changed" as const,
-                summary: assigneeChangedSummary(fresh.bug.assignee?.name ?? null, fresh.beneficiary.name),
-                metadata: { field: "assignee", from: fresh.bug.assigneeId, to: fresh.beneficiaryUserId },
-              }]
-            : []),
-          {
-            bugId: fresh.bugId,
-            actorId: actor.id,
-            type: "status_changed" as const,
-            summary: statusChangedSummary("open", "in_progress"),
-            metadata: { field: "status", from: "open", to: "in_progress" },
-          },
-        ],
-      });
-      await ensureWatching(tx, fresh.bugId, [fresh.beneficiaryUserId]);
       await publish(tx, {
         tenantId: fresh.bug.tenantId,
         type: "issue.bid_awarded",
         actorAgentId: fresh.agentId,
         bugId: fresh.bugId,
-        payload: { bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId },
+        payload: { bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId, offered: true },
       });
-      return { bidId: fresh.id, claimId: claim.id, bugId: fresh.bugId };
+      return { bidId: fresh.id, claimId: claim.id, bugId: fresh.bugId, bugTitle: bid.bug.title, beneficiaryUserId: fresh.beneficiaryUserId };
     });
+    // Tell the agent's owner, and lapse the offer if nobody accepts it in time.
+    notifyClaimOffered({ id: result.claimId, bugId: result.bugId, bugTitle: result.bugTitle, beneficiaryUserId: result.beneficiaryUserId });
+    scheduleOfferExpiry(result.claimId);
     return result;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

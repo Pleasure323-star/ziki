@@ -22,6 +22,8 @@ const NUMERIC_FIELDS = [
   "deliveryMinutes",
   "maxActiveClaims",
   "volunteerWindowSeconds",
+  "abandonCheckMinutes",
+  "abandonThreshold",
 ] as const;
 
 async function projectSettingsAccess(slug: string) {

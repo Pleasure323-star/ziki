@@ -6,6 +6,7 @@ const db = vi.hoisted(() => {
     bugActivity: { createMany: vi.fn() },
     issueBid: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn() },
+    agent: { findFirst: vi.fn() },
     projectWorkflow: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -19,9 +20,16 @@ vi.mock("@/lib/redesigns", () => ({ assertRedesignOpen: vi.fn(async () => undefi
 vi.mock("@/lib/agent-api/events", () => ({ publish: vi.fn(async () => ({ id: "evt" })) }));
 vi.mock("@/lib/watch", () => ({ ensureWatching: vi.fn(async () => undefined) }));
 vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin: vi.fn(async () => false) }));
+vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered: vi.fn() }));
+vi.mock("@/lib/agent-api/offer", async (original) => ({
+  ...await original<typeof import("@/lib/agent-api/offer")>(),
+  scheduleOfferExpiry: vi.fn(),
+}));
 
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { publish } from "@/lib/agent-api/events";
+import { notifyClaimOffered } from "@/lib/agent-notifications";
+import { scheduleOfferExpiry } from "@/lib/agent-api/offer";
 import { awardBid, listBids, parseBid, placeBid, withdrawBid } from "./bid";
 import { resetWorkflowCache } from "@/lib/workflow";
 
@@ -61,6 +69,7 @@ beforeEach(() => {
   db.issueClaim.findFirst.mockResolvedValue(null);
   db.issueClaim.count.mockResolvedValue(0);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
+  db.agent.findFirst.mockResolvedValue(null);
   db.issueBid.updateMany.mockResolvedValue({ count: 1 });
   db.issueBid.findUnique.mockResolvedValue(null);
   db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
@@ -212,7 +221,7 @@ describe("awardBid", () => {
     const dispatcher = { ...caller, ownerId: "dispatcher-owner", level: "manager" as const };
     await awardBid({ id: "reporter" }, "bid1", dispatcher);
     expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({
-      dispatcherUserId: "dispatcher-owner", beneficiaryUserId: "ada", status: "active",
+      dispatcherUserId: "dispatcher-owner", beneficiaryUserId: "ada", status: "offered",
     });
   });
 
@@ -229,30 +238,62 @@ describe("awardBid", () => {
     expect(db.issueClaim.create).not.toHaveBeenCalled();
   });
 
-  it("lets the reporter turn one bid into the active claim", async () => {
+  it("lets a person who owns a manager agent award a bid as an offer to the bidding agent", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
     db.issueClaim.create.mockResolvedValue({ id: "claim1" });
-    await expect(awardBid({ id: "reporter" }, "bid1")).resolves.toEqual({
+    db.agent.findFirst.mockResolvedValue({ id: "manager-agent" });
+    await expect(awardBid({ id: "dana" }, "bid1")).resolves.toEqual({
       bidId: "bid1",
       claimId: "claim1",
       bugId: "issue1",
+      bugTitle: "Broken login",
+      beneficiaryUserId: "ada",
     });
+    expect(db.agent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ ownerUserId: "dana", tenantId: "tenant", revokedAt: null, level: { in: ["manager", "merger"] } }),
+    }));
     expect(db.issueClaim.create.mock.calls[0][0].data).toMatchObject({
-      status: "active",
+      status: "offered",
+      offeredAt: expect.any(Date),
       agentId: "agent1",
       beneficiaryUserId: "ada",
     });
-    expect(db.bug.update.mock.calls[0][0].data).toEqual({ assigneeId: "ada", status: "in_progress" });
+    // An offer: the issue stays Open with no assignee, and the other bids stay open.
+    expect(db.bug.update).not.toHaveBeenCalled();
+    expect(db.issueBid.updateMany).toHaveBeenCalledTimes(1);
     expect(db.issueBid.updateMany).toHaveBeenCalledWith({
       where: { id: "bid1", awardedAt: null, withdrawnAt: null },
-      data: expect.objectContaining({ claimId: "claim1" }),
+      data: expect.objectContaining({ awardedAt: expect.any(Date), claimId: "claim1" }),
     });
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "claim.offered",
+      payload: expect.objectContaining({ claimId: "claim1", bidId: "bid1", expiresAt: expect.any(String) }),
+    }));
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "issue.bid_awarded",
+      payload: expect.objectContaining({ bidId: "bid1", claimId: "claim1", offered: true }),
+    }));
+    expect(notifyClaimOffered).toHaveBeenCalledWith({ id: "claim1", bugId: "issue1", bugTitle: "Broken login", beneficiaryUserId: "ada" });
+    expect(scheduleOfferExpiry).toHaveBeenCalledWith("claim1");
   });
 
-  it("refuses someone who did not report the issue and is not an admin", async () => {
+  it("lets a super admin award a bid", async () => {
     db.issueBid.findUnique.mockResolvedValue(stored);
-    await expect(awardBid({ id: "bob" }, "bid1")).rejects.toMatchObject({ status: 403 });
+    db.issueClaim.create.mockResolvedValue({ id: "claim1" });
+    await expect(awardBid({ id: "root", role: "super_admin" }, "bid1")).resolves.toMatchObject({ claimId: "claim1" });
+    expect(db.agent.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("refuses a person who owns no manager agent, even the reporter", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    for (const actor of [{ id: "reporter" }, { id: "bob" }]) {
+      await expect(awardBid(actor, "bid1")).rejects.toMatchObject({
+        status: 403,
+        message: "Only a manager agent, or a person who owns one, can award a bid.",
+      });
+    }
     expect(db.issueClaim.create).not.toHaveBeenCalled();
+    expect(notifyClaimOffered).not.toHaveBeenCalled();
   });
 });
 

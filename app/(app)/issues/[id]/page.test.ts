@@ -119,7 +119,7 @@ vi.mock("@/lib/prisma", () => ({
     milestone: { findMany: vi.fn().mockResolvedValue([]) },
     goal: { findMany: vi.fn().mockResolvedValue([]) },
     issueConfirmation: { findMany: vi.fn().mockResolvedValue([]) },
-    issueClaim: { findMany: vi.fn().mockResolvedValue([]) },
+    issueClaim: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     testVerdict: { findMany: vi.fn().mockResolvedValue([]) },
     agentAuditEvent: { findMany: vi.fn().mockResolvedValue([]) },
   },

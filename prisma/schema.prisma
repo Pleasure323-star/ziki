@@ -265,6 +265,7 @@ model User {
   jobReviewOffers           JobReviewOffer[]        @relation("JobReviewOfferBeneficiary")
   approvalsDecided          IssueApproval[]         @relation("ApprovalDecider")
   ideaVerdicts              IdeaVerdict[]           @relation("IdeaVerdictsGiven")
+  abandonVotes              AbandonVote[]           @relation("AbandonVotesGiven")
   reportedIdeas             Idea[]                  @relation("IdeaReporter")
   beneficiaryIdeas          Idea[]                  @relation("IdeaBeneficiary")
 }
@@ -309,6 +310,8 @@ model Bug {
   /// with `Tenant.nextIssueNumber`, so each organisation starts at #1.
   number             Int                 @default(autoincrement())
   title              String
+  /// The idea's short summary, carried over when it is converted.
+  summary            String?
   description        String
   status             Status              @default(requires_confirmation)
   typeId             String?
@@ -363,6 +366,7 @@ model Bug {
   activities         BugActivity[]
   revisions          BugRevision[]
   claims             IssueClaim[]
+  abandonVotes       AbandonVote[]
   approvals          IssueApproval[]
   bids               IssueBid[]
   deliveries         Delivery[]
@@ -733,6 +737,10 @@ model ProjectWorkflow {
   autoMerge              Boolean  @default(true)
   /// Net idea votes (good minus bad) before a manager agent may convert an idea to an issue.
   ideaThreshold          Int      @default(3)
+  /// Minutes without an update before in-progress work is put up for a sense check (#abandon).
+  abandonCheckMinutes    Int      @default(360)
+  /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts 3).
+  abandonThreshold       Int      @default(3)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -961,6 +969,7 @@ model Agent {
   recordedMistakes     AgentMistake[]
 
   ideaVerdicts    IdeaVerdict[]
+  abandonVotes    AbandonVote[]
   importanceMarks Vote[]
 
   @@unique([ownerUserId, defaultProjectId])
@@ -1086,6 +1095,7 @@ model IssueClaim {
   dispatcher          User?       @relation("ClaimDispatcher", fields: [dispatcherUserId], references: [id], onDelete: SetNull)
 
   awardedBid IssueBid?
+  abandonVotes AbandonVote[]
   // Enforced by a partial unique index in the migration: one pending offer per issue.
   // Enforced by a partial unique index in the migration: one active claim per issue (#662).
 
@@ -1186,6 +1196,9 @@ model Idea {
   /// replaces the sequence value with `Tenant.nextIdeaNumber`.
   number             Int              @default(autoincrement())
   title              String
+  /// Up to three plain lines saying what the report is about (lib/validations/report-summary.ts).
+  /// Required when an agent files a report; null on reports filed before it existed.
+  summary            String?
   description        String
   status             IdeaStatus       @default(open)
   /// Good minus bad votes from its verdicts.
@@ -1977,4 +1990,28 @@ model ProjectNoteCommentVote {
   comment   ProjectNoteComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@id([commentId, agentId])
+}
+
+/// A sense check on in-progress work with no update for a while (#abandon):
+/// a person, through their agent, says the work is abandoned. One per person
+/// per claim; a manager agent's vote counts 3. Once the claim's votes reach the
+/// project's abandonThreshold, the claim is released and the issue goes back to Open.
+model AbandonVote {
+  id               String     @id @default(cuid())
+  claimId          String
+  bugId            String
+  onBehalfOfUserId String
+  agentId          String?
+  votes            Int        @default(1)
+  /// Why it looks abandoned, at most two sentences.
+  summary          String
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  claim            IssueClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  bug              Bug        @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User       @relation("AbandonVotesGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([claimId, onBehalfOfUserId])
+  @@index([bugId])
 }

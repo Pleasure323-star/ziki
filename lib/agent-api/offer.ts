@@ -317,6 +317,10 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
         { bugId: fresh.bugId, actorId: fresh.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("open", "in_progress"), metadata: { field: "status", from: "open", to: "in_progress" } },
       ] });
       await ensureWatching(tx, fresh.bugId, [fresh.beneficiaryUserId]);
+      // An accepted bid award: the other open bids on the issue are withdrawn.
+      if (tx.issueBid?.findFirst && await tx.issueBid.findFirst({ where: { claimId: fresh.id }, select: { id: true } })) {
+        await tx.issueBid.updateMany({ where: { bugId: fresh.bugId, withdrawnAt: null, awardedAt: null }, data: { withdrawnAt: now } });
+      }
       await publish(tx, { tenantId: agent.tenantId, type: "claim.accepted", actorAgentId: agent.agentId, bugId: fresh.bugId,
         payload: { claimId: fresh.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId } });
       return { expired: false as const, claim: { ...fresh, status: "active", claimedAt: now, deliverBy }, issue };

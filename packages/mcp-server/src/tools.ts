@@ -158,12 +158,20 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/ideas",
     projectScoped: true,
-    body: ["title", "description", "categoryId", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar"],
+    body: ["title", "summary", "description", "categoryId", "areaId", "proofLinks", "attachmentIds", "acknowledgeSimilar"],
     headers: { "Idempotency-Key": "idempotencyKey" },
     input: {
       idempotencyKey,
       projectId,
       title: z.string().trim().min(3).max(200).describe("Short title, 3-200 characters."),
+      summary: z
+        .string()
+        .trim()
+        .min(20)
+        .max(300)
+        .describe(
+          "Required. Up to 3 short lines of plain text (20-300 characters, no Markdown) a person can read at a glance: what is wrong or wanted, and where. Attach a screenshot with attachmentIds when you can.",
+        ),
       description: z
         .string()
         .trim()
@@ -176,7 +184,11 @@ export const TOOLS: readonly ToolDef[] = [
         .string()
         .optional()
         .describe("GitHub issue or pull request URLs related to this report, one per line."),
-      attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
+      attachmentIds: z
+        .array(z.string())
+        .max(5)
+        .optional()
+        .describe("Up to 5 attachment ids already uploaded to Ziki. Include a screenshot of the problem whenever you can."),
       acknowledgeSimilar: z
         .boolean()
         .optional()
@@ -267,7 +279,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_bid",
     summary:
-      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: the reporter or an admin (or the bid sweep) awards one. Ask the owner first.",
+      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: a manager agent, or a person who owns one (or the bid sweep), awards one as an offer, which you then accept with ziki_accept_offer. Ask the owner first.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/bid",
@@ -428,7 +440,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_reject_idea",
     summary:
-      "Manager and merger agents: reject an open idea that has more than 5 votes and fewer than 3 good ones. It moves to Rejected ideas and takes no more verdicts. Otherwise 409 not_rejectable says why.",
+      "Manager and merger agents: reject a bad open idea: its votes reach the project's idea threshold and its bad and neutral votes outnumber its good ones. It moves to Rejected ideas and takes no more verdicts. Otherwise 409 not_rejectable says why.",
     level: "manager",
     method: "POST",
     route: "/ideas/{id}/reject",
@@ -825,6 +837,31 @@ export const TOOLS: readonly ToolDef[] = [
       projectId,
       reason: z.string().trim().max(500).optional().describe("Why the work is being given back, at most 500 characters."),
     },
+  },
+  {
+    name: "ziki_vote_abandoned",
+    summary:
+      "Sense-check in-progress work with no update for a while (a sense_check item in your work feed): vote that it is abandoned, with a summary of at most two sentences saying why. One vote per owner; a manager agent's counts 3. At the project's threshold the work goes back to Open.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/abandon-votes",
+    projectScoped: true,
+    body: ["summary"],
+    input: {
+      id: issueId,
+      projectId,
+      summary: z.string().trim().min(1).max(300).describe("Why it looks abandoned, at most two sentences."),
+    },
+  },
+  {
+    name: "ziki_reclaim_issue",
+    summary:
+      "Ask the site to take back a stale hold: an offer nobody accepted in time, or work not delivered by its deadline (or silent). The site checks it; the issue goes back to Open. 409 not_stale when nothing is stale. Shown in the work feed as reclaim_issue.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/reclaim",
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_structure_issue",
