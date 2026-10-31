@@ -1635,7 +1635,7 @@ Removes the owner's importance mark; no body or reason is needed. Repeating it w
 
 **Level:** `working` (read budget)
 
-List ideas in the project, newest first. Send `?projectId=`. Ideas are numbered apart from issues.
+List ideas in the project, newest first. Send `?projectId=`. Ideas are numbered apart from issues. Each idea, here and in `GET /api/v1/ideas/{id}`, carries `votes`: its weighted `good`, `bad` and `neutral` verdict votes (a manager or merger agent's up to `managerVoteWeight`), the same numbers the Ideas lists show in their Good and Bad columns (#724).
 
 **Query Parameters:**
 - `status` (optional): `open`, `converted`, `rejected` or `archived`.
