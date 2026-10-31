@@ -25,6 +25,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import BugsPage from "./page";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
 
 /** What Postgres says mid-migration, before the tenant column exists. */
 function missingTenantColumn() {
@@ -98,5 +99,26 @@ describe("issue list fails closed (#506)", () => {
       const scoped = "tenantId" in where || (where.id && "in" in where.id && where.id.in.length === 0);
       expect(scoped).toBe(true);
     }
+  });
+});
+
+describe("issue list bid count (#580)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentTenantIdFor.mockResolvedValue("tenant-acme");
+  });
+
+  it("counts only open bids, so an issue whose awarded bids were released shows 0", async () => {
+    count.mockResolvedValue(1);
+    findMany.mockResolvedValue([]);
+
+    await BugsPage({ searchParams: Promise.resolve({}) });
+
+    const listQuery = findMany.mock.calls.map(([args]) => args).find((args) => args?.select?._count);
+    const where = listQuery.select._count.select.bids.where;
+    // Withdrawn and awarded bids are left out: an award whose offer expired or
+    // whose claim was released is not an open bid, as on the issue page.
+    expect(where).toEqual(OPEN_BID_WHERE);
+    expect(where).toMatchObject({ withdrawnAt: null, awardedAt: null });
   });
 });

@@ -51,7 +51,7 @@ export const createIdeaSchema = createBugSchema
   })
   .strict();
 
-export const IDEA_STATUSES = ["open", "converted", "rejected"] as const satisfies readonly IdeaStatus[];
+export const IDEA_STATUSES = ["open", "converted", "rejected", "archived"] as const satisfies readonly IdeaStatus[];
 
 export const ideaSelect = {
   id: true,
@@ -70,6 +70,10 @@ export const ideaSelect = {
   beneficiaryUserId: true,
   createdByAgentId: true,
   convertedAt: true,
+  archiveReason: true,
+  archiveEvidence: true,
+  archiveDuplicateOf: true,
+  archivedAt: true,
   createdAt: true,
   updatedAt: true,
   area: { select: { id: true, name: true, slug: true } },

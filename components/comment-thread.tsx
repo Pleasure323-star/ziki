@@ -7,7 +7,7 @@ import { truncateCommentBody, type CommentNode } from "@/lib/comments";
 import { canDeleteComment } from "@/lib/comment-permissions";
 import type { AppRole } from "@/lib/roles";
 import type { OrganizationRole } from "@/lib/organization-role";
-import { deleteCommentAction } from "@/app/actions/comments";
+import { deleteCommentAction, upvoteCommentAction } from "@/app/actions/comments";
 import { CommentBody } from "@/components/comment-body";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
 import { CopyLinkButton } from "@/components/copy-link-button";
@@ -98,6 +98,68 @@ function CommentActionsMenu({ deleting, onDelete }: { deleting: boolean; onDelet
   );
 }
 
+/**
+ * A comment's upvotes (#comment-votes): a small button with the count. Each
+ * upvote from another person earns the comment's author 1 point. People
+ * upvote while the issue is Open, once each, and never their own comment;
+ * otherwise the count shows on its own.
+ */
+function CommentUpvote({
+  commentId,
+  voters,
+  currentUserId,
+  canVote,
+  own,
+}: {
+  commentId: string;
+  voters: string[];
+  currentUserId?: string;
+  canVote: boolean;
+  own: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [votes, setVotes] = useState(voters.length);
+  const [voted, setVoted] = useState(Boolean(currentUserId && voters.includes(currentUserId)));
+  const toast = useToast();
+  if (!canVote && votes === 0) return null;
+  const label = `${votes} ${votes === 1 ? "upvote" : "upvotes"}`;
+  if (!canVote || own) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs tabular-nums text-zk-muted" title={own ? "Others upvote your comment; each upvote earns you 1 point." : label}>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+        <span>{votes}</span>
+        <span className="sr-only">{votes === 1 ? " upvote" : " upvotes"}</span>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={pending || voted}
+      aria-pressed={voted}
+      aria-label={voted ? `You upvoted this comment, ${label}` : `Upvote this comment, ${label}`}
+      title={voted ? "You upvoted this comment" : "Upvote a helpful comment: its author earns 1 point"}
+      onClick={() => {
+        startTransition(async () => {
+          const result = await upvoteCommentAction(commentId);
+          if (result.error) {
+            toast(result.error, "error");
+            return;
+          }
+          setVoted(true);
+          if (typeof result.votes === "number") setVotes(result.votes);
+        });
+      }}
+      className={`inline-flex h-6 items-center gap-1 rounded-md border px-1.5 text-xs font-semibold tabular-nums transition-colors disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong ${
+        voted ? "border-zk-accent bg-zk-tint text-zk-accent" : "border-zk-border text-zk-muted hover:bg-zk-chip hover:text-zk-text"
+      }`}
+    >
+      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6" /></svg>
+      <span>{votes}</span>
+    </button>
+  );
+}
+
 function CommentItem({
   comment,
   issueUrl,
@@ -182,6 +244,13 @@ function CommentItem({
                 </a>
                 <CopyLinkButton url={`${issueUrl}#comment-${comment.id}`} label="comment" compact />
                 {comment.editedAt ? <span title="This comment was edited">· edited</span> : null}
+                <CommentUpvote
+                  commentId={comment.id}
+                  voters={(comment.votes ?? []).map((vote) => vote.onBehalfOfUserId)}
+                  currentUserId={currentUserId}
+                  canVote={Boolean(replyBugId) && !readOnly && Boolean(currentUserId)}
+                  own={comment.authorId === currentUserId}
+                />
                 {canDelete ? <CommentActionsMenu deleting={pending} onDelete={handleDelete} /> : null}
               </span>
             </div>

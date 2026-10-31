@@ -8,6 +8,7 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/app/actions/comments", () => ({
   deleteCommentAction: vi.fn(),
   updateCommentAction: vi.fn(),
+  upvoteCommentAction: vi.fn(),
 }));
 
 import { CommentThread } from "./comment-thread";

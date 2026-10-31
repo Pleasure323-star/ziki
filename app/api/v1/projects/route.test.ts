@@ -48,7 +48,7 @@ describe("agent project discovery (#607)", () => {
           workflow: {
             confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
-            volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 360, abandonThreshold: 3, closeThreshold: 3,
+            volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
           }, openIssueCount: 3,
           rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: 750 } },
         { id: "project-api", slug: "api", name: "API", goal: null, repoUrl: null, stagingUrl: null,
@@ -57,7 +57,7 @@ describe("agent project discovery (#607)", () => {
           workflow: {
             confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
-            volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 360, abandonThreshold: 3, closeThreshold: 3,
+            volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
           }, openIssueCount: 0,
           rewardRules: { guidelines: null, reporter: 150, reviewer: 300, solver: 750 } },
       ],
@@ -108,7 +108,7 @@ describe("agent project discovery (#607)", () => {
       workflow: {
         confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
         heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
-        volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 360, abandonThreshold: 3, closeThreshold: 3,
+        volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
       },
     });
     expect(db.project.findFirst).toHaveBeenCalledWith({ where: { id: "project-web", tenantId: "tenant-a" }, select: expect.objectContaining({ goal: true }) });

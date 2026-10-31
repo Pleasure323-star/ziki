@@ -17,7 +17,7 @@ import { combineProblems, notifyAuthor, readinessClient, readinessProblems } fro
 import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { parseIssueRef } from "@/lib/issue-ref";
+import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -153,7 +153,7 @@ export type SubmitTestVerdictDeps = { client?: GitHubClient | null };
 
 export async function submitTestVerdict(
   agent: AgentContext,
-  bugId: string,
+  issueRef: string,
   rawBody: unknown,
   deps: SubmitTestVerdictDeps = {},
 ): Promise<SubmitTestVerdictResult> {
@@ -169,6 +169,9 @@ export async function submitTestVerdict(
   if (!parsed.success) return invalidVerdict(parsed.error);
   const body = parsed.data;
 
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
+  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
     select: reviewedBugSelect,

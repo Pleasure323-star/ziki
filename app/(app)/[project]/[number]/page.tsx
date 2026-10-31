@@ -41,7 +41,8 @@ import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
-import { currentHold, type IssueHold } from "@/lib/issue-holders";
+import { currentHold, shownAssignee, type IssueHold } from "@/lib/issue-holders";
+import { isOpenBid } from "@/lib/open-bids";
 import {
   claimDecisionKind,
   currentDecisionStage,
@@ -696,6 +697,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const confirmationBlock: ConfirmationBlock =
     bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
   const isAssignee = !!userId && bug.assigneeId === userId;
+  // An Open issue that nothing holds (no active claim, no live offer; `hold`
+  // is currentHold) has no assignee to show: that one is stale (#stale-assignee).
+  const assignee = shownAssignee(bug.status, bug.assignee, Boolean(hold));
   const canUpdateStatus = canTriage || isAssignee;
   const canEdit =
     canEditTicket({
@@ -814,7 +818,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     confirmations: confirmationsData?.confirmations ?? 0,
     confirmationsNeeded: confirmationsData?.confirmationsNeeded ?? 0,
     holder: hold ? { agentName: hold.agentName, personName: hold.personName, status: hold.status, offeredAt: hold.offeredAt } : null,
-    openBids: bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length,
+    openBids: bidList.filter(isOpenBid).length,
     goodToMerge: testVerdictList.filter((verdict) => verdict.goodToMerge).length,
     verdictsNeeded,
     stale,
@@ -1248,15 +1252,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             <div className="flex min-w-0 items-center gap-3">
               <span className="w-16 shrink-0 text-xs text-zk-muted">Assignee</span>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                {bug.assignee ? (
+                {assignee ? (
                   <UserNameWithBadges
-                    name={bug.assignee.name}
-                    role={bug.assignee.role}
-                    organizationRole={bug.assigneeId ? organizationRoles[bug.assigneeId] : null}
-                    image={bug.assignee.image}
+                    name={assignee.name}
+                    role={assignee.role}
+                    organizationRole={organizationRoles[assignee.id] ?? null}
+                    image={assignee.image}
                     avatar="sm"
                     className="text-xs"
-                    userId={bug.assigneeId}
+                    userId={assignee.id}
                   />
                 ) : (
                   <span className="text-xs text-zk-muted">Unassigned</span>

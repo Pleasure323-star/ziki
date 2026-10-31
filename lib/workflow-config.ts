@@ -38,8 +38,9 @@ export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.
   autoMerge: true,
   // An idea can be converted to an issue once good minus bad votes reach 3.
   ideaThreshold: 3,
-  // In-progress work with no update for 6 hours is put up for a sense check (#abandon).
-  abandonCheckMinutes: 360,
+  // In progress work with no update for 2 hours is idle (lib/agent-api/idle.ts): held work
+  // is put up for a sense check (#abandon), work nobody holds goes to a manager agent (#idle).
+  abandonCheckMinutes: 120,
   // Three Abandoned votes (one manager agent's) take it back to Open.
   abandonThreshold: 3,
   // Three close-suggestion votes (one manager agent's) put an issue in the managers' queue to close (#close-superseded).

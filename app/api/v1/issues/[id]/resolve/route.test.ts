@@ -59,10 +59,11 @@ describe("POST /api/v1/issues/[id]/resolve (Ziki #515)", () => {
     expect(await response.json()).toEqual({ error: "not_merged", message: "That pull request isn't merged yet." });
   });
 
-  it("needs a pullRequestUrl and rejects unknown fields", async () => {
-    expect((await POST(request({}), params)).status).toBe(400);
+  it("rejects unknown fields; the pull request may be left out to use the linked one", async () => {
     expect((await POST(request({ pullRequestUrl: PR, status: "resolved" }), params)).status).toBe(400);
     expect(mocks.resolve).not.toHaveBeenCalled();
+    await POST(request({}), params);
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
   });
 
   it("needs a projectId", async () => {

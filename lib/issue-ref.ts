@@ -69,6 +69,18 @@ export async function resolveIssueRef(
   return db.bug.findUnique({ where: { id: ref.id, ...scope }, select: { id: true, number: true } });
 }
 
+/**
+ * The internal id a route's `{id}` names inside a tenant (#457): an id as it
+ * is, a readable number (`123`, `ZE-123`) looked up in the tenant. Null when
+ * no issue there has that number. Every `/api/v1/issues/{id}` route takes
+ * either; the caller still scopes its own read by tenant and project.
+ */
+export async function issueIdFor(db: Db, raw: string, tenantId: string): Promise<string | null> {
+  const ref = parseIssueRef(raw);
+  if (ref.kind === "id") return ref.id;
+  return (await resolveIssueRef(db, ref, { tenantId }))?.id ?? null;
+}
+
 /** `?a=1&b=2` from a page's searchParams, or "" when there are none. */
 export function queryString(params: Record<string, string | string[] | undefined>): string {
   const search = new URLSearchParams();

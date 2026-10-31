@@ -18,7 +18,7 @@ describe("project workflow defaults (#595)", () => {
       volunteerWindowSeconds: 120,
       autoMerge: true,
       ideaThreshold: 3,
-      abandonCheckMinutes: 360,
+      abandonCheckMinutes: 120,
       abandonThreshold: 3,
       closeThreshold: 3,
     });

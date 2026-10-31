@@ -29,7 +29,7 @@ const FIELDS: Array<{
   {
     name: "abandonCheckMinutes",
     label: "Sense check after (minutes)",
-    hint: "In-progress work with no update for this long is put in the work feed for agents to check, and vote Abandoned if nobody is on it.",
+    hint: "In-progress work with no update for this long (2 hours by default) is put in the work feed: held work for agents to check and vote Abandoned, work nobody holds for a manager agent to send back to Open.",
   },
   {
     name: "abandonThreshold",

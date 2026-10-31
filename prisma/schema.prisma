@@ -137,6 +137,8 @@ enum PointRole {
   idea
   /// The signup bonus, paid once per account in the first organisation it joins or creates.
   signup
+  /// 1 pt to a comment's author for each upvote from another person (#comment-votes).
+  comment
 }
 
 enum DisputeStatus {
@@ -261,6 +263,7 @@ model User {
   ideaVerdicts              IdeaVerdict[]           @relation("IdeaVerdictsGiven")
   abandonVotes              AbandonVote[]           @relation("AbandonVotesGiven")
   bidVotes                  BidVote[]               @relation("BidVotesGiven")
+  commentVotes              CommentVote[]           @relation("CommentVotesGiven")
   closeSuggestions          CloseSuggestion[]       @relation("CloseSuggestionsGiven")
   reportedIdeas             Idea[]                  @relation("IdeaReporter")
   beneficiaryIdeas          Idea[]                  @relation("IdeaBeneficiary")
@@ -367,6 +370,7 @@ model Bug {
   claims             IssueClaim[]
   abandonVotes       AbandonVote[]
   bidVotes           BidVote[]
+  commentVotes       CommentVote[]
   closeSuggestions   CloseSuggestion[]
   approvals          IssueApproval[]
   bids               IssueBid[]
@@ -499,6 +503,7 @@ model Comment {
   parent      Comment?     @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies     Comment[]    @relation("CommentReplies")
   attachments Attachment[]
+  votes       CommentVote[]
 
   ideaVerdict    IdeaVerdict?
   /// Set on a reply to a confirmation entry (#issue-confirmations).
@@ -737,7 +742,7 @@ model ProjectWorkflow {
   /// Net idea votes (good minus bad) before a manager agent may convert an idea to an issue.
   ideaThreshold          Int      @default(3)
   /// Minutes without an update before in-progress work is put up for a sense check (#abandon).
-  abandonCheckMinutes    Int      @default(360)
+  abandonCheckMinutes    Int      @default(120)
   /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts 3).
   abandonThreshold       Int      @default(3)
   /// Close-suggestion votes that put an issue in the managers' queue to close (#close-superseded; a manager agent's vote counts 3).
@@ -953,6 +958,7 @@ model Agent {
   ideaVerdicts    IdeaVerdict[]
   abandonVotes     AbandonVote[]
   bidVotes         BidVote[]
+  commentVotes     CommentVote[]
   closeSuggestions CloseSuggestion[]
   importanceMarks  Vote[]
 
@@ -1169,6 +1175,9 @@ enum IdeaStatus {
   converted
   /// A manager agent rejected it: more than 5 votes, and fewer than 3 of them good (lib/idea-rejection.ts).
   rejected
+  /// A manager agent archived it as obsolete, whatever its votes: already
+  /// implemented, a duplicate, or the wrong project (lib/idea-archive.ts).
+  archived
 }
 
 /// A report waiting for verdicts (#idea-table). People and agents give it one
@@ -1213,6 +1222,15 @@ model Idea {
   /// When a manager agent rejected it, and which one.
   rejectedAt         DateTime?
   rejectedByAgentId  String?
+  /// Why a manager agent archived it: "already_implemented", "duplicate" or
+  /// "wrong_project" (lib/idea-archive.ts), with the evidence it gave.
+  archiveReason      String?
+  archiveEvidence    String?
+  /// For a duplicate: what it duplicates, "idea:12" or "issue:34".
+  archiveDuplicateOf String?
+  /// When a manager agent archived it, and which one.
+  archivedAt         DateTime?
+  archivedByAgentId  String?
   /// The issue converting it created.
   issueId            String?          @unique
   issue              Bug?             @relation(fields: [issueId], references: [id], onDelete: SetNull)
@@ -2017,6 +2035,26 @@ model BidVote {
   agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
   @@unique([bidId, onBehalfOfUserId])
+  @@index([bugId])
+}
+
+/// Comment upvotes (#comment-votes): people and agents upvote helpful
+/// comments on Open issues, such as an investigation that helps the
+/// implementer. One vote per person per comment; each new vote pays the
+/// comment's author 1 point. Nobody upvotes their own comment.
+model CommentVote {
+  id               String   @id @default(cuid())
+  commentId        String
+  bugId            String
+  onBehalfOfUserId String
+  agentId          String?
+  createdAt        DateTime @default(now())
+  comment          Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User     @relation("CommentVotesGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([commentId, onBehalfOfUserId])
   @@index([bugId])
 }
 

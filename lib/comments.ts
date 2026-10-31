@@ -17,6 +17,8 @@ export type FlatComment = {
   author: CommentAuthor;
   agentId?: string | null;
   agent?: { name: string } | null;
+  /** Who upvoted it (#comment-votes): one row per person. */
+  votes?: { onBehalfOfUserId: string }[];
   parent: {
     id: string;
     body: string;

@@ -10,12 +10,13 @@ import { entrySummary } from "@/lib/agent-api/entry-fields";
 import { statusChangedSummary } from "@/lib/activity-log";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { idleInProgress, inProgressWork, isIdle } from "@/lib/agent-api/idle";
 
 /**
- * Sense checks on stale in-progress work (#abandon). When work has had no
- * update for the project's `abandonCheckMinutes` (6 hours by default), every
- * other agent's work feed asks it to check. Each person, through their agent,
- * may vote that it is abandoned: one vote per person per claim, a manager (or
+ * Sense checks on stale in-progress work (#abandon). When held work is idle
+ * (lib/agent-api/idle.ts: no update for the project's `abandonCheckMinutes`,
+ * 2 hours by default), every other agent's work feed asks it to check. Each
+ * person, through their agent, may vote that it is abandoned: one vote per person per claim, a manager (or
  * merger) agent's counting 3. Once the claim's votes reach `abandonThreshold`
  * the claim is released, its award no longer stands, and the issue goes back
  * to Open with no assignee.
@@ -31,36 +32,6 @@ export function abandonVoteWeight(level: AgentContext["level"]): number {
   return hasLevel(level, "manager") ? MANAGER_ABANDON_VOTES : 1;
 }
 
-/** The last real update on held work: claimed, extended, the issue changed, or a comment. Heartbeats don't count. */
-export function lastUpdateAt(dates: (Date | null | undefined)[]): Date | null {
-  const times = dates.filter((date): date is Date => date instanceof Date).map((date) => date.getTime());
-  return times.length ? new Date(Math.max(...times)) : null;
-}
-
-export function isSenseCheckDue(lastUpdate: Date | null, abandonCheckMinutes: number, now = Date.now()): boolean {
-  return lastUpdate !== null && now - lastUpdate.getTime() >= abandonCheckMinutes * 60_000;
-}
-
-/** The active claim on an in-progress issue and when it last saw an update. */
-async function heldWork(db: Db, bugId: string) {
-  const claim = await db.issueClaim.findFirst({
-    where: { bugId, status: "active", releasedAt: null, bug: { status: "in_progress", isDeleted: false } },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: {
-      id: true, agentId: true, beneficiaryUserId: true, claimedAt: true, extendedAt: true,
-      agent: { select: { ownerUserId: true } },
-      bug: { select: { updatedAt: true, projectId: true, assigneeId: true } },
-    },
-  });
-  if (!claim) return null;
-  const lastComment = await db.comment.findFirst({
-    where: { bugId, deletedAt: null },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
-  });
-  return { claim, lastUpdate: lastUpdateAt([claim.claimedAt, claim.extendedAt, claim.bug.updatedAt, lastComment?.createdAt]) };
-}
-
 /** The Abandoned votes on a claim, added up. */
 export async function abandonTally(claimId: string, db: Db = prisma): Promise<{ votes: number; voters: string[] }> {
   const rows = await db.abandonVote.findMany({ where: { claimId }, select: { votes: true, onBehalfOfUserId: true } });
@@ -69,12 +40,12 @@ export async function abandonTally(claimId: string, db: Db = prisma): Promise<{ 
 
 /** The sense check an issue page shows: due, and the votes so far. Null when nothing is due. */
 export async function senseCheck(bugId: string, now = Date.now()) {
-  const held = await heldWork(prisma, bugId);
-  if (!held) return null;
-  const { abandonCheckMinutes, abandonThreshold } = await workflowFor(held.claim.bug.projectId);
-  if (!isSenseCheckDue(held.lastUpdate, abandonCheckMinutes, now)) return null;
-  const { votes } = await abandonTally(held.claim.id);
-  return { claimId: held.claim.id, lastUpdate: held.lastUpdate, votes, threshold: abandonThreshold };
+  const idle = await idleInProgress(bugId, prisma, now);
+  // Idle work nobody holds is a manager's review_idle, not a vote.
+  if (!idle?.claim) return null;
+  const { abandonThreshold } = await workflowFor(idle.bug.projectId);
+  const { votes } = await abandonTally(idle.claim.id);
+  return { claimId: idle.claim.id, lastUpdate: idle.lastUpdate, votes, threshold: abandonThreshold };
 }
 
 /**
@@ -97,13 +68,18 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
-    const held = await heldWork(tx, bug.id);
-    if (!held) throw new IssueApiError(409, "Nobody is working on this issue, so there is nothing to check.", { error: "not_in_progress" });
-    const { claim } = held;
+    const held = await inProgressWork(tx, bug.id);
+    const claim = held?.claim;
+    if (!held || !claim) {
+      const message = held
+        ? "Nobody holds this issue, so there is no claim to vote on; a manager agent takes idle work nobody holds back to Open with POST /api/v1/issues/{id}/reclaim."
+        : "Nobody is working on this issue, so there is nothing to check.";
+      throw new IssueApiError(409, message, { error: "not_in_progress" });
+    }
     if (agent.ownerId === claim.beneficiaryUserId || agent.ownerId === claim.agent.ownerUserId) {
       throw new IssueApiError(403, "This is your owner's own work; another agent checks it.", { error: "own_work" });
     }
-    if (!isSenseCheckDue(held.lastUpdate, workflow.abandonCheckMinutes)) {
+    if (!isIdle(held.lastUpdate, workflow.abandonCheckMinutes)) {
       const message = `This work was updated less than ${workflow.abandonCheckMinutes} minutes ago; it is not up for a sense check yet.`;
       throw new IssueApiError(409, message, { error: "not_due", message });
     }

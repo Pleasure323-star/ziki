@@ -27,7 +27,7 @@ describe("the CLI itself", () => {
     const result = await ziki("commands");
     expect(result.code).toBe(0);
     expect(result.out.split("\n")).toHaveLength(CLI_TOOLS.length);
-    for (const command of ["create-idea", "mark-important", "bid", "vote-bid", "award-bid", "suggest-close", "close-issue", "save-notes", "admin-merge"]) expect(result.out).toContain(command);
+    for (const command of ["create-idea", "mark-important", "bid", "vote-bid", "upvote-comment", "award-bid", "suggest-close", "close-issue", "save-notes", "admin-merge"]) expect(result.out).toContain(command);
     // Offers come only from an awarded bid (#bids-only-offers).
     for (const removed of ["request-offer", "dispatch"]) expect(result.out).not.toMatch(new RegExp(`^${removed} `, "m"));
   });

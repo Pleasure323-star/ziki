@@ -114,6 +114,23 @@ describe("resolveMergedFix (Ziki #515)", () => {
     expect(db.$transaction).not.toHaveBeenCalled();
   });
 
+  it("hands a manager not connected to the issue to the reconcile path, with its stricter rules (#reconcile-merged)", async () => {
+    // In progress is not work in review, so the reconcile refuses it; the connected path would have resolved it.
+    db.bug.findFirst.mockResolvedValue(bug({ assigneeId: "someone", reporterId: "rep" }));
+    const gh = github();
+    const result = await resolveMergedFix(agent("stranger", "manager"), scope, "bug1", PR, () => gh.client);
+    expect(result).toMatchObject({ status: 409, body: { error: "not_in_review" } });
+    expect(gh.getPullRequest).not.toHaveBeenCalled();
+    expect(db.tx.bug.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("uses the linked pull request when none is sent, and asks for one when none is linked", async () => {
+    db.bug.findFirst.mockResolvedValue(bug({ pullRequestUrl: PR }));
+    expect((await resolveMergedFix(agent(), scope, "bug1", undefined, () => github().client)).status).toBe(200);
+    db.bug.findFirst.mockResolvedValue(bug());
+    expect(await resolveMergedFix(agent(), scope, "bug1", undefined, () => github().client)).toMatchObject({ status: 409, body: { error: "no_pull_request" } });
+  });
+
   it.each([
     ["not a PR URL", "https://github.com/acme/app/issues/12", bug(), github(), 422, "invalid_url"],
     ["an issue outside the key's project", PR, null, github(), 404, "not_found"],

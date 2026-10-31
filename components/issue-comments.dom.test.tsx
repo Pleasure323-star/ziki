@@ -9,6 +9,7 @@ vi.mock("@/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/app/actions/comments", () => ({
   deleteCommentAction: vi.fn(),
   updateCommentAction: vi.fn(),
+  upvoteCommentAction: vi.fn(),
 }));
 vi.mock("@/app/actions/issues", () => ({ addCommentAction: vi.fn() }));
 
@@ -76,6 +77,17 @@ describe("IssueComments", () => {
   it("shows the comment box even before the first comment", () => {
     render(<IssueComments {...props} count={0} comments={[]} replyBugId="bug1" composer={<CommentComposer bugId="bug1" />} />);
     expect(screen.getByRole("form", { name: "Add a comment" })).toBeInTheDocument();
+  });
+
+  it("while Open: upvote someone else's comment, not your own; otherwise only a count (#comment-votes)", () => {
+    const voted = { ...reply, votes: [{ onBehalfOfUserId: "third" }] };
+    const { unmount } = render(<IssueComments {...props} count={1} comments={[{ ...comment, children: [voted] }]} replyBugId="bug1" />);
+    expect(screen.getByRole("button", { name: "Upvote this comment, 1 upvote" })).toBeEnabled();
+    // The viewer's own comment shows its count, with no button.
+    expect(screen.queryAllByRole("button", { name: /Upvote this comment/ })).toHaveLength(1);
+    unmount();
+    render(<IssueComments {...props} count={1} comments={[{ ...comment, children: [voted] }]} />);
+    expect(screen.queryByRole("button", { name: /Upvote this comment/ })).toBeNull();
   });
 
   it("keeps an author's own delete, but not on a deleted issue", () => {

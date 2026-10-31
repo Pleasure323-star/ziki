@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => {
   const mock = {
-    bug: { findFirst: vi.fn(), update: vi.fn() },
-    bugActivity: { createMany: vi.fn() },
+    bug: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    bugActivity: { createMany: vi.fn(), create: vi.fn() },
     issueBid: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn() },
+    issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     agent: { findFirst: vi.fn() },
     projectWorkflow: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
@@ -71,6 +71,7 @@ beforeEach(() => {
   db.projectWorkflow.findUnique.mockResolvedValue(null);
   db.agent.findFirst.mockResolvedValue(null);
   db.issueBid.updateMany.mockResolvedValue({ count: 1 });
+  db.bug.updateMany.mockResolvedValue({ count: 1 });
   db.issueBid.findUnique.mockResolvedValue(null);
   db.issueBid.create.mockResolvedValue({ id: "bid1", beneficiaryUserId: "ada", summary: plan.summary });
   vi.mocked(isConfirmed).mockResolvedValue(true);
@@ -298,6 +299,73 @@ describe("awardBid", () => {
     db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { status?: string } }) =>
       where.status === "active" ? null : { id: "offer", status: "offered", offeredAt: new Date(), agentId: "x", beneficiaryUserId: "x", bug: { tenantId: "tenant", projectId: "project" } });
     await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("pending offer") });
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("awardBid and a stale assignee (#stale-assignee)", () => {
+  const manager = { ...caller, agentId: "dana-agent", name: "Dana's Claude", ownerId: "dana", level: "manager" as const };
+  const assignedBug = { ...openBug, assigneeId: "carl", assignee: { name: "Carl" } };
+  const stored = {
+    id: "bid1",
+    bugId: "issue1",
+    agentId: "agent1",
+    beneficiaryUserId: "ada",
+    withdrawnAt: null,
+    awardedAt: null,
+    beneficiary: { name: "Ada" },
+    agent: { ownerUserId: "ada" },
+    bug: assignedBug,
+  };
+
+  it("clears an assignee with no active claim and no live offer, records it, then awards", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    db.issueClaim.create.mockResolvedValue({ id: "claim1" });
+    await expect(awardBid(manager, "bid1")).resolves.toMatchObject({ claimId: "claim1", bugId: "issue1" });
+    expect(db.bug.updateMany).toHaveBeenCalledWith({
+      where: { id: "issue1", assigneeId: "carl", status: "open" },
+      data: { assigneeId: null },
+    });
+    expect(db.bugActivity.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      bugId: "issue1",
+      actorId: "dana",
+      type: "assignee_changed",
+      metadata: expect.objectContaining({ field: "assignee", from: "carl", to: null }),
+    }) });
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "issue.updated",
+      payload: expect.objectContaining({ values: { assigneeId: null }, reason: "stale_assignee" }),
+    }));
+    expect(db.issueClaim.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts an offer past the project's window as no hold, so its assignee is stale too", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    db.issueClaim.create.mockResolvedValue({ id: "claim1" });
+    // The live-hold query only matches offers inside the window; the expired one is not returned.
+    db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { OR?: unknown; status?: string } }) =>
+      where.OR || where.status === "active" ? null
+        : { id: "old-offer", status: "offered", offeredAt: new Date(Date.now() - 2 * 3600_000), agentId: "x", beneficiaryUserId: "carl", bug: { tenantId: "tenant", projectId: "project" } });
+    await expect(awardBid(manager, "bid1")).resolves.toMatchObject({ claimId: "claim1" });
+    expect(db.bug.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("still refuses when the assignee holds an active claim", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { OR?: unknown } }) =>
+      where.OR ? { id: "held", status: "active", beneficiaryUserId: "carl" } : null);
+    await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409, message: "This issue is already assigned to someone else." });
+    expect(db.bug.updateMany).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).not.toHaveBeenCalled();
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("still refuses when the assignee holds a live offer", async () => {
+    db.issueBid.findUnique.mockResolvedValue(stored);
+    db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { OR?: unknown } }) =>
+      where.OR ? { id: "offer", status: "offered", beneficiaryUserId: "carl" } : null);
+    await expect(awardBid(manager, "bid1")).rejects.toMatchObject({ status: 409 });
+    expect(db.bug.updateMany).not.toHaveBeenCalled();
     expect(db.issueClaim.create).not.toHaveBeenCalled();
   });
 });

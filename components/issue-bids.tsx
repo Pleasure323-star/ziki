@@ -2,6 +2,7 @@ import { AwardBidButton } from "@/components/award-bid-button";
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
+import { isOpenBid } from "@/lib/open-bids";
 
 export type BidEntryView = {
   id: string;
@@ -105,7 +106,7 @@ export function IssueBidsPanel({
   /** Past Open: one compact card with a summary, the bids behind it. */
   collapsed?: boolean;
 }) {
-  const openCount = bids.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length;
+  const openCount = bids.filter(isOpenBid).length;
   if (collapsed) {
     const awarded = bids.find((bid) => bidState(bid) === "awarded");
     return (

@@ -29,6 +29,7 @@ function entrySource(role: string, points: number, sourceKey: string): string {
     "duplicate-marker": "Duplicate detection",
     idea: "Idea contribution",
     signup: "Signup bonus",
+    "comment-upvote": "Comment upvote",
   };
   return labels[sourceKey.split(":")[0]] ?? `${role[0].toUpperCase()}${role.slice(1)} award`;
 }

@@ -16,6 +16,7 @@ import { BackToList } from "@/components/back-to-list";
 import { ideaNextStep } from "@/lib/next-step";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
 import { isBadIdea } from "@/lib/idea-rejection";
+import { archiveReasonLabel } from "@/lib/idea-archive";
 
 export const metadata: Metadata = { title: "Idea" };
 
@@ -38,6 +39,7 @@ const STATUS_CHIP: Record<string, { label: string; className: string }> = {
   bad: { label: "Reject advised", className: "bg-zk-bad-bg text-zk-bad-fg" },
   converted: { label: "Converted to an issue", className: "bg-zk-ok-bg text-zk-ok-fg" },
   rejected: { label: "Idea rejected", className: "bg-zk-bad-bg text-zk-bad-fg" },
+  archived: { label: "Archived", className: "bg-zk-chip text-zk-text2" },
 };
 
 /**
@@ -66,6 +68,10 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       createdAt: true,
       convertedAt: true,
       rejectedAt: true,
+      archivedAt: true,
+      archiveReason: true,
+      archiveEvidence: true,
+      archiveDuplicateOf: true,
       reporterId: true,
       beneficiaryUserId: true,
       legacyComments: true,
@@ -101,6 +107,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
     bad: rejectable,
     convertible: idea.status === "open" && verdicts.convertible,
     issueNumber: idea.issue?.number ?? null,
+    archiveLabel: idea.status === "archived" ? archiveReasonLabel(idea.archiveReason, idea.archiveDuplicateOf) : null,
   });
   const earlier = legacyComments(idea.legacyComments);
   const authors = earlier.length
@@ -116,7 +123,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       <div className="flex flex-col gap-3">
         <div className="flex items-start gap-2">
           {/* Back to the list it was opened from; otherwise New ideas or Rejected ideas. */}
-          <BackToList fallback={idea.status === "rejected" ? "/issues?status=rejected_ideas" : NEW_IDEAS_HREF} label="Back to ideas" />
+          <BackToList fallback={idea.status === "rejected" || idea.status === "archived" ? "/issues?status=rejected_ideas" : NEW_IDEAS_HREF} label="Back to ideas" />
           <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
             <span className="font-bold tabular-nums text-zk-muted">Idea #{idea.number}</span> {idea.title}
           </h1>
@@ -128,6 +135,14 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
         <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-5">
           <NextStepBar step={nextStep} />
           <ReportSummary summary={idea.summary} />
+          {idea.status === "archived" && idea.archiveEvidence ? (
+            <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6" data-testid="idea-archive-evidence">
+              <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
+                Archived: {archiveReasonLabel(idea.archiveReason, idea.archiveDuplicateOf)}
+              </h2>
+              <RichText content={idea.archiveEvidence} className="mt-3 text-sm text-zk-text" />
+            </section>
+          ) : null}
           <section className="rounded-[20px] border border-zk-border bg-zk-surface p-5 sm:p-6">
             <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Description</h2>
             <RichText content={idea.description} className="mt-3 text-sm text-zk-text" />
@@ -191,6 +206,11 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
               {idea.rejectedAt ? (
                 <>
                   {" "}· rejected <LocalTime date={idea.rejectedAt} />
+                </>
+              ) : null}
+              {idea.archivedAt ? (
+                <>
+                  {" "}· archived <LocalTime date={idea.archivedAt} />
                 </>
               ) : null}
             </p>

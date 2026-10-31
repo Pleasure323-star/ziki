@@ -121,7 +121,15 @@ export const POINT_AWARD_MAX = 1_000_000;
 /** Largest points goal a super admin can store. */
 export const POINT_TARGET_MAX = 100_000_000;
 
-export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup";
+export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup" | "comment";
+
+/** Paid to a comment's author for each upvote from another person (#comment-votes). */
+export const COMMENT_UPVOTE_POINTS = 1;
+
+/** Idempotency key for a comment upvote: one award per comment and voting person. */
+export function commentUpvoteSourceKey(commentId: string, voterUserId: string): string {
+  return `comment-upvote:${commentId}:${voterUserId}`;
+}
 
 /** Paid once per person per idea for their first opinion on it: a validation or a comment (#work-feed). */
 export const IDEA_CONTRIBUTION_POINTS = 1;

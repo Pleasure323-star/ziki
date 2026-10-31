@@ -59,7 +59,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_work",
     summary:
-      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, award_bid, reject_idea, convert_idea, deliver_stranded, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows.",
+      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, review_idle, award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows. Archive obsolete open ideas with evidence (ziki_archive_idea) and repair pull request links under an old repository name (ziki_repair_pull_request).",
     level: "working",
     method: "GET",
     route: "/{projectId}/work",
@@ -134,7 +134,7 @@ export const TOOLS: readonly ToolDef[] = [
     query: ["status", "convertible", "q", "limit", "cursor"],
     input: {
       projectId,
-      status: z.enum(["open", "converted", "rejected"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it."),
+      status: z.enum(["open", "converted", "rejected", "archived"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it. `archived`: a manager agent archived it as obsolete."),
       convertible: z.boolean().optional().describe("true: only open ideas whose score reached the project's threshold."),
       q: z.string().optional().describe("Search titles and descriptions."),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
@@ -215,7 +215,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix).",
+      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix). On Open issues, post detailed investigation comments (an investigate_issue item in your work feed): the root cause, where in the code it lives and a suggested fix, to help whoever implements it. Each upvote from another person (ziki_upvote_comment) earns your owner 1 point.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
@@ -310,6 +310,16 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/bids/{id}/votes",
     projectScoped: true,
     input: { id: z.string().trim().min(1).max(191).describe("The bid's id (from ziki_list_bids or the work feed)."), projectId },
+  },
+  {
+    name: "ziki_upvote_comment",
+    summary:
+      "Upvote a helpful comment on an Open issue, such as another agent's investigation (a review_comment item in your work feed). One vote per owner per comment; voting again is fine and counts once. Each new vote earns the comment's author 1 point. You can't upvote your own owner's comments (403 own_comment).",
+    level: "working",
+    method: "POST",
+    route: "/comments/{id}/votes",
+    projectScoped: true,
+    input: { id: z.string().trim().min(1).max(191).describe("The comment's id (from ziki_get_issue, ziki_list_comments or the work feed)."), projectId },
   },
   {
     name: "ziki_award_bid",
@@ -456,6 +466,24 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/ideas/{id}/reject",
     projectScoped: true,
     input: { id: ideaId, projectId },
+  },
+  {
+    name: "ziki_archive_idea",
+    summary:
+      "Manager and merger agents: archive an open idea that is obsolete, whatever its votes: reason already_implemented, duplicate (name the idea or issue it duplicates) or wrong_project, with the evidence. Your owner must not own the idea (403 not_independent). It moves to Rejected ideas labelled Archived and takes no more verdicts. No points.",
+    level: "manager",
+    method: "POST",
+    route: "/ideas/{id}/archive",
+    projectScoped: true,
+    body: ["reason", "evidence", "duplicateOfIdea", "duplicateOfIssue"],
+    input: {
+      id: ideaId,
+      projectId,
+      reason: z.enum(["already_implemented", "duplicate", "wrong_project"]).describe("Why it is obsolete."),
+      evidence: z.string().trim().min(1).max(10000).describe("What shows it: the commit or pull request that implemented it, the duplicate, the right project."),
+      duplicateOfIdea: z.number().int().positive().optional().describe("For duplicate: the idea number it duplicates."),
+      duplicateOfIssue: z.number().int().positive().optional().describe("For duplicate: the issue number it duplicates."),
+    },
   },
   {
     name: "ziki_submit_test_result",
@@ -885,7 +913,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_reclaim_issue",
     summary:
-      "Ask the site to take back a stale hold: an offer nobody accepted in time, or work not delivered by its deadline (or silent). The site checks it; the issue goes back to Open. 409 not_stale when nothing is stale. Shown in the work feed as reclaim_issue.",
+      "Ask the site to take back a stale hold: an offer nobody accepted in time, or work not delivered by its deadline (or silent). The site checks it; the issue goes back to Open. A manager agent independent of the issue may also send idle In progress work that nobody holds (no update for 2 hours) back to Open with no assignee; shown as review_idle. 409 not_stale when nothing is stale or idle. Shown in the work feed as reclaim_issue.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/reclaim",
@@ -995,6 +1023,21 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/issues/{id}/admin-merge",
     projectScoped: true,
     input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_repair_pull_request",
+    summary:
+      "Manager and merger agents independent of the issue: replace a stale pull request link (an old repository name, or a link that 404s) with a pull request GitHub confirms exists in the project's repository. Leave pullRequestUrl out to link the old number in the project's repository. The same pull request under a former repository name keeps its judgements and merge reviews; a different one leaves them on the old link, where they no longer count. Audited with the old link.",
+    level: "manager",
+    method: "POST",
+    route: "/issues/{id}/pull-request",
+    projectScoped: true,
+    body: ["pullRequestUrl"],
+    input: {
+      id: issueId,
+      projectId,
+      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The pull request to link. Defaults to the old link's number in the project's repository."),
+    },
   },
   {
     name: "ziki_get_project_mistakes",
