@@ -29,7 +29,8 @@ describe("Notes page contributions (#732, #740)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Post note" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not post the note."));
     expect(field).toHaveValue("The staging URL changed.");
-    fireEvent.click(screen.getByRole("button", { name: "Post note" }));
+    // The button reads "Post note" again once the failed post has settled.
+    fireEvent.click(await screen.findByRole("button", { name: "Post note" }));
     await waitFor(() => expect(field).toHaveValue(""));
     expect(actions.addNoteCommentAction).toHaveBeenLastCalledWith("p1", "The staging URL changed.");
   });
