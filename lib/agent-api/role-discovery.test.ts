@@ -40,7 +40,7 @@ describe("Role-based discovery functions", () => {
 
   describe("findReadyToMergeIssues", () => {
     it("needs a manager agent", async () => {
-      await expect(findReadyToMergeIssues(contributor, "p1", "done")).rejects.toBeInstanceOf(AgentLevelError);
+      await expect(findReadyToMergeIssues(contributor, "p1", "accepted")).rejects.toBeInstanceOf(AgentLevelError);
     });
 
     it("returns ready to merge issues when conditions are met", async () => {
@@ -64,12 +64,12 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", "done");
+      const issues = await findReadyToMergeIssues(merger, "p1", "accepted");
       expect(issues).toHaveLength(1);
       expect(issues[0]).toMatchObject({
         id: "bug-1",
         number: 101,
-        status: "done",
+        status: "accepted",
         verdictsCount: 2,
       });
     });
@@ -95,7 +95,7 @@ describe("Role-based discovery functions", () => {
         },
       ]);
       // One independent verdict of the two needed: the gate would refuse, so the queue doesn't list it.
-      await expect(findReadyToMergeIssues(merger, "p1", "done")).resolves.toEqual([]);
+      await expect(findReadyToMergeIssues(merger, "p1", "accepted")).resolves.toEqual([]);
     });
 
     it("reads one status: Ready to merge, which needs no further verdicts", async () => {
@@ -116,14 +116,14 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", "ready_to_merge");
+      const issues = await findReadyToMergeIssues(merger, "p1", "merge");
       expect(db.bug.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ status: "ready_to_merge" }),
+          where: expect.objectContaining({ status: "merge" }),
         }),
       );
       expect(issues).toHaveLength(1);
-      expect(issues[0].status).toBe("ready_to_merge");
+      expect(issues[0].status).toBe("merge");
     });
 
     it("keeps a blocked merge on the list so it can be tried again: it stays Ready to merge", async () => {
@@ -144,9 +144,9 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", "ready_to_merge");
+      const issues = await findReadyToMergeIssues(merger, "p1", "merge");
       expect(issues).toHaveLength(1);
-      expect(issues[0].status).toBe("ready_to_merge");
+      expect(issues[0].status).toBe("merge");
     });
   });
 

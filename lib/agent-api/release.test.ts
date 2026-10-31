@@ -47,7 +47,7 @@ afterEach(() => {
 describe("an agent gives work back (#547)", () => {
   it("declines a pending offer", async () => {
     db.issueClaim.findFirst.mockResolvedValue(claim("offered"));
-    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "open", assigneeId: null, projectId: "p" });
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "open", substatus: "open", assigneeId: null, projectId: "p" });
 
     const result = await releaseClaim(agent, "p", "bug1", "Not my area");
 
@@ -67,19 +67,19 @@ describe("an agent gives work back (#547)", () => {
 
   it("releases an active claim and reopens the issue", async () => {
     db.issueClaim.findFirst.mockResolvedValue(claim("active"));
-    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "in_progress", assigneeId: "ada", projectId: "p" });
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "in_progress", substatus: "in_progress", assigneeId: "ada", projectId: "p" });
 
     const result = await releaseClaim(agent, "p", "bug1");
 
     expect(result).toMatchObject({ reason: "agent", reopened: true });
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { assigneeId: null, status: "open" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { assigneeId: null, status: "open", substatus: "open" } });
     expect(db.bugActivity.createMany).toHaveBeenCalled();
   });
 
   it("leaves a delivered fix where it got to: the issue stays In progress (#one-status)", async () => {
     db.issueClaim.findFirst.mockResolvedValue(claim("active"));
     db.bug.findFirstOrThrow.mockResolvedValue({
-      id: "bug1", title: "T", status: "in_progress", assigneeId: "ada", projectId: "p", pullRequestUrl: "https://github.com/o/r/pull/1",
+      id: "bug1", title: "T", status: "in_progress", substatus: "in_progress", assigneeId: "ada", projectId: "p", pullRequestUrl: "https://github.com/o/r/pull/1",
     });
 
     const result = await releaseClaim(agent, "p", "bug1");
@@ -91,7 +91,7 @@ describe("an agent gives work back (#547)", () => {
 
   it("leaves a reassigned or resolved issue alone", async () => {
     db.issueClaim.findFirst.mockResolvedValue(claim("active"));
-    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "resolved", assigneeId: "ada", projectId: "p" });
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "resolved", substatus: "on_dev", assigneeId: "ada", projectId: "p" });
 
     const result = await releaseClaim(agent, "p", "bug1");
 
@@ -103,7 +103,7 @@ describe("an agent gives work back (#547)", () => {
   it("reopens the issue for bids and offers it to nobody, even with another eligible person (#bids-only-offers)", async () => {
     db.$queryRaw.mockResolvedValueOnce([{ id: "bug1" }]).mockResolvedValueOnce([{ id: "bob" }]);
     db.issueClaim.findFirst.mockResolvedValueOnce(claim("active")).mockResolvedValueOnce(null);
-    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "in_progress", assigneeId: "ada", projectId: "p" });
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "in_progress", substatus: "in_progress", assigneeId: "ada", projectId: "p" });
     isConfirmed.mockResolvedValue(true);
     db.membership.findMany.mockResolvedValue([
       { userId: "ada", user: { agents: [{ id: "agent-ada" }] } },
@@ -115,7 +115,7 @@ describe("an agent gives work back (#547)", () => {
 
     expect(result).toMatchObject({ reopened: true });
     expect(result).not.toHaveProperty("reofferedTo");
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { assigneeId: null, status: "open" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { assigneeId: null, status: "open", substatus: "open" } });
     expect(db.issueClaim.create).not.toHaveBeenCalled();
     expect(notifyClaimOffered).not.toHaveBeenCalled();
   });
@@ -142,7 +142,7 @@ describe("release accepts the readable issue number (#605)", () => {
   it.each(["42", "ZE-42"])("resolves %s inside the agent's tenant and releases that issue", async (ref) => {
     db.bug.findFirst.mockResolvedValue({ id: "bug1", number: 42 });
     db.issueClaim.findFirst.mockResolvedValue(claim("offered"));
-    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "open", assigneeId: null, projectId: "p" });
+    db.bug.findFirstOrThrow.mockResolvedValue({ id: "bug1", title: "T", status: "open", substatus: "open", assigneeId: null, projectId: "p" });
 
     const result = await releaseClaim(agent, "p", ref);
 

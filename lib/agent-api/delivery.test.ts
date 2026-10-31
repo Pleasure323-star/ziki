@@ -64,7 +64,7 @@ function issue(overrides: { reporterId?: string } = {}) {
   db.prisma.bug.findFirst.mockResolvedValue({
     id: "bug1",
     projectId: "p1",
-    status: "in_progress",
+    status: "in_progress", substatus: "in_progress",
     pullRequestUrl: PR,
     project: { repoUrl: "https://github.com/emerjent/ziki" },
   });
@@ -106,7 +106,7 @@ describe("deliverWork: a manager agent delivers a stranded pull request on the h
     db.tx.delivery.findUnique.mockResolvedValue(null);
     db.tx.delivery.create.mockResolvedValue({ id: "d1" });
     mocks.strandedDelivery.mockResolvedValue(stranded);
-    mocks.refreshJudgedStatus.mockResolvedValue("done");
+    mocks.refreshJudgedStatus.mockResolvedValue("accepted");
   });
 
   it("files the delivery as the manager agent, credits the holder, marks it on their behalf and evaluates the judgements at once", async () => {
@@ -115,7 +115,7 @@ describe("deliverWork: a manager agent delivers a stranded pull request on the h
     expect(db.tx.delivery.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ bugId: "bug1", agentId: "agent-dana", beneficiaryUserId: "ada", pullRequestUrl: PR }) }),
     );
-    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "delivered" }) }));
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }));
     expect(mocks.audit).toHaveBeenCalledWith(
       expect.anything(),
       "issue.delivered",
@@ -245,7 +245,7 @@ describe("deliverWork: the latest pull request report decides whether it can be 
     const result = await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "abc1234" });
     expect(result).toMatchObject({ status: 201 });
     expect(db.tx.delivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ headSha: "abc1234" }) }));
-    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: "abc1234", status: "delivered" }) }));
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: "abc1234", status: "done", substatus: "requires_review" }) }));
     expect(mocks.publish).toHaveBeenCalledWith(db.tx, expect.objectContaining({ type: "issue.delivered", payload: expect.objectContaining({ headSha: "abc1234" }) }));
   });
 

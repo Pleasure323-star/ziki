@@ -43,7 +43,7 @@ import { gateReport, latestPullRequestReport, pullRequestStateView, type PullReq
  * The steps where merged work can be left behind: in progress (merged before
  * it was delivered) and every step after delivery.
  */
-export const RECONCILABLE_STATUSES = ["in_progress", "delivered", "done", "ready_to_merge"] as const satisfies readonly Status[];
+export const RECONCILABLE_STATUSES = ["in_progress", "done", "merge"] as const satisfies readonly Status[];
 
 /** `via` on the activity and audit row a reconcile writes. */
 export const RECONCILE_VIA = "reconcile_merged";

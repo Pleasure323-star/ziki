@@ -152,14 +152,14 @@ describe("editBugContentAction confirmation invalidation (#713)", () => {
 
   it("sends an Open issue back to Requires confirmation, since its reviews are void (#requires-confirmation)", async () => {
     isConfirmedMock.mockResolvedValue(true);
-    db.prisma.bug.findUnique.mockResolvedValue(existingBug({ status: "open" }));
+    db.prisma.bug.findUnique.mockResolvedValue(existingBug({ status: "open", substatus: "open" }));
     await editBugContentAction("bug-1", makeFormData("Updated Title", "Updated Description with new reproduction steps"));
     expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: "requires_confirmation" }),
+      data: expect.objectContaining({ status: "open", substatus: "requires_confirmation" }),
     }));
 
     vi.clearAllMocks();
-    db.prisma.bug.findUnique.mockResolvedValue(existingBug({ status: "in_progress" }));
+    db.prisma.bug.findUnique.mockResolvedValue(existingBug({ status: "in_progress", substatus: "in_progress" }));
     await editBugContentAction("bug-1", makeFormData("Updated Title", "Updated Description with new reproduction steps"));
     expect(db.tx.bug.update.mock.calls[0][0].data).not.toHaveProperty("status");
   });

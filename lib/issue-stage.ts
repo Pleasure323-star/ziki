@@ -28,11 +28,11 @@ export function parseIssueStageView(raw: string | null | undefined): IssueStageV
 }
 
 /** The stage of an open issue. Anything no longer open has no stage. */
-export function issueStage(input: { status: string }): IssueStage | null {
-  // #requires-confirmation: the stage follows the status. Requires
-  // confirmation is a status of its own; an Open issue was confirmed.
-  if (input.status === "requires_confirmation") return "confirming";
-  return input.status === "open" ? "ready" : null;
+export function issueStage(input: { substatus: string }): IssueStage | null {
+  // #substatus: the stage follows the substatus. Open · Requires confirmation
+  // is being confirmed; Open · Open was confirmed.
+  if (input.substatus === "requires_confirmation") return "confirming";
+  return input.substatus === "open" ? "ready" : null;
 }
 
 /** A confirmation entry, as the confirmed rule reads it (#issue-confirmations). */
@@ -133,6 +133,7 @@ export type ConfirmationState = {
 
 export type ReadConfirmation = Omit<ConfirmationState, "stage"> & {
   status: string;
+  substatus: string;
   confirmed: boolean;
   /** A counted reject marked it a duplicate of another issue. */
   duplicate: boolean;
@@ -172,6 +173,7 @@ export async function readConfirmations(
       id: true,
       projectId: true,
       status: true,
+      substatus: true,
       beneficiaryUserId: true,
       reporterId: true,
       createdByAgentId: true,
@@ -250,6 +252,7 @@ export async function readConfirmations(
     const needed = workflow?.confirmationsNeeded ?? DEFAULT_PROJECT_WORKFLOW.confirmationsNeeded;
     result.set(bug.id, {
       status: bug.status,
+      substatus: bug.substatus,
       confirmed: isConfirmedCount(accepts, needed),
       accepts,
       rejects,
@@ -270,10 +273,10 @@ export async function openIssueConfirmations(
   db: Db,
   where: Prisma.BugWhereInput,
 ): Promise<Map<string, ConfirmationState>> {
-  const read = await readConfirmations(db, { ...where, status: { in: ["requires_confirmation", "open"] }, isDeleted: false });
+  const read = await readConfirmations(db, { ...where, status: "open", isDeleted: false });
   const result = new Map<string, ConfirmationState>();
-  for (const [id, { status, accepts, rejects, needed, confirmed }] of read) {
-    const stage = issueStage({ status });
+  for (const [id, { substatus, accepts, rejects, needed, confirmed }] of read) {
+    const stage = issueStage({ substatus });
     if (stage) result.set(id, { stage, accepts, rejects, needed, confirmed });
   }
   return result;

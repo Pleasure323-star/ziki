@@ -3,6 +3,7 @@ import { ideaNextStep, issueNextStep, type IdeaNextStepInput, type IssueNextStep
 
 const issue = (overrides: Partial<IssueNextStepInput> = {}): IssueNextStepInput => ({
   status: "open",
+  substatus: "open",
   isDeleted: false,
   confirmations: 0,
   confirmationsNeeded: 2,
@@ -26,12 +27,12 @@ const idea = (overrides: Partial<IdeaNextStepInput> = {}): IdeaNextStepInput => 
 
 describe("issueNextStep (#next-step)", () => {
   it("asks reviewers to confirm until enough independent people have", () => {
-    expect(issueNextStep(issue({ status: "requires_confirmation", confirmations: 1 }))).toMatchObject({
+    expect(issueNextStep(issue({ substatus: "requires_confirmation", confirmations: 1 }))).toMatchObject({
       tone: "warn",
-      title: "Not confirmed yet",
+      title: "Open: requires confirmation",
       actor: "Reviewers",
     });
-    expect(issueNextStep(issue({ status: "requires_confirmation", confirmations: 2 }))).toMatchObject({ tone: "ok", title: "Confirmed", actor: null });
+    expect(issueNextStep(issue({ substatus: "requires_confirmation", confirmations: 2 }))).toMatchObject({ tone: "ok", title: "Confirmed", actor: "Agents" });
   });
 
   it("asks agents to vote for the good bids; once one has 3 votes, any agent can award it (#bid-votes)", () => {
@@ -70,38 +71,38 @@ describe("issueNextStep (#next-step)", () => {
   });
 
   it("asks managers to close an issue for the leading reason once it reaches the threshold (#close-reasons)", () => {
-    const step = issueNextStep(issue({ status: "in_progress", stale: "overdue", closeSuggested: { reason: "not_reproducible", votes: 5, threshold: 3 } }));
+    const step = issueNextStep(issue({ status: "in_progress", substatus: "in_progress", stale: "overdue", closeSuggested: { reason: "not_reproducible", votes: 5, threshold: 3 } }));
     expect(step).toMatchObject({
       tone: "bad",
       title: "Close as not reproducible?",
       actor: "Managers",
     });
     expect(issueNextStep(issue({ openBids: 1, closeSuggested: { reason: "superseded", votes: 2, threshold: 3 } }))).toMatchObject({ title: "Open: bids waiting" });
-    expect(issueNextStep(issue({ status: "closed", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Closed" });
-    expect(issueNextStep(issue({ status: "resolved", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Live" });
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Closed" });
+    expect(issueNextStep(issue({ status: "resolved", substatus: "on_prod", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Live: on prod" });
   });
 
   it("says why a closed issue was closed", () => {
-    expect(issueNextStep(issue({ status: "closed", closeReason: "superseded" }))).toMatchObject({ title: "Closed" });
-    expect(issueNextStep(issue({ status: "closed", closeReason: "superseded" })).detail).toBe("Closed as superseded.");
-    expect(issueNextStep(issue({ status: "closed", closeReason: "already_implemented" })).detail).toBe("Closed as already implemented.");
-    expect(issueNextStep(issue({ status: "closed", closeReason: "withdrawn" })).detail).toBe("Closed as withdrawn.");
-    expect(issueNextStep(issue({ status: "closed" }))).toMatchObject({ title: "Closed" });
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed", closeReason: "superseded" }))).toMatchObject({ title: "Closed" });
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed", closeReason: "superseded" })).detail).toBe("Closed as superseded.");
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed", closeReason: "already_implemented" })).detail).toBe("Closed as already implemented.");
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed", closeReason: "withdrawn" })).detail).toBe("Closed as withdrawn.");
+    expect(issueNextStep(issue({ status: "closed", substatus: "closed" }))).toMatchObject({ title: "Closed" });
   });
 
   it("shows a stale hold in red, whatever the status", () => {
-    const step = issueNextStep(issue({ status: "in_progress", stale: "overdue", holder: { agentName: "Bob's agent", personName: "Bob", status: "active" } }));
+    const step = issueNextStep(issue({ status: "in_progress", substatus: "in_progress", stale: "overdue", holder: { agentName: "Bob's agent", personName: "Bob", status: "active" } }));
     expect(step).toMatchObject({ tone: "bad", title: "Overdue: not delivered", actor: "Managers" });
     expect(step.detail).toContain("Bob's agent");
     expect(issueNextStep(issue({ stale: "offer_expired" }))).toMatchObject({ tone: "bad", title: "Offer expired" });
   });
 
   it("says No recent update on in-progress work due a sense check", () => {
-    expect(issueNextStep(issue({ status: "in_progress", senseCheck: { votes: 1, threshold: 3 } }))).toMatchObject({
+    expect(issueNextStep(issue({ status: "in_progress", substatus: "in_progress", senseCheck: { votes: 1, threshold: 3 } }))).toMatchObject({
       tone: "warn",
       title: "No recent update",
     });
-    expect(issueNextStep(issue({ status: "in_progress", holder: { agentName: "Bob's agent", personName: "Bob", status: "active" } }))).toMatchObject({
+    expect(issueNextStep(issue({ status: "in_progress", substatus: "in_progress", holder: { agentName: "Bob's agent", personName: "Bob", status: "active" } }))).toMatchObject({
       title: "In progress",
       actor: "Bob's agent",
     });

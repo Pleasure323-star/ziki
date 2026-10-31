@@ -254,18 +254,17 @@ describe("agent issue reads", () => {
     expect(db.bug.findMany.mock.lastCall?.[0].where).not.toHaveProperty("status");
   });
 
-  it("counts issues per status and ideas per idea status, in the project (the tab counts)", async () => {
-    db.bug.groupBy.mockResolvedValue([
-      { status: "open", _count: { _all: 60 } },
-      { status: "in_progress", _count: { _all: 76 } },
-      { status: "resolved", _count: { _all: 139 } },
-    ]);
+  it("counts issues per status and substatus, and ideas per idea status, in the project (the tab counts)", async () => {
+    db.bug.groupBy.mockImplementation(async ({ by }: { by: string[] }) => (by[0] === "substatus"
+      ? [{ substatus: "requires_confirmation", _count: { _all: 10 } }, { substatus: "open", _count: { _all: 50 } }, { substatus: "in_progress", _count: { _all: 76 } }, { substatus: "on_prod", _count: { _all: 139 } }]
+      : [{ status: "open", _count: { _all: 60 } }, { status: "in_progress", _count: { _all: 76 } }, { status: "resolved", _count: { _all: 139 } }]));
     db.idea.groupBy.mockResolvedValue([{ status: "open", _count: { _all: 26 } }]);
     const response = await counts(request("GET", undefined, "?projectId=project-a"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       projectId: "project-a",
-      issues: { requires_confirmation: 0, open: 60, in_progress: 76, delivered: 0, done: 0, ready_to_merge: 0, resolved: 139, closed: 0, all: 275 },
+      issues: { open: 60, in_progress: 76, done: 0, merge: 0, resolved: 139, closed: 0, all: 275 },
+      substatuses: { requires_confirmation: 10, open: 50, in_progress: 76, requires_review: 0, accepted: 0, ready_to_merge: 0, merge_error: 0, on_dev: 0, on_staging: 0, on_prod: 139, closed: 0 },
       ideas: { open: 26, converted: 0, rejected: 0, archived: 0 },
     });
     expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false } }));
@@ -298,7 +297,7 @@ describe("agent issue reads", () => {
 
   it("names invalid status and assignee filters (#406)", async () => {
     const cases: [string, string][] = [
-      ["status=unknown", "status must be one of requires_confirmation, open, in_progress, delivered, done, ready_to_merge, resolved, closed."],
+      ["status=unknown", "status must be one of open, in_progress, done, merge, resolved, closed."],
       ["assignee=%20", 'assignee must be "none" or a valid user id.'],
     ];
     for (const [query, error] of cases) {
@@ -437,7 +436,7 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
     expect((await create(missing)).status).toBe(400);
     const malformed = new NextRequest("http://localhost/api/v1/ideas", { method: "POST", headers: { authorization: "Bearer ziki_test-key" }, body: "{" });
     expect((await create(malformed)).status).toBe(400);
-    for (const extra of [{ status: "closed" }, { assigneeId: "person-a" }]) {
+    for (const extra of [{ status: "closed", substatus: "closed" }, { assigneeId: "person-a" }]) {
       expect((await create(request("POST", { ...validBody, ...extra }))).status).toBe(422);
     }
     expect(db.idea.create).not.toHaveBeenCalled();
@@ -479,7 +478,7 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
   });
 
   it("returns the shared similar-issue conflict and accepts an explicit acknowledgement", async () => {
-    db.$queryRaw.mockResolvedValue([{ ...issue, number: 1, status: "open", voteCount: 0, score: 0.95 }]);
+    db.$queryRaw.mockResolvedValue([{ ...issue, number: 1, status: "open", substatus: "open", voteCount: 0, score: 0.95 }]);
     const response = await create(request("POST", { ...validBody, acknowledgeSimilar: false }));
     expect(response.status).toBe(409);
     expect((await response.json()).error).toBe("similar_issues");
@@ -497,12 +496,12 @@ describe("agent idea creation via the real shared create policy (#idea-table)", 
 describe("agent comments", () => {
   it("takes a comment on the issue itself only while it is Open; elsewhere 409 use_stage_entry names the stage's entry route", async () => {
     const cases: Array<[Record<string, unknown>, RegExp | null]> = [
-      [{ status: "requires_confirmation" }, /\/issues\/issue-a\/confirmations$/],
-      [{ status: "in_progress", pullRequestUrl: null }, /\/issues\/issue-a\/delivery$/],
-      [{ status: "delivered", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/test-results$/],
-      [{ status: "done", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
-      [{ status: "ready_to_merge", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
-      [{ status: "resolved" }, null],
+      [{ status: "open", substatus: "requires_confirmation" }, /\/issues\/issue-a\/confirmations$/],
+      [{ status: "in_progress", substatus: "in_progress", pullRequestUrl: null }, /\/issues\/issue-a\/delivery$/],
+      [{ status: "done", substatus: "requires_review", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/test-results$/],
+      [{ status: "done", substatus: "accepted", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
+      [{ status: "merge", substatus: "ready_to_merge", pullRequestUrl: "https://github.com/o/r/pull/1" }, /\/issues\/issue-a\/merge$/],
+      [{ status: "resolved", substatus: "on_dev" }, null],
     ];
     for (const [stage, route] of cases) {
       db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, ...stage });
@@ -517,7 +516,7 @@ describe("agent comments", () => {
     }
     expect(db.comment.create).not.toHaveBeenCalled();
 
-    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
     expect((await comment(request("POST", { body: "A comment on an Open issue" }), context)).status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ parentId: null, bidId: null, confirmationId: null }),
@@ -525,14 +524,14 @@ describe("agent comments", () => {
   });
 
   it("replies to a comment on an Open issue, one level deep", async () => {
-    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
     db.comment.findFirst.mockResolvedValueOnce({ authorId: "someone" });
     expect((await comment(request("POST", { body: "Agreed", parentId: "comment-a" }), context)).status).toBe(201);
     expect(db.comment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: "comment-a", parentId: null, bidId: null }),
     }));
 
-    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open" });
+    db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
     db.comment.findFirst.mockResolvedValueOnce(null);
     expect((await comment(request("POST", { body: "Agreed", parentId: "a-reply" }), context)).status).toBe(422);
   });
@@ -564,7 +563,7 @@ describe("agent comments", () => {
 
   it("never links a pull request from a comment: that is POST /issues/{id}/github", async () => {
     const pr = "https://github.com/Zedu-Endor/issue-tracker/pull/1230";
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", reporterId: "reporter-a", assigneeId: "owner-a", pullRequestUrl: null });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", reporterId: "reporter-a", assigneeId: "owner-a", pullRequestUrl: null });
     const res = await comment(request("POST", { bidId: "bid-a", body: `Implementation ready: ${pr}` }), context);
     expect(res.status).toBe(201);
     expect(db.bug.update).toHaveBeenCalledWith({ where: { id: issue.id }, data: { updatedAt: expect.any(Date) } });
@@ -723,7 +722,7 @@ describe("issue read confirmation", () => {
       tenantId: "tenant-a",
       projectId: "project-a",
       title: issue.title,
-      status: "open",
+      status: "open", substatus: "open",
       assigneeId: null,
       voteCount: 0,
       reporterId: "ada",
@@ -805,7 +804,7 @@ describe("issue read confirmation", () => {
   });
 
   it("is confirmed once three distinct owners have accepted", async () => {
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 1 });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", voteCount: 1 });
     db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
@@ -816,7 +815,7 @@ describe("issue read confirmation", () => {
   });
 
   it("is ready once confirmed, and names the idea it was converted from (#idea-table)", async () => {
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 0, idea: { id: "idea-a", number: 1, score: 3, convertedAt: new Date("2026-10-20T00:00:00Z") } });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", voteCount: 0, idea: { id: "idea-a", number: 1, score: 3, convertedAt: new Date("2026-10-20T00:00:00Z") } });
     db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
@@ -833,7 +832,7 @@ describe("issue read confirmation", () => {
   });
 
   it("names who holds the issue now, from its claim", async () => {
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "in_progress" });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "in_progress", substatus: "in_progress" });
     db.issueConfirmation.findMany.mockResolvedValue([]);
     db.issueClaim.findFirst.mockResolvedValue({
       id: "claim-a", status: "active", offeredAt: null, claimedAt: new Date("2026-10-28T10:00:00Z"), deliverBy: null,
@@ -847,7 +846,7 @@ describe("issue read confirmation", () => {
   it("shows the linked fix and the commit a verdict would test (#544)", async () => {
     const pullRequestUrl = "https://github.com/Zedu-Endor/issue-tracker/pull/1235";
     const pullRequestHeadSha = "77e781e7c6d32b1fb25493e4250092d0bf76cb3c";
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", pullRequestUrl, pullRequestHeadSha });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", pullRequestUrl, pullRequestHeadSha });
     db.issueConfirmation.findMany.mockResolvedValue([]);
     const body = (await readIssue()) as unknown as { pullRequestUrl: string | null; pullRequestHeadSha: string | null };
     expect(body.pullRequestUrl).toBe(pullRequestUrl);
@@ -857,7 +856,7 @@ describe("issue read confirmation", () => {
   });
 
   it("reports an unlinked fix as null rather than omitting it (#544)", async () => {
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", pullRequestUrl: null, pullRequestHeadSha: null });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", pullRequestUrl: null, pullRequestHeadSha: null });
     db.issueConfirmation.findMany.mockResolvedValue([]);
     const body = (await readIssue()) as unknown as Record<string, unknown>;
     expect(body).toHaveProperty("pullRequestUrl", null);
@@ -873,7 +872,7 @@ describe("issue read confirmation", () => {
   });
 
   it("reads an issue by its readable number as well as its id (#457)", async () => {
-    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 0 });
+    db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", voteCount: 0 });
     db.issueConfirmation.findMany.mockResolvedValue([]);
     for (const ref of ["12", "ZE-12"]) {
       await read(request(), { params: Promise.resolve({ id: ref }) });

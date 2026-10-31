@@ -72,7 +72,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     tenantId: "tenant_zedu",
     pullRequestUrl: PR,
     pullRequestHeadSha: "linked-sha",
-    status: "open",
+    status: "open", substatus: "open",
     assigneeId: "ada",
     beneficiaryUserId: "ada",
     createdByAgentId: null,
@@ -285,7 +285,7 @@ describe("acceptFix: the merger must be independent too (#493)", () => {
 
 describe("acceptFix: the gate (#434)", () => {
   it("names the missing condition: already accepted", async () => {
-    db.bug.findFirst.mockResolvedValue(bugRow({ status: "resolved" }));
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "resolved", substatus: "on_dev" }));
     expect(await acceptFix(merger("m1", "mo", "manager"), "bug1")).toMatchObject({
       status: 409,
       missing: "already_accepted",
@@ -415,7 +415,7 @@ describe("acceptFix: a successful accept (#434)", () => {
     expect(db.pullRequestReport.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { bugId: "bug1", pullRequestUrl: PR } }),
     );
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "ready_to_merge" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "merge", substatus: "ready_to_merge" } });
     expect(db.issueClaim.updateMany).not.toHaveBeenCalled();
     expect(db.pointEntry.createMany).not.toHaveBeenCalled();
     expect(db.agentAuditEvent.create.mock.calls[0][0].data).toMatchObject({
@@ -425,7 +425,7 @@ describe("acceptFix: a successful accept (#434)", () => {
         solverUserId: "ada",
         pullRequestUrl: PR,
         headSha: "linked-sha",
-        status: "ready_to_merge",
+        status: "merge", substatus: "ready_to_merge",
         pullRequestReportId: "report-1",
       },
     });
@@ -493,9 +493,9 @@ describe("acceptFix: a successful accept (#434)", () => {
     const result = await acceptFix(merger("m1", "mo", "merger"), "bug1");
 
     expect(result).toMatchObject({ status: 200, accepted: true, readyToMerge: true });
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "ready_to_merge" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "merge", substatus: "ready_to_merge" } });
     expect(db.bug.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: "resolved" }) }),
+      expect.objectContaining({ data: expect.objectContaining({ status: "resolved", substatus: "on_dev" }) }),
     );
     expect(db.issueClaim.updateMany).not.toHaveBeenCalled();
     expect(db.pointEntry.createMany).not.toHaveBeenCalled();
@@ -576,7 +576,7 @@ describe("acceptFix: a successful accept (#434)", () => {
     );
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "bug1" },
-      data: { status: "in_progress" },
+      data: { status: "in_progress", substatus: "in_progress" },
     });
     expect(db.agentMistake.create).toHaveBeenCalled();
     // #review-entries: the review is the record; no comment narrates it.
@@ -593,7 +593,7 @@ describe("acceptFix: a successful accept (#434)", () => {
         action: "issue.merge_rejected",
         target: "bug:bug1",
         bugId: "bug1",
-        payload: expect.objectContaining({ status: "in_progress", rejected: true, mergeReviewId: "review-1", notes: "Tests missing for edge case." }),
+        payload: expect.objectContaining({ status: "in_progress", substatus: "in_progress", rejected: true, mergeReviewId: "review-1", notes: "Tests missing for edge case." }),
       }),
     });
   });
@@ -831,7 +831,7 @@ describe("finalizeResolved: merged work goes Live and pays each side once (#434)
   function resolveInput(overrides: Partial<FinalizeResolvedInput> = {}, row = bugRow()): FinalizeResolvedInput {
     return {
       agent: merger("m1", "mo", "manager"),
-      bug: { id: "bug1", tenantId: "tenant_zedu", projectId: "p1", status: row.status, pullRequestUrl: PR },
+      bug: { id: "bug1", tenantId: "tenant_zedu", projectId: "p1", status: row.status, substatus: row.substatus, pullRequestUrl: PR },
       claim: deliveredClaim(row as unknown as Parameters<typeof deliveredClaim>[0]) as unknown as FinalizeResolvedInput["claim"],
       solverUserId: "ada",
       rewardedReviewerUserIds: ["rob", "sam"],
@@ -845,14 +845,14 @@ describe("finalizeResolved: merged work goes Live and pays each side once (#434)
   it("resolves the issue, releases the claim and pays the solver once", async () => {
     await finalizeResolved(tx, resolveInput());
 
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "resolved" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "resolved", substatus: "on_dev" } });
     expect(db.bugActivity.create).toHaveBeenCalledWith({
       data: {
         bugId: "bug1",
         actorId: "mo",
         type: "status_changed",
-        summary: "changed status from Open to Live",
-        metadata: expect.objectContaining({ field: "status", from: "open", to: "resolved", merged: true, pullRequestUrl: PR, mergeCommitSha: "git-merge-commit-sha" }),
+        summary: "changed status from Open · Open to Live · On dev",
+        metadata: expect.objectContaining({ field: "status", from: "open", to: "on_dev", merged: true, pullRequestUrl: PR, mergeCommitSha: "git-merge-commit-sha" }),
       },
     });
     expect(db.issueClaim.updateMany).toHaveBeenCalledWith({
@@ -881,11 +881,11 @@ describe("finalizeResolved: merged work goes Live and pays each side once (#434)
   });
 
   it("names the status it came from when In progress (#722)", async () => {
-    await finalizeResolved(tx, resolveInput({}, bugRow({ status: "in_progress" })));
+    await finalizeResolved(tx, resolveInput({}, bugRow({ status: "in_progress", substatus: "in_progress" })));
     expect(db.bugActivity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        summary: "changed status from In progress to Live",
-        metadata: expect.objectContaining({ from: "in_progress", to: "resolved", merged: true }),
+        summary: "changed status from In progress to Live · On dev",
+        metadata: expect.objectContaining({ from: "in_progress", to: "on_dev", merged: true }),
       }),
     });
   });

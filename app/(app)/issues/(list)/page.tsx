@@ -119,10 +119,12 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
  * left of the panel when it is picked. Ideas (the Idea table) comes first.
  */
 const STAGE_GROUPS = [
-  // Ideas holds only ideas; Requires confirmation is an issue's first status, so it opens Working.
+  // Ideas holds only ideas. The rest are main statuses (#substatus): each tab
+  // lists every substatus of its status together (Open: Requires confirmation
+  // and Open), and each row says which one it is at.
   { label: "Ideas", statuses: [IDEAS_STATUS, REJECTED_IDEAS_STATUS] },
-  { label: "Working", statuses: ["requires_confirmation", "open", "in_progress", "closed"] },
-  { label: "Delivered", statuses: ["delivered", "done", "ready_to_merge", "resolved"] },
+  { label: "Working", statuses: ["open", "in_progress", "closed"] },
+  { label: "Delivered", statuses: ["done", "merge", "resolved"] },
 ] as const;
 
 /** "+ Add Idea": every report starts as an idea (#idea-table). */
@@ -518,6 +520,7 @@ export default async function BugsPage({
         number: true,
         title: true,
         status: true,
+        substatus: true,
         // A closed issue says why it was closed (#close-reasons).
         closeReason: true,
         voteCount: true,
@@ -781,7 +784,8 @@ export default async function BugsPage({
   // The stage the page is on, and the status inside it, for the stage bar and the list on the left.
   const currentStatus = ideasView === "rejected" ? REJECTED_IDEAS_STATUS : isIdeasView ? IDEAS_STATUS : statusParam;
   // Requires confirmation: the left column counts confirmations, and the importance votes sit at the end of the row.
-  const confirmationsView = currentStatus === "requires_confirmation" && !isDeletedView;
+  // The Open tab holds both of its substatuses (#substatus): each row shows its confirmations.
+  const confirmationsView = currentStatus === "open" && !isDeletedView;
   const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
   const statusCount = (value: string) =>
     value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : countForStatus(value);
@@ -967,14 +971,14 @@ export default async function BugsPage({
                       : null;
                     // Importance in a list is a number to read, not a button: it is marked on the issue's page.
                     // Green once an Open issue has a bid: someone wants to do it.
-                    const hasBids = bug.status === "open" && bug._count.bids > 0;
+                    const hasBids = bug.substatus === "open" && bug._count.bids > 0;
                     const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} tone={hasBids ? "ok" : "neutral"} testId="importance-count" />;
                     const rowStatus = (
-                      <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
+                      <IssueRowStatus substatus={bug.substatus} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
                         closeReason={bug.closeReason}
                         confirmed={confirmationStates.get(bug.id)?.confirmed ?? false}
-                        bids={bug.status === "open" ? bug._count.bids : undefined}
-                        offeredTo={bug.status === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}
+                        bids={bug.substatus === "open" ? bug._count.bids : undefined}
+                        offeredTo={bug.substatus === "open" && offer ? (offer.beneficiary?.name ?? "someone") : null}
                         mergePath={bug.status === "resolved" && bug.pullRequestUrl ? mergePathOf(bug) : null} />
                     );
 

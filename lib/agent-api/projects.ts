@@ -45,7 +45,7 @@ export async function listAgentProjects(tenantId: string) {
   const base = projectDefaultsFromPlatform(platform);
   const openCounts = await prisma.bug.groupBy({
     by: ["projectId"],
-    where: { tenantId, projectId: { in: projects.map((project) => project.id) }, isDeleted: false, status: "open" },
+    where: { tenantId, projectId: { in: projects.map((project) => project.id) }, isDeleted: false, substatus: "open" },
     _count: { _all: true },
   });
   const openByProject = new Map(openCounts.map((row) => [row.projectId, row._count._all]));
@@ -71,7 +71,7 @@ export async function getAgentProject(tenantId: string, projectId: string) {
   ]);
   if (!project) throw new IssueApiError(404, "Project not found.");
   const openIssueCount = await prisma.bug.count({
-    where: { tenantId, projectId: project.id, isDeleted: false, status: "open" },
+    where: { tenantId, projectId: project.id, isDeleted: false, substatus: "open" },
   });
   return {
     ...project,

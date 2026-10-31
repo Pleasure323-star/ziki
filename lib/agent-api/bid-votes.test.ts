@@ -37,7 +37,7 @@ const scope = { id: "bid1", bugId: "issue1", bug: { tenantId: "tenant", projectI
 const openBid = {
   id: "bid1", bugId: "issue1", agentId: "bob-agent", beneficiaryUserId: "bob", withdrawnAt: null, awardedAt: null,
   agent: { ownerUserId: "bob" },
-  bug: { number: 7, status: "open" },
+  bug: { number: 7, status: "open", substatus: "open" },
 };
 
 beforeEach(() => {
@@ -108,7 +108,7 @@ describe("voteForBid (#bid-votes)", () => {
   });
 
   it("refuses a withdrawn or awarded bid, and a bid on an issue that is not open, with 409", async () => {
-    for (const bid of [{ ...openBid, withdrawnAt: new Date() }, { ...openBid, awardedAt: new Date() }, { ...openBid, bug: { number: 7, status: "in_progress" } }]) {
+    for (const bid of [{ ...openBid, withdrawnAt: new Date() }, { ...openBid, awardedAt: new Date() }, { ...openBid, bug: { number: 7, status: "in_progress", substatus: "in_progress" } }]) {
       db.issueBid.findUnique.mockReset();
       db.issueBid.findUnique.mockResolvedValueOnce(scope).mockResolvedValueOnce(bid);
       await expect(voteForBid(eli, "project", "bid1")).rejects.toMatchObject({ status: 409 });

@@ -36,7 +36,7 @@ const stageButton = (label: RegExp) => screen.getByRole("button", { name: label 
 describe("IssueProgressReport (#1446)", () => {
   it("marks the current stage", () => {
     renderReport(decisions, "done");
-    expect(stageButton(/^Done/)).toHaveAttribute("aria-pressed", "true");
+    expect(stageButton(/^Accepted/)).toHaveAttribute("aria-pressed", "true");
     expect(stageButton(/^Idea/)).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText(/\d+ comments?$/)).not.toBeInTheDocument();
   });
@@ -45,7 +45,7 @@ describe("IssueProgressReport (#1446)", () => {
     renderReport(decisions, "done");
     expect(stageButton(/^Requires confirmation/)).toHaveTextContent(/(?<!\d)2(?!\d)/);
     expect(stageButton(/^Idea/)).toHaveTextContent(/(?<!\d)0(?!\d)/);
-    expect(stageButton(/^Delivered/)).toHaveTextContent(/(?<!\d)2(?!\d)/);
+    expect(stageButton(/^Requires review/)).toHaveTextContent(/(?<!\d)2(?!\d)/);
     expect(screen.getByText(/Requires confirmation\D*1\D*1/)).toBeInTheDocument();
   });
 
@@ -64,8 +64,8 @@ describe("IssueProgressReport (#1446)", () => {
 
   it("shows no count for a stage that hasn't started", () => {
     renderReport([], "idea");
-    expect(stageButton(/^Done/)).not.toHaveTextContent(/\d+ reviews?/);
-    expect(stageButton(/^Done/)).not.toHaveTextContent("not yet");
+    expect(stageButton(/^Accepted/)).not.toHaveTextContent(/\d+ reviews?/);
+    expect(stageButton(/^Accepted/)).not.toHaveTextContent("not yet");
   });
 
   it("ends at Done before Done, and runs to Live from Done on", () => {

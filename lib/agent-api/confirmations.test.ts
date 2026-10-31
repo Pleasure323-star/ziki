@@ -63,7 +63,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
     number: 7,
     tenantId: "t1",
     projectId: "p1",
-    status: "requires_confirmation",
+    status: "open", substatus: "requires_confirmation",
     isDeleted: false,
     reporterId: "ada",
     beneficiaryUserId: "ada",
@@ -170,7 +170,7 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     const second = await giveConfirmation(person("cara"), scope, "7", body("confirm"));
     expect(second).toMatchObject({ confirmed: true, newlyConfirmed: true, opened: false, confirmations: 2 });
     // In a manager-governed project a confirmed issue stays until an agent moves it to Open (openConfirmedIssue).
-    expect(state.bug.status).toBe("requires_confirmation");
+    expect(state.bug.substatus).toBe("requires_confirmation");
 
     // Points: each counted confirm earns the reviewer award and the clearance; the reporter is paid once.
     expect(state.points.map((p) => p.sourceKey).sort()).toEqual([
@@ -239,15 +239,15 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
     await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
     expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "below_threshold", confirmations: 1, confirmationsNeeded: 2 });
-    expect(state.bug.status).toBe("requires_confirmation");
+    expect(state.bug.substatus).toBe("requires_confirmation");
     await giveConfirmation(person("cara"), scope, "bug1", body("confirm"));
-    await expect(openConfirmedIssue(opener, scope, "bug1")).resolves.toMatchObject({ status: "open", confirmations: 2 });
-    expect(state.bug.status).toBe("open");
+    await expect(openConfirmedIssue(opener, scope, "bug1")).resolves.toMatchObject({ status: "open", substatus: "open", confirmations: 2 });
+    expect(state.bug.substatus).toBe("open");
     expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "not_confirming" });
   });
 
   it("takes entries only at Requires confirmation, and 404s an unknown issue", async () => {
-    state.bug = bugRow({ status: "open" });
+    state.bug = bugRow({ status: "open", substatus: "open" });
     expect((await rejection(giveConfirmation(person("bob"), scope, "bug1", body("confirm")))).body).toMatchObject({ error: "not_confirming" });
     expect((await rejection(giveConfirmation(person("bob"), scope, "nope", body("confirm")))).status).toBe(404);
   });

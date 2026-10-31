@@ -25,7 +25,7 @@ const idea = (overrides: Record<string, unknown> = {}) => ({
   number: 7,
   tenantId: "t1",
   projectId: "p1",
-  status: "open",
+  status: "open", substatus: "open",
   score: 3,
   reporterId: "ada",
   beneficiaryUserId: "ada",
@@ -209,7 +209,7 @@ describe("convertIdea", () => {
         reporterId: "ada",
         beneficiaryUserId: "ada",
         createdByAgentId: "agent-ada",
-        status: "requires_confirmation",
+        status: "open", substatus: "requires_confirmation",
       }),
     }));
     expect(db.attachment.updateMany).toHaveBeenCalledWith({ where: { ideaId: "i1" }, data: { bugId: "b9" } });

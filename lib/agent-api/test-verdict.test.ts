@@ -68,7 +68,7 @@ function bugRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "bug1",
     tenantId: "tenant_zedu",
-    status: "delivered",
+    status: "done", substatus: "requires_review",
     pullRequestUrl: PR,
     pullRequestHeadSha: null as string | null,
     title: "A fix",
@@ -309,7 +309,7 @@ describe("submitTestVerdict: judges delivered work (#526, #delivered-step)", () 
   });
 
   it("refuses a new good-to-merge once the work is Done, and reads no pull request report (#727)", async () => {
-    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done" }));
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done", substatus: "accepted" }));
     expect(await submitTestVerdict(reviewer("r3", "rose"), "bug1", good)).toMatchObject({ status: 409, error: "enough_verdicts" });
     expect(db.testVerdict.create).not.toHaveBeenCalled();
     expect(db.pullRequestReport.findFirst).not.toHaveBeenCalled();
@@ -317,7 +317,7 @@ describe("submitTestVerdict: judges delivered work (#526, #delivered-step)", () 
   });
 
   it("still records a not-good-to-merge on Done work, and a reviewer's change of their own (#727)", async () => {
-    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done" }));
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "done", substatus: "accepted" }));
     expect(await submitTestVerdict(reviewer("r3", "rose"), "bug1", notGood("Regressed on mobile."))).toMatchObject({ status: 201 });
     state.verdicts.push({ id: "tv9", bugId: "bug1", agentId: "r1", onBehalfOfUserId: "rob", goodToMerge: true, summary: "Good.", description: "Tested." });
     expect(await submitTestVerdict(reviewer("r1", "rob"), "bug1", good)).toMatchObject({ status: 200, changed: true });

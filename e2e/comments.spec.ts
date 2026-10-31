@@ -56,7 +56,8 @@ test("an Open issue says it is waiting for bids and takes comments and replies; 
   const setStatus = async (status: "open" | "in_progress") => {
     const prisma = e2eDb();
     try {
-      await prisma.bug.updateMany({ where: { number, title: { contains: "Open comments check" } }, data: { status } });
+      // Open · Open or In progress: the substatus has the same name (#substatus).
+      await prisma.bug.updateMany({ where: { number, title: { contains: "Open comments check" } }, data: { status, substatus: status } });
     } finally {
       await prisma.$disconnect();
     }

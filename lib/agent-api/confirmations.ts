@@ -17,6 +17,7 @@ import { ownsIssue, readConfirmations, type ReadConfirmation } from "@/lib/issue
 import { isThresholdOnly } from "@/lib/governance";
 import { linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Confirmations (#issue-confirmations). An issue at Requires confirmation
@@ -85,6 +86,7 @@ const bugSelect = {
   tenantId: true,
   projectId: true,
   status: true,
+  substatus: true,
   isDeleted: true,
   reporterId: true,
   beneficiaryUserId: true,
@@ -241,9 +243,9 @@ export async function giveConfirmation(
     const bug = await tx.bug.findUnique({ where: { id: found.id }, select: bugSelect });
     if (!bug || bug.isDeleted) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
 
-    if (bug.status !== "requires_confirmation") {
+    if (bug.substatus !== "requires_confirmation") {
       const message = "This issue is not at Requires confirmation, so it takes no confirmations.";
-      throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status });
+      throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status, substatus: bug.substatus });
     }
 
     const duplicateOfId = input.duplicateOfId ? await resolveDuplicate(tx, bug.tenantId, bug.id, input.duplicateOfId) : null;
@@ -385,14 +387,14 @@ export async function giveConfirmation(
 
 /** Moves a confirmed issue from Requires confirmation to Open, with its activity entry. */
 async function moveToOpen(tx: Prisma.TransactionClient, bugId: string, actorId: string, via: "threshold" | "agent"): Promise<void> {
-  await tx.bug.update({ where: { id: bugId }, data: { status: "open" } });
+  await tx.bug.update({ where: { id: bugId }, data: moveTo("open") });
   await tx.bugActivity.create({
     data: {
       bugId,
       actorId,
       type: "status_changed",
       summary: statusChangedSummary("requires_confirmation", "open"),
-      metadata: { from: "requires_confirmation", to: "open", via: via === "threshold" ? "confirmed" : "opened_by_agent" },
+      metadata: { field: "status", from: "requires_confirmation", to: "open", via: via === "threshold" ? "confirmed" : "opened_by_agent" },
     },
   });
 }
@@ -408,7 +410,7 @@ export async function openConfirmedIssue(
   agent: { agentId: string; ownerId: string; tenantId: string },
   scope: Scope,
   issueRef: string,
-): Promise<{ issueId: string; status: "open"; confirmations: number; confirmationsNeeded: number }> {
+): Promise<{ issueId: string; status: "open"; substatus: "open"; confirmations: number; confirmationsNeeded: number }> {
   const parsedRef = parseIssueRef(issueRef);
   return prisma.$transaction(async (tx) => {
     const found = await tx.bug.findFirst({
@@ -417,11 +419,11 @@ export async function openConfirmedIssue(
     });
     if (!found) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
-    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, tenantId: true } });
+    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, substatus: true, tenantId: true } });
     if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
-    if (bug.status !== "requires_confirmation") {
+    if (bug.substatus !== "requires_confirmation") {
       const message = "This issue is not at Requires confirmation.";
-      throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status });
+      throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status, substatus: bug.substatus });
     }
     const state = await confirmationStateOf(bug.id, tx);
     const confirmations = state?.accepts ?? 0;
@@ -433,8 +435,8 @@ export async function openConfirmedIssue(
     await moveToOpen(tx, bug.id, agent.ownerId, "agent");
     const payload = { issueId: bug.id, from: "requires_confirmation", to: "open", confirmations, confirmationsNeeded };
     await audit({ agentId: agent.agentId, tenantId: bug.tenantId }, "issue.opened", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
-    await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: { status: "open" } } });
-    return { issueId: bug.id, status: "open" as const, confirmations, confirmationsNeeded };
+    await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: moveTo("open") } });
+    return { issueId: bug.id, ...moveTo("open"), confirmations, confirmationsNeeded };
   });
 }
 
@@ -489,7 +491,7 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
   const parsed = parseIssueRef(issueRef);
   const bug = await db.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(parsed.kind === "number" ? { number: parsed.number } : { id: parsed.id }) },
-    select: { id: true, number: true, status: true, projectId: true },
+    select: { id: true, number: true, status: true, substatus: true, projectId: true },
   });
   if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
   const [state, rows] = await Promise.all([

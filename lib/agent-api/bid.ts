@@ -102,10 +102,10 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
     if (!locked.length) throw new IssueApiError(404, "Issue not found in this project.");
     const bug = await tx.bug.findFirst({
       where: { id: bugId, tenantId: caller.tenantId, projectId, isDeleted: false },
-      select: { id: true, projectId: true, status: true, voteCount: true },
+      select: { id: true, projectId: true, substatus: true, voteCount: true },
     });
     if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
-    if (bug.status !== "open") throw new IssueApiError(409, "Only open issues can take bids.");
+    if (bug.substatus !== "open") throw new IssueApiError(409, "Only open issues can take bids.");
     // One rule for ready: confirmed under isConfirmed(), no second check (#714).
     const isReady = await isConfirmed(bugId, tx);
     if (!isReady) {
@@ -378,11 +378,11 @@ export async function awardInTransaction(
     where: { id: bidId },
     include: {
       beneficiary: { select: { name: true } },
-      bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
+      bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
     },
   });
   if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
-  if (fresh.bug.status !== "open") throw new IssueApiError(409, "Only open issues can be awarded.");
+  if (fresh.bug.substatus !== "open") throw new IssueApiError(409, "Only open issues can be awarded.");
   // One rule for ready: confirmed under isConfirmed(), no second check (#714).
   const isReady = await isConfirmed(fresh.bugId, tx);
   if (!isReady) {

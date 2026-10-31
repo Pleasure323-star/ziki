@@ -11,6 +11,7 @@ import { assigneeChangedSummary, statusChangedSummary } from "@/lib/activity-log
 import { ensureWatching } from "@/lib/watch";
 import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Offers (#bids-only-offers). Only awarding a bid makes an offer: any agent
@@ -99,12 +100,12 @@ export async function sweepExpiredOffers(tenantId?: string, projectId?: string):
 export async function acceptOffer(agent: AgentContext, claimId: string) {
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const claim = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
+      const claim = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!claim || claim.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Offer not found.");
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} AND "tenantId" = ${agent.tenantId} FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Offer not found.");
       await tx.$queryRaw`SELECT "id" FROM "IssueClaim" WHERE "id" = ${claimId} FOR UPDATE`;
-      const fresh = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
+      const fresh = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!fresh || fresh.agentId !== agent.agentId) throw new IssueApiError(409, "This offer is no longer available to this agent.");
       if (fresh.status === "released" && fresh.releaseReason === "expired") throw new IssueApiError(410, "This offer expired and has been released.");
       if (fresh.status !== "offered" || fresh.releasedAt) throw new IssueApiError(409, "This offer is no longer available to this agent.");
@@ -136,7 +137,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "capacity" } });
         return { unavailable: true as const };
       }
-      if (fresh.bug.status !== "open" || !canAssignTicket({ actorId: fresh.beneficiaryUserId, actorRole: "user", currentAssigneeId: fresh.bug.assigneeId, targetAssigneeId: fresh.beneficiaryUserId, claimed: true })) {
+      if (fresh.bug.substatus !== "open" || !canAssignTicket({ actorId: fresh.beneficiaryUserId, actorRole: "user", currentAssigneeId: fresh.bug.assigneeId, targetAssigneeId: fresh.beneficiaryUserId, claimed: true })) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "unavailable" } });
         await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId: fresh.bugId,
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "unavailable" } });
@@ -144,7 +145,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
       }
       const deliverBy = deliveryDeadline(now, deliveryWindowMinutes(workflow.deliveryMinutes));
       await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "active", claimedAt: now, lastHeartbeatAt: now, deliverBy } });
-      const issue = await tx.bug.update({ where: { id: fresh.bugId }, data: { assigneeId: fresh.beneficiaryUserId, status: "in_progress" }, select: { id: true, assigneeId: true, status: true } });
+      const issue = await tx.bug.update({ where: { id: fresh.bugId }, data: { assigneeId: fresh.beneficiaryUserId, ...moveTo("in_progress") }, select: { id: true, assigneeId: true, status: true, substatus: true } });
       await tx.bugActivity.createMany({ data: [
         ...(fresh.bug.assigneeId !== fresh.beneficiaryUserId ? [{ bugId: fresh.bugId, actorId: fresh.beneficiaryUserId, type: "assignee_changed" as const, summary: assigneeChangedSummary(fresh.bug.assignee?.name ?? null, fresh.beneficiary.name), metadata: { field: "assignee", from: fresh.bug.assigneeId, to: fresh.beneficiaryUserId } }] : []),
         { bugId: fresh.bugId, actorId: fresh.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("open", "in_progress"), metadata: { field: "status", from: "open", to: "in_progress" } },
@@ -219,7 +220,7 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
       const otherOpen = await tx.issueClaim.count({ where: { bugId, releasedAt: null, id: { not: claim.id } } });
       // A delivered fix stays where it got to (#one-status): only an undelivered one goes back to Open.
       if (!otherOpen && bug.status === "in_progress" && !bug.pullRequestUrl && bug.assigneeId === claim.beneficiaryUserId) {
-        await tx.bug.update({ where: { id: bugId }, data: { assigneeId: null, status: "open" } });
+        await tx.bug.update({ where: { id: bugId }, data: { assigneeId: null, ...moveTo("open") } });
         await tx.bugActivity.createMany({ data: [
           { bugId, actorId: claim.beneficiaryUserId, type: "assignee_changed", summary: assigneeChangedSummary(claim.beneficiary.name, null), metadata: { field: "assignee", from: claim.beneficiaryUserId, to: null } },
           { bugId, actorId: claim.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("in_progress", "open"), metadata: { field: "status", from: "in_progress", to: "open" } },

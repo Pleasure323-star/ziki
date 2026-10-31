@@ -49,7 +49,7 @@ beforeEach(() => {
   db.issueClaim.groupBy.mockResolvedValue([]);
   db.membership.findMany.mockResolvedValue([]);
   db.bug.updateMany.mockResolvedValue({ count: 1 });
-  db.bug.findFirst.mockResolvedValue({ id: "issue", projectId: "project", title: "Bug", assigneeId: null, status: "open" });
+  db.bug.findFirst.mockResolvedValue({ id: "issue", projectId: "project", title: "Bug", assigneeId: null, status: "open", substatus: "open" });
   db.agentEvent.create.mockResolvedValue({ id: "evt" });
   db.webhookSubscription.findMany.mockResolvedValue([]);
   mocks.admin.mockResolvedValue({ id: "admin" });
@@ -128,7 +128,7 @@ describe("stale claim release", () => {
       type: "claim.released",
       payload: expect.objectContaining({ claimId: "claim", issueId: "issue", projectId: "project", beneficiaryUserId: "owner", reason: "silence" }),
     }) }));
-    expect(db.bug.updateMany).toHaveBeenCalledWith({ where: { id: "issue", projectId: "project", tenantId: "tenant", isDeleted: false, assigneeId: "owner", status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open" } });
+    expect(db.bug.updateMany).toHaveBeenCalledWith({ where: { id: "issue", projectId: "project", tenantId: "tenant", isDeleted: false, assigneeId: "owner", status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open", substatus: "open" } });
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "claim.released", agentId: "agent", actorUserId: "admin", bugId: "issue", payload: { claimId: "claim", reason: "silence", projectId: "project" } }) });
     expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.issueClaim.findFirst.mock.invocationCallOrder[0]);
   });
@@ -272,7 +272,7 @@ describe("scheduled stale-claim sweep (#524)", () => {
     db.issueClaim.findFirst.mockResolvedValueOnce(claim);
     db.membership.findMany.mockResolvedValue([{ userId: "next-owner", user: { agents: [{ id: "agent-next" }] } }]);
     expect(await sweepStaleClaims()).toEqual({ released: 1 });
-    expect(db.bug.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: null, status: "open" } }));
+    expect(db.bug.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: null, status: "open", substatus: "open" } }));
     const events = db.agentEvent.create.mock.calls.map(([call]) => call.data);
     expect(events.map((event: { type: string }) => event.type)).toEqual(["claim.released"]);
     expect(events[0].payload).toEqual({ claimId: "claim", issueId: "issue", projectId: "project", beneficiaryUserId: "owner", reason: "silence" });
@@ -281,7 +281,7 @@ describe("scheduled stale-claim sweep (#524)", () => {
   });
   it("does not offer when a human reassigned or resolved the issue meanwhile", async () => {
     db.bug.updateMany.mockResolvedValue({ count: 0 });
-    db.bug.findFirst.mockResolvedValue({ id: "issue", projectId: "project", title: "Bug", assigneeId: "someone-else", status: "in_progress" });
+    db.bug.findFirst.mockResolvedValue({ id: "issue", projectId: "project", title: "Bug", assigneeId: "someone-else", status: "in_progress", substatus: "in_progress" });
     expect(await sweepStaleClaims()).toEqual({ released: 1 });
     expect(db.issueClaim.create).not.toHaveBeenCalled();
   });

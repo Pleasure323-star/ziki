@@ -20,6 +20,7 @@ const ACTION_LABELS: Record<string, string> = {
   "issue.structured": "Structured",
   "issue.confirmation": "Gave a confirmation on",
   "issue.opened": "Moved to Open",
+  "issue.deployed": "Reported a deployment",
   "issue.confirmed": "Confirmed",
   "issue.accepted": "Accepted",
   "issue.resolved": "Resolved",

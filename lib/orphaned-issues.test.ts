@@ -41,12 +41,12 @@ describe("orphaned in-progress recovery (#623)", () => {
     expect(mocks.lock.mock.calls[0][0].join("?")).toContain("FOR NO KEY UPDATE");
     expect(mocks.lock.mock.invocationCallOrder[0]).toBeLessThan(mocks.updateMany.mock.invocationCallOrder[0]);
     expect(mocks.updateMany).toHaveBeenCalledWith({
-      where: { ...bug, ...guard }, data: { status: "open" },
+      where: { ...bug, ...guard }, data: { status: "open", substatus: "open" },
     });
     expect(mocks.publish).toHaveBeenCalledWith(expect.objectContaining({ bug: { updateMany: mocks.updateMany } }), {
       tenantId: "tenant", type: "issue.updated", bugId: "orphan", actorAgentId: null,
       payload: {
-        issueId: "orphan", projectId: "project", changed: ["status"], values: { status: "open" },
+        issueId: "orphan", projectId: "project", changed: ["status", "substatus"], values: { status: "open", substatus: "open" },
         actor: { type: "system" }, reason: "orphaned_in_progress", previousStatus: "in_progress",
       },
     });
@@ -56,7 +56,7 @@ describe("orphaned in-progress recovery (#623)", () => {
   // Simulate a writer winning between scan and lock using the captured predicate.
   it.each([
     ["manual reassignment", { assigneeId: "new-owner" }],
-    ["resolution", { status: "resolved" }],
+    ["resolution", { status: "resolved", substatus: "on_dev" }],
     ["deletion", { isDeleted: true }],
     ["PR delivery", { pullRequestUrl: "https://github.com/org/repo/pull/1" }],
     ["new active claim", { claim: { status: "active", releasedAt: null } }],
@@ -64,7 +64,7 @@ describe("orphaned in-progress recovery (#623)", () => {
     ["tenant move", { tenantId: "other" }],
     ["project move", { projectId: "other" }],
   ])("preserves a concurrent %s and emits no recovery event", async (_label, change) => {
-    const state = { ...bug, status: "in_progress", assigneeId: null, isDeleted: false, pullRequestUrl: null, ...change };
+    const state = { ...bug, status: "in_progress", substatus: "in_progress", assigneeId: null, isDeleted: false, pullRequestUrl: null, ...change };
     mocks.updateMany.mockImplementation(async ({ where }) => {
       const scalarMatch = Object.entries(where).filter(([key]) => key !== "claims")
         .every(([key, value]) => state[key as keyof typeof state] === value);

@@ -29,7 +29,7 @@ const manager = (ownerId = "dana", level: AgentContext["level"] = "manager"): Ag
 /** A fix tested and accepted, delivered by Cara's agent, filed by Ada. */
 function bug(over: Record<string, unknown> = {}) {
   return {
-    id: "bug1", tenantId: "t1", projectId: "p1", status: "ready_to_merge",
+    id: "bug1", tenantId: "t1", projectId: "p1", status: "merge", substatus: "ready_to_merge",
     pullRequestUrl: PR, pullRequestHeadSha: "head-sha",
     assigneeId: null, beneficiaryUserId: "ada", reporterId: "ada", createdByAgentId: null, createdByAgent: null,
     project: { repoUrl: "https://github.com/emerjent/ziki.git" },
@@ -70,7 +70,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.bug.findFirst.mockResolvedValue(bug());
   db.pullRequestReport.findFirst.mockResolvedValue(report());
-  db.tx.bug.findUnique.mockResolvedValue({ status: "ready_to_merge", pullRequestUrl: PR });
+  db.tx.bug.findUnique.mockResolvedValue({ status: "merge", substatus: "ready_to_merge", pullRequestUrl: PR });
   merge.creditedDeliveryUsers.mockResolvedValue([]);
   merge.countedReviewers.mockResolvedValue({ reviewers: ["erin", "finn"], acceptedHeadSha: "head-sha" });
 });
@@ -81,7 +81,7 @@ describe("reconcileMergedWork (#reconcile-merged, #pr-reports)", () => {
     expect(result).toMatchObject({
       status: 200,
       body: {
-        resolved: true, reconciled: true, issueId: "bug1", previousStatus: "ready_to_merge", pullRequestUrl: PR,
+        resolved: true, reconciled: true, issueId: "bug1", previousStatus: "merge", pullRequestUrl: PR,
         mergeCommitSha: "merge-sha", mergedInto: "main", solverUserId: "cara", rewardedReviewerUserIds: ["erin", "finn"],
         pullRequestState: {
           id: "rep1", state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha",
@@ -112,7 +112,7 @@ describe("reconcileMergedWork (#reconcile-merged, #pr-reports)", () => {
     expect(merge.finalizeResolved.mock.calls[0][1]).toMatchObject({ solverUserId: "gus", claim: null });
   });
 
-  it.each(["in_progress", "delivered", "done", "ready_to_merge"])("reconciles from %s", async (status) => {
+  it.each(["in_progress", "done", "merge"])("reconciles from %s", async (status) => {
     db.bug.findFirst.mockResolvedValue(bug({ status }));
     db.tx.bug.findUnique.mockResolvedValue({ status, pullRequestUrl: PR });
     expect((await reconcileMergedWork(manager(), scope, "bug1", PR)).status).toBe(200);
@@ -132,11 +132,11 @@ describe("reconcileMergedWork (#reconcile-merged, #pr-reports)", () => {
     ["a working agent", manager("dana", "working"), bug(), report(), 403, "insufficient_level", undefined],
     ["not a PR URL", manager(), bug(), report(), 422, "invalid_url", "https://github.com/emerjent/ziki/issues/552"],
     ["an issue outside the project", manager(), null, report(), 404, "not_found", undefined],
-    ["an issue already Live", manager(), bug({ status: "resolved" }), report(), 409, "already_resolved", undefined],
+    ["an issue already Live", manager(), bug({ status: "resolved", substatus: "on_dev" }), report(), 409, "already_resolved", undefined],
     ["the filer's own manager", manager("ada"), bug(), report(), 403, "not_independent", undefined],
     ["the claim holder's own manager", manager("cara"), bug(), report(), 403, "not_independent", undefined],
-    ["work still Open", manager(), bug({ status: "open" }), report(), 409, "not_in_review", undefined],
-    ["work awaiting confirmation", manager(), bug({ status: "requires_confirmation" }), report(), 409, "not_in_review", undefined],
+    ["work still Open", manager(), bug({ status: "open", substatus: "open" }), report(), 409, "not_in_review", undefined],
+    ["work awaiting confirmation", manager(), bug({ status: "open", substatus: "requires_confirmation" }), report(), 409, "not_in_review", undefined],
     ["no linked PR", manager(), bug({ pullRequestUrl: null }), report(), 409, "no_pull_request", undefined],
     ["a different PR than the linked one", manager(), bug(), report(), 409, "pr_mismatch", "https://github.com/emerjent/ziki/pull/9"],
     ["no report yet", manager(), bug(), null, 409, "needs_pr_report", undefined],
@@ -157,8 +157,8 @@ describe("reconcileMergedWork (#reconcile-merged, #pr-reports)", () => {
   });
 
   it("reconciles an In progress issue whose PR is already merged into main (production #682)", async () => {
-    db.bug.findFirst.mockResolvedValue(bug({ status: "in_progress" }));
-    db.tx.bug.findUnique.mockResolvedValue({ status: "in_progress", pullRequestUrl: PR });
+    db.bug.findFirst.mockResolvedValue(bug({ status: "in_progress", substatus: "in_progress" }));
+    db.tx.bug.findUnique.mockResolvedValue({ status: "in_progress", substatus: "in_progress", pullRequestUrl: PR });
     const result = await reconcileMergedWork(manager(), scope, "bug1");
     expect(result).toMatchObject({ status: 200, body: { previousStatus: "in_progress", mergedInto: "main" } });
     expect(merge.finalizeResolved).toHaveBeenCalledTimes(1);
@@ -175,9 +175,9 @@ describe("reconcileMergedWork (#reconcile-merged, #pr-reports)", () => {
   });
 
   it("changes nothing when the issue moved or was relinked meanwhile (409 status_changed)", async () => {
-    db.tx.bug.findUnique.mockResolvedValue({ status: "resolved", pullRequestUrl: PR });
+    db.tx.bug.findUnique.mockResolvedValue({ status: "resolved", substatus: "on_dev", pullRequestUrl: PR });
     expect(await reconcileMergedWork(manager(), scope, "bug1")).toMatchObject({ status: 409, body: { error: "status_changed" } });
-    db.tx.bug.findUnique.mockResolvedValue({ status: "ready_to_merge", pullRequestUrl: "https://github.com/emerjent/ziki/pull/9" });
+    db.tx.bug.findUnique.mockResolvedValue({ status: "merge", substatus: "ready_to_merge", pullRequestUrl: "https://github.com/emerjent/ziki/pull/9" });
     expect(await reconcileMergedWork(manager(), scope, "bug1")).toMatchObject({ status: 409, body: { error: "status_changed" } });
     expect(merge.finalizeResolved).not.toHaveBeenCalled();
   });

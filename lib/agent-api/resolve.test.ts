@@ -30,7 +30,7 @@ const agent = (ownerId = "owner", level: AgentContext["level"] = "working"): Age
 
 function bug(over: Record<string, unknown> = {}) {
   return {
-    id: "bug1", status: "in_progress", assigneeId: "owner", reporterId: "rep", pullRequestUrl: PR, pullRequestHeadSha: "abc1234",
+    id: "bug1", status: "in_progress", substatus: "in_progress", assigneeId: "owner", reporterId: "rep", pullRequestUrl: PR, pullRequestHeadSha: "abc1234",
     project: { repoUrl: "https://github.com/acme/app" },
     claims: [],
     ...over,
@@ -74,11 +74,11 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
     for (const level of ["working", "manager", "merger"] as const) {
       db.tx.bug.updateMany.mockClear();
       const result = await resolveMergedFix(agent("owner", level), scope, "bug1", PR);
-      expect(result).toEqual({ status: 200, body: { resolved: true, issueId: "bug1", previousStatus: "in_progress", pullRequestUrl: PR } });
+      expect(result).toEqual({ status: 200, body: { resolved: true, issueId: "bug1", previousStatus: "in_progress", previousSubstatus: "in_progress", status: "resolved", substatus: "on_dev", pullRequestUrl: PR } });
       expect(db.tx.bug.updateMany).toHaveBeenCalledWith({
         // Only if nobody relinked it or moved it since the read.
-        where: { id: "bug1", status: "in_progress", pullRequestUrl: PR },
-        data: { status: "resolved" },
+        where: { id: "bug1", substatus: "in_progress", pullRequestUrl: PR },
+        data: { status: "resolved", substatus: "on_dev" },
       });
     }
     expect(db.pullRequestReport.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { bugId: "bug1", pullRequestUrl: PR } }));
@@ -89,7 +89,7 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
     db.bug.findFirst.mockResolvedValue(bug());
     await resolveMergedFix(agent(), scope, "bug1", PR);
     const metadata = db.tx.bugActivity.create.mock.calls[0][0].data.metadata;
-    expect(metadata).toMatchObject({ field: "status", from: "in_progress", to: "resolved", via: "agent_resolve", agentId: "a1", pullRequestUrl: PR, pullRequestReportId: "rep1" });
+    expect(metadata).toMatchObject({ field: "status", from: "in_progress", to: "on_dev", via: "agent_resolve", agentId: "a1", pullRequestUrl: PR, pullRequestReportId: "rep1" });
     expect(readAgentResolution(metadata)).toEqual({ agentName: "Charles Xavier", pullRequestUrl: PR, previousStatus: "in_progress" });
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "a1" }),
@@ -99,7 +99,7 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
       expect.objectContaining({ bugId: "bug1" }),
     );
     const updated = publish.mock.calls.find((c) => c[1].type === "issue.updated")?.[1];
-    expect(updated.payload).toMatchObject({ issueId: "bug1", changed: ["status"], values: { status: "resolved" }, source: "agent", agentId: "a1" });
+    expect(updated.payload).toMatchObject({ issueId: "bug1", changed: ["status", "substatus"], values: { status: "resolved", substatus: "on_dev" }, source: "agent", agentId: "a1" });
   });
 
   it("releases an active claim and publishes the release", async () => {
@@ -112,7 +112,7 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
   it("clears the boost on a boosted issue and logs the unboost (#256)", async () => {
     db.bug.findFirst.mockResolvedValue(bug({ isBoosted: true }));
     await resolveMergedFix(agent(), scope, "bug1", PR);
-    expect(db.tx.bug.updateMany.mock.calls[0][0].data).toEqual({ status: "resolved", isBoosted: false, boostedAt: null });
+    expect(db.tx.bug.updateMany.mock.calls[0][0].data).toEqual({ status: "resolved", substatus: "on_dev", isBoosted: false, boostedAt: null });
     expect(db.tx.bugActivity.create.mock.calls.map((c) => c[0].data.type)).toEqual(["status_changed", "unboosted"]);
   });
 
@@ -136,7 +136,7 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
 
   it("hands a manager not connected to the issue to the reconcile path, with its stricter rules (#reconcile-merged)", async () => {
     // Open is not a step merged work is left at, so the reconcile refuses it; the connected path would have resolved it.
-    db.bug.findFirst.mockResolvedValue(bug({ assigneeId: "someone", reporterId: "rep", status: "open" }));
+    db.bug.findFirst.mockResolvedValue(bug({ assigneeId: "someone", reporterId: "rep", status: "open", substatus: "open" }));
     const result = await resolveMergedFix(agent("stranger", "manager"), scope, "bug1", PR);
     expect(result).toMatchObject({ status: 409, body: { error: "not_in_review" } });
     expect(db.pullRequestReport.findFirst).not.toHaveBeenCalled();
@@ -156,8 +156,8 @@ describe("resolveMergedFix (Ziki #515, #pr-reports)", () => {
   it.each([
     ["not a PR URL", "https://github.com/acme/app/issues/12", bug(), report(), 422, "invalid_url"],
     ["an issue outside the key's project", PR, null, report(), 404, "not_found"],
-    ["an issue already resolved", PR, bug({ status: "resolved" }), report(), 409, "already_resolved"],
-    ["an issue already closed", PR, bug({ status: "closed" }), report(), 409, "already_resolved"],
+    ["an issue already resolved", PR, bug({ status: "resolved", substatus: "on_dev" }), report(), 409, "already_resolved"],
+    ["an issue already closed", PR, bug({ status: "closed", substatus: "closed" }), report(), 409, "already_resolved"],
     ["a different PR than the linked one", PR, bug({ pullRequestUrl: "https://github.com/acme/app/pull/99" }), report(), 409, "pr_mismatch"],
     ["a linked PR in another repo", "https://github.com/other/app/pull/12", bug({ pullRequestUrl: "https://github.com/other/app/pull/12" }), report({ pullRequestUrl: "https://github.com/other/app/pull/12" }), 409, "pr_broken"],
     ["a PR nobody has reported", PR, bug(), null, 409, "needs_pr_report"],

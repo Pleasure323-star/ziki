@@ -10,6 +10,7 @@ import { mergedRefusal, reconcileMergedWork, type ReconcileResult } from "@/lib/
 import { parseGitHubRepoUrl, parsePullRequestUrl } from "@/lib/github/pull-request-url";
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Ziki #515: any agent may resolve an issue whose fix is already merged, so a
@@ -30,7 +31,7 @@ import { gateReport, latestPullRequestReport } from "@/lib/agent-api/pull-reques
  */
 
 export type ResolveResult =
-  | { status: 200; body: { resolved: true; issueId: string; previousStatus: string; pullRequestUrl: string } }
+  | { status: 200; body: { resolved: true; issueId: string; previousStatus: string; previousSubstatus: string; status: "resolved"; substatus: "on_dev"; pullRequestUrl: string } }
   | { status: 403 | 404 | 409 | 422; body: { error: string; message: string } }
   | ReconcileResult;
 
@@ -54,7 +55,7 @@ export async function resolveMergedFix(
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
-      id: true, status: true, assigneeId: true, reporterId: true, pullRequestUrl: true, pullRequestHeadSha: true, isBoosted: true,
+      id: true, status: true, substatus: true, assigneeId: true, reporterId: true, pullRequestUrl: true, pullRequestHeadSha: true, isBoosted: true,
       project: { select: { repoUrl: true } },
       claims: {
         where: { status: "active", releasedAt: null },
@@ -100,9 +101,10 @@ export async function resolveMergedFix(
     // the status (the activity records `from`) or linked another PR since,
     // and the pr_mismatch check above only saw the old link.
     const changed = await tx.bug.updateMany({
-      where: { id: bug.id, status: bug.status, pullRequestUrl: bug.pullRequestUrl },
+      where: { id: bug.id, substatus: bug.substatus, pullRequestUrl: bug.pullRequestUrl },
       data: {
-        status: "resolved",
+        // Live starts On dev; agents report where it is deployed (POST /issues/{id}/deployment).
+        ...moveTo("on_dev"),
         // #256: a finished issue shouldn't stay pinned above open work.
         ...(bug.isBoosted ? { isBoosted: false, boostedAt: null } : {}),
       },
@@ -114,9 +116,9 @@ export async function resolveMergedFix(
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
-        summary: statusChangedSummary(bug.status, "resolved"),
+        summary: statusChangedSummary(bug.substatus, "on_dev"),
         metadata: {
-          field: "status", from: bug.status, to: "resolved",
+          field: "status", from: bug.substatus, to: "on_dev",
           via: AGENT_RESOLVE_VIA, agentId: agent.agentId, agentName: agent.name, pullRequestUrl, pullRequestReportId: report.id,
         },
       },
@@ -139,11 +141,11 @@ export async function resolveMergedFix(
         payload: { claimId: claim.id, issueId: bug.id, beneficiaryUserId: claim.beneficiaryUserId, reason: "resolved" },
       });
     }
-    await audit(agent, "issue.resolved", `bug:${bug.id}`, { from: bug.status, pullRequestUrl, pullRequestReportId: report.id }, { bugId: bug.id, db: tx });
+    await audit(agent, "issue.resolved", `bug:${bug.id}`, { from: bug.substatus, pullRequestUrl, pullRequestReportId: report.id }, { bugId: bug.id, db: tx });
     await publish(tx, {
       tenantId: scope.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id,
       payload: {
-        issueId: bug.id, projectId: scope.projectId, changed: ["status"], values: { status: "resolved" },
+        issueId: bug.id, projectId: scope.projectId, changed: ["status", "substatus"], values: moveTo("on_dev"),
         source: "agent", agentId: agent.agentId, pullRequestUrl,
       },
     });
@@ -151,5 +153,5 @@ export async function resolveMergedFix(
   });
   if (!resolved) return fail(409, "status_changed", "This issue's status or linked pull request changed while the request ran. Read it again and retry.");
 
-  return { status: 200, body: { resolved: true, issueId: bug.id, previousStatus: bug.status, pullRequestUrl } };
+  return { status: 200, body: { resolved: true, issueId: bug.id, previousStatus: bug.status, previousSubstatus: bug.substatus, ...moveTo("on_dev"), pullRequestUrl } };
 }

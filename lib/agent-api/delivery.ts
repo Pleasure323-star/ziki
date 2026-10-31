@@ -15,6 +15,7 @@ import { parseIssueRef } from "@/lib/issue-ref";
 import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
 import { standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Work delivered (#delivered-step): the In progress step's entry. The agent
@@ -55,7 +56,7 @@ export const deliveryBodySchema = z
   });
 
 /** Where work can be delivered: being worked on, or delivered again before it merges. */
-const DELIVERABLE = new Set(["in_progress", "delivered", "done", "ready_to_merge"]);
+const DELIVERABLE = new Set(["in_progress", "done", "merge"]);
 
 export type DeliveryEntry = {
   id: string;
@@ -124,13 +125,14 @@ export async function listDeliveries(scope: { tenantId: string; projectId?: stri
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-    select: { id: true, number: true, status: true, pullRequestUrl: true },
+    select: { id: true, number: true, status: true, substatus: true, pullRequestUrl: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found.", { error: "not_found", message: "Issue not found." });
   return {
     issueId: bug.id,
     issueNumber: bug.number,
     status: bug.status,
+    substatus: bug.substatus,
     pullRequestUrl: bug.pullRequestUrl,
     deliveries: await deliveryEntries(bug),
   };
@@ -168,6 +170,7 @@ export async function deliverWork(
       id: true,
       projectId: true,
       status: true,
+      substatus: true,
       pullRequestUrl: true,
       project: { select: { repoUrl: true } },
     },
@@ -263,7 +266,7 @@ export async function deliverWork(
 
   const testResults = body.testResults === undefined ? null : typeof body.testResults === "string" ? body.testResults : JSON.stringify(body.testResults);
   const screenshots = body.screenshots ?? [];
-  const from = bug.status;
+  const from = bug.substatus;
 
   const { delivery, replaced } = await prisma.$transaction(async (tx) => {
     const existing = await tx.delivery.findUnique({ where: { bugId_agentId: { bugId: bug.id, agentId: agent.agentId } }, select: { id: true } });
@@ -285,7 +288,7 @@ export async function deliverWork(
       data: {
         pullRequestUrl: body.pullRequestUrl,
         pullRequestHeadSha: headSha,
-        status: "delivered",
+        ...moveTo("requires_review"),
         ...(screenshots.length ? { proofLinks: { push: screenshots } } : {}),
       },
     });
@@ -303,7 +306,7 @@ export async function deliverWork(
         metadata: {
           field: "status",
           from,
-          to: "delivered",
+          to: "requires_review",
           deliveryId: saved.id,
           pullRequestUrl: body.pullRequestUrl,
           replaced: Boolean(existing),
@@ -330,7 +333,7 @@ export async function deliverWork(
   // #stranded-delivery: the judgements already given on this pull request are
   // evaluated at once, as a new judgement would be, so enough of them make it Done.
   const judged = onBehalfOf ? await refreshJudgedStatus(prisma, bug.id, agent.ownerId) : null;
-  if (judged !== "done") {
+  if (judged !== "accepted") {
     await createReviewOffers(prisma, { agentId: agent.agentId, tenantId: agent.tenantId }, bug.id, { pullRequestUrl: body.pullRequestUrl, headSha }).catch(() => null);
   }
 

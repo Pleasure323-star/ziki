@@ -52,7 +52,7 @@ export async function findReadyIssues(
         tenantId: agent.tenantId,
         projectId,
         isDeleted: false,
-        status: "open",
+        substatus: "open",
         claims: { none: liveHoldWhere(workflow.offerWindowSeconds) },
       },
       select: {

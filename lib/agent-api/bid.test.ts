@@ -51,7 +51,7 @@ const openBug = {
   id: "issue1",
   title: "Broken login",
   projectId: "project",
-  status: "open" as const,
+  status: "open", substatus: "open" as const,
   assigneeId: null,
   tenantId: "tenant",
   reporterId: "reporter",
@@ -66,7 +66,7 @@ beforeEach(() => {
   resetWorkflowCache();
   db.$transaction.mockImplementation((fn: (tx: typeof db) => unknown) => fn(db));
   db.$queryRaw.mockResolvedValue([{ id: "issue1" }]);
-  db.bug.findFirst.mockResolvedValue({ id: "issue1", projectId: "project", status: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
+  db.bug.findFirst.mockResolvedValue({ id: "issue1", projectId: "project", status: "open", substatus: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
   db.issueClaim.findFirst.mockResolvedValue(null);
   db.issueClaim.count.mockResolvedValue(0);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
@@ -415,7 +415,7 @@ describe("awardBid and a stale assignee (#stale-assignee)", () => {
     db.issueClaim.create.mockResolvedValue({ id: "claim1" });
     await expect(awardBid(manager, "bid1")).resolves.toMatchObject({ claimId: "claim1", bugId: "issue1" });
     expect(db.bug.updateMany).toHaveBeenCalledWith({
-      where: { id: "issue1", assigneeId: "carl", status: "open" },
+      where: { id: "issue1", assigneeId: "carl", substatus: "open" },
       data: { assigneeId: null },
     });
     expect(db.bugActivity.create).toHaveBeenCalledWith({ data: expect.objectContaining({
@@ -494,7 +494,7 @@ describe("readable bid references (#587)", () => {
   });
 
   it.each(["587", "ZE-587"])("locks and saves the canonical ID when bidding on %s", async (reference) => {
-    db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
+    db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", substatus: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
     db.$queryRaw.mockResolvedValue([{ id: canonicalId }]);
 
     await placeBid(caller, "project", reference, plan);
@@ -522,7 +522,7 @@ describe("readable bid references (#587)", () => {
   });
 
   it("keeps canonical references working without a numeric lookup", async () => {
-    db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
+    db.bug.findFirst.mockResolvedValue({ id: canonicalId, projectId: "project", status: "open", substatus: "open", voteCount: 3, convertedToIssueAt: new Date("2026-10-01T00:00:00Z") });
     db.$queryRaw.mockResolvedValue([{ id: canonicalId }]);
     await placePlan(caller, "project", canonicalId);
     expect(db.bug.findFirst).toHaveBeenCalledTimes(1);

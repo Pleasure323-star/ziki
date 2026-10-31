@@ -85,6 +85,7 @@ const BUG = {
   description: "## Summary\nLogin button does nothing\n\n## Acceptance Criteria\n- [ ] Fix login",
   createdByAgentId: null,
   status: "open",
+  substatus: "requires_confirmation",
   voteCount: 2,
   proofLinks: ["https://github.com/acme/web/pull/1", "https://github.com/acme/web/pull/2"],
   isDeleted: false,
@@ -195,9 +196,9 @@ describe("issue list layout", () => {
   });
 
   it("offers no Clear filters link when only a status tab is picked and it is empty", async () => {
-    count.mockImplementation(async (args: { where?: { status?: unknown } }) => (args?.where?.status === "requires_confirmation" ? 0 : 3));
+    count.mockImplementation(async (args: { where?: { status?: unknown } }) => (args?.where?.status === "done" ? 0 : 3));
     findMany.mockResolvedValue([]);
-    const html = await renderList({ status: "requires_confirmation" });
+    const html = await renderList({ status: "done" });
     expect(html).not.toMatch(/no issues match/i);
     expect(html).not.toContain("Clear filters");
   });
@@ -378,7 +379,7 @@ describe("issue list layout", () => {
   });
 
   it("counts each platform's total in the platform menu, whatever status tab is picked", async () => {
-    for (const status of ["open", "in_progress", "done", "ready_to_merge", "resolved", "all"]) {
+    for (const status of ["open", "in_progress", "done", "merge", "resolved", "all"]) {
       groupBy.mockClear();
       await renderList({ status, mine: "assigned" });
       const tabQuery = groupBy.mock.calls.find(([args]) => args.by[0] === "categoryId")![0];
@@ -389,7 +390,7 @@ describe("issue list layout", () => {
   });
 
   it("keeps the picked tab's status out of the tab counts", async () => {
-    for (const status of ["done", "ready_to_merge", "resolved"]) {
+    for (const status of ["done", "merge", "resolved"]) {
       groupBy.mockClear();
       await renderList({ status });
       const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status")![0];
@@ -402,44 +403,46 @@ describe("issue list layout", () => {
     expect(labels(stages(html))).toEqual(["Ideas", "Working", "Delivered"]);
     expect(current(stages(html))).toEqual(["Ideas"]);
     expect(stages(html)).toContain('href="/issues"');
-    expect(stages(html)).toContain('href="/issues?status=requires_confirmation"');
-    expect(stages(html)).toContain('href="/issues?status=delivered"');
+    expect(stages(html)).toContain('href="/issues?status=open"');
+    expect(stages(html)).toContain('href="/issues?status=done"');
     expect(labels(statusList(html))).toEqual(["New ideas", "Rejected ideas"]);
     expect(current(statusList(html))).toEqual(["New ideas"]);
   });
 
-  it("puts Requires confirmation, Open, In progress and Closed under Working, and Delivered, Done, Ready to merge and Live under Delivered", async () => {
+  it("puts the main statuses Open, In progress and Closed under Working, and Done, Merge and Live under Delivered (#substatus)", async () => {
     let html = await renderList({ status: "in_progress" });
     expect(current(stages(html))).toEqual(["Working"]);
-    expect(labels(statusList(html))).toEqual(["Requires confirmation", "Open", "In progress", "Closed"]);
+    expect(labels(statusList(html))).toEqual(["Open", "In progress", "Closed"]);
     expect(current(statusList(html))).toEqual(["In progress"]);
 
-    html = await renderList({ status: "ready_to_merge" });
+    html = await renderList({ status: "merge" });
     expect(current(stages(html))).toEqual(["Delivered"]);
-    expect(labels(statusList(html))).toEqual(["Delivered", "Done", "Ready to merge", "Live"]);
-    expect(current(statusList(html))).toEqual(["Ready to merge"]);
+    expect(labels(statusList(html))).toEqual(["Done", "Merge", "Live"]);
+    expect(current(statusList(html))).toEqual(["Merge"]);
   });
-  it("lists issues that require confirmation on their own tab (#requires-confirmation)", async () => {
-    await renderList({ status: "requires_confirmation" });
-    expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
+  it("lists both of Open's substatuses on its tab, by the main status (#substatus)", async () => {
+    await renderList({ status: "open" });
+    const where = findMany.mock.calls.at(-1)![0].where;
+    expect(where.status).toBe("open");
+    expect(where).not.toHaveProperty("substatus");
   });
 
-  it("counts confirmations on the Requires confirmation tab", async () => {
-    const html = await renderList({ status: "requires_confirmation" });
+  it("counts confirmations on the Open tab, and says which rows require confirmation", async () => {
+    const html = await renderList({ status: "open" });
     expect(html).toMatch(/data-testid="confirmation-accepts"[^>]*>.*?1<\/span>/);
     expect(html).toContain('data-tone="neutral"');
-    expect(clean(html)).toContain("Not confirmed");
+    expect(clean(html)).toContain("Requires confirmation");
   });
 
   it("shows the issue as confirmed at the threshold", async () => {
     vi.mocked(openIssueConfirmations).mockResolvedValueOnce(new Map([["bug-1", { stage: "confirming", accepts: 2, rejects: 0, needed: 2, confirmed: true }]]));
-    const html = await renderList({ status: "requires_confirmation" });
+    const html = await renderList({ status: "open" });
     expect(html).toMatch(/data-testid="confirmation-count"[^>]*data-tone="ok"|data-tone="ok"[^>]*data-testid="confirmation-count"/);
-    expect(clean(html)).not.toContain("Not confirmed");
+    expect(clean(html)).not.toContain("Requires confirmation");
   });
 
   it("shows no confirmation count and no Priority column on the other tabs", async () => {
-    const html = await renderList({ status: "open" });
+    const html = await renderList({ status: "in_progress" });
     expect(html).not.toContain("Priority");
     expect(html).not.toContain("confirmation-count");
   });
@@ -452,7 +455,7 @@ describe("issue list layout", () => {
   });
   it("drops ?ideas= when moving to another stage", async () => {
     const html = await renderList({ ideas: "drafts" });
-    expect(stages(html)).toContain('href="/issues?status=requires_confirmation"');
+    expect(stages(html)).toContain('href="/issues?status=open"');
     expect(stages(html)).not.toContain("ideas=");
   });
   it("leaves Ideas unselected on the other stages", async () => {
@@ -476,7 +479,7 @@ describe("issue list layout", () => {
     html = await renderList({ q: "login", status: "all" });
     expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("status");
     expect(current(stages(html))).toEqual([]);
-    expect(stages(html)).toContain('href="/issues?q=login&amp;status=delivered"');
+    expect(stages(html)).toContain('href="/issues?q=login&amp;status=done"');
     expect(html).not.toContain('aria-label="Status"');
   });
   it("searches across All when no stage is picked, so a just-reported issue can be found", async () => {
@@ -533,8 +536,8 @@ describe("issue list layout", () => {
     expect(html).not.toContain("Hide resolved");
   });
 
-  it("lists each tab by the one status: Done is status done (Ziki #713)", async () => {
-    for (const status of ["in_progress", "done", "ready_to_merge", "resolved"]) {
+  it("lists each tab by its main status (Ziki #713, #substatus)", async () => {
+    for (const status of ["in_progress", "done", "merge", "resolved"]) {
       await renderList({ status });
       const where = findMany.mock.calls.at(-1)![0].where;
       expect(where.status).toBe(status);
@@ -547,19 +550,17 @@ describe("issue list layout", () => {
       args.by[0] !== "status"
         ? []
         : [
-          { status: "requires_confirmation", _count: { _all: 4 } },
-          { status: "open", _count: { _all: 9 } },
+          { status: "open", _count: { _all: 13 } },
           { status: "in_progress", _count: { _all: 2 } },
-          { status: "delivered", _count: { _all: 5 } },
-          { status: "done", _count: { _all: 2 } },
-          { status: "ready_to_merge", _count: { _all: 1 } },
+          { status: "done", _count: { _all: 7 } },
+          { status: "merge", _count: { _all: 1 } },
           { status: "resolved", _count: { _all: 7 } },
           { status: "closed", _count: { _all: 3 } },
         ]) as never);
     const html = await renderList({ status: "open" });
-    // Ideas: new ideas + rejected ideas. Working: Requires confirmation, Open, In progress, Closed. Delivered: Delivered, Done, Ready to merge, Live.
+    // Ideas: new ideas + rejected ideas. Working: Open, In progress, Closed. Delivered: Done, Merge, Live.
     expect(counted(stages(html))).toEqual({ Ideas: 8, Working: 18, Delivered: 15 });
-    expect(counted(statusList(html))).toEqual({ "Requires confirmation": 4, Open: 9, "In progress": 2, Closed: 3 });
+    expect(counted(statusList(html))).toEqual({ Open: 13, "In progress": 2, Closed: 3 });
   });
   it("shows the vote count once and no proof-link count in rows (#1060)", async () => {
     const html = await renderList({ status: "all" });

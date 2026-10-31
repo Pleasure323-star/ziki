@@ -3,6 +3,7 @@ import type { ReviewedBug } from "@/lib/agents/independence";
 import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verdicts";
 import { publish } from "@/lib/agent-api/events";
 import { workflowFor } from "@/lib/workflow";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * The Delivered step's rule (#delivered-step). Once the agent holding the
@@ -28,6 +29,7 @@ export const judgedBugSelect = {
   tenantId: true,
   projectId: true,
   status: true,
+  substatus: true,
   pullRequestUrl: true,
   assigneeId: true,
   beneficiaryUserId: true,
@@ -107,23 +109,23 @@ export async function countedJudgements(
 }
 
 /**
- * Apply the rule after a judgement. Acts only on a Delivered or Done issue
- * (a judgement taken back can return Done to Delivered). Returns the new
- * status when it changed, else null.
+ * Apply the rule after a judgement. Acts only on a Done issue, Requires
+ * review or Accepted (a judgement taken back can return Accepted to Requires
+ * review). Returns the new substatus when it changed, else null.
  */
 export async function refreshJudgedStatus(
   db: Db,
   bugId: string,
   actorUserId: string,
-): Promise<"delivered" | "done" | "open" | null> {
+): Promise<"requires_review" | "accepted" | "open" | null> {
   const bug = await db.bug.findUnique({ where: { id: bugId }, select: judgedBugSelect });
   if (!bug?.pullRequestUrl) return null;
-  if (bug.status !== "delivered" && bug.status !== "done") return null;
+  if (bug.status !== "done") return null;
 
   const count = await countedJudgements(db, bugId);
   if (!count) return null;
-  const next = count.good >= count.needed ? "done" : count.notGood >= count.needed ? "open" : "delivered";
-  if (next === bug.status) return null;
+  const next = count.good >= count.needed ? "accepted" : count.notGood >= count.needed ? "open" : "requires_review";
+  if (next === bug.substatus) return null;
 
   if (next === "open") {
     // Judged not good to merge: back to Open, for someone to take again.
@@ -141,10 +143,10 @@ export async function refreshJudgedStatus(
     }
     await db.bug.update({
       where: { id: bugId },
-      data: { status: "open", assigneeId: null, pullRequestUrl: null, pullRequestHeadSha: null },
+      data: { ...moveTo("open"), assigneeId: null, pullRequestUrl: null, pullRequestHeadSha: null },
     });
   } else {
-    await db.bug.update({ where: { id: bugId }, data: { status: next } });
+    await db.bug.update({ where: { id: bugId }, data: moveTo(next) });
   }
 
   await db.bugActivity.create({
@@ -153,12 +155,12 @@ export async function refreshJudgedStatus(
       actorId: actorUserId,
       type: "status_changed",
       summary:
-        next === "done"
-          ? `${count.good} independent agents judged the delivered work good to merge: moved to Done`
+        next === "accepted"
+          ? `${count.good} independent agents judged the delivered work good to merge: moved to Done · Accepted`
           : next === "open"
             ? `${count.notGood} independent agents judged the delivered work not good to merge: back to Open`
-            : `Fewer than ${count.needed} independent agents judge it good to merge: back to Delivered`,
-      metadata: { field: "status", from: bug.status, to: next, good: count.good, notGood: count.notGood, needed: count.needed },
+            : `Fewer than ${count.needed} independent agents judge it good to merge: back to Done · Requires review`,
+      metadata: { field: "status", from: bug.substatus, to: next, good: count.good, notGood: count.notGood, needed: count.needed },
     },
   });
   return next;

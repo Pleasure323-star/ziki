@@ -61,7 +61,8 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 const me = { agentId: "agent_me", name: "me", ownerId: "owner", tenantId: "t1", level: "working", burst: false, keyId: "k", projectId: "p1" } as AgentContext;
 
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 31, 9, minute));
-const issue = (status: string) => ({ id: "bug1", number: 7, title: "Export is greyed out", status, projectId: "p1", project: { slug: "web" } });
+const MAIN: Record<string, string> = { requires_confirmation: "open", open: "open", in_progress: "in_progress" };
+const issue = (substatus: string) => ({ id: "bug1", number: 7, title: "Export is greyed out", status: MAIN[substatus], substatus, projectId: "p1", project: { slug: "web" } });
 const idea = (status: string) => ({ id: "idea1", number: 3, title: "CSV export", status, projectId: "p1" });
 const entry = { summary: "Short.", description: "In full." };
 
@@ -206,7 +207,7 @@ describe("listOwnerHistory", () => {
     tables.issueBid.push(bid("b1", 2));
     tables.ideaVerdict.push(ideaVerdict("v1", 1));
     const { items } = await page("");
-    expect(find(items, "b1")).toMatchObject({ issue: { id: "bug1", number: 7, status: "open" } });
+    expect(find(items, "b1")).toMatchObject({ issue: { id: "bug1", number: 7, status: "open", substatus: "open" } });
     expect((find(items, "b1") as { issue: { url: string } }).issue.url).toMatch(/\/web\/7$/);
     expect((find(items, "v1") as { idea: { url: string } }).idea.url).toMatch(/\/ideas\/3$/);
   });

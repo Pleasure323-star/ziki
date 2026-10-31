@@ -56,7 +56,7 @@ function report(over: Partial<StoredPullRequestReport> = {}): StoredPullRequestR
 /** An issue filed by Ada, claimed by Cara's agent. */
 function bug(over: Record<string, unknown> = {}) {
   return {
-    id: "bug1", tenantId: "t1", projectId: "p1", status: "done", number: 552, title: "Fix the redirect",
+    id: "bug1", tenantId: "t1", projectId: "p1", status: "done", substatus: "accepted", number: 552, title: "Fix the redirect",
     createdAt: new Date("2026-10-20T10:00:00Z"),
     pullRequestUrl: PR, pullRequestHeadSha: "head-sha",
     assigneeId: "cara", assignee: { id: "cara", name: "Cara" },
@@ -243,7 +243,7 @@ describe("nextActions", () => {
 
   it("offers resolve for In progress work whose PR is reported merged into main (production #682)", () => {
     const actions = nextActions(manager, facts({
-      bug: bug({ status: "in_progress" }) as unknown as TriageFacts["bug"],
+      bug: bug({ status: "in_progress", substatus: "in_progress" }) as unknown as TriageFacts["bug"],
       pullRequest: pr(report({ state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" })),
     }));
     expect(actions).toEqual([{ action: "resolve", method: "POST", route: "/api/v1/issues/bug1/resolve?projectId=p1", minimumRole: "manager", canAct: true }]);
@@ -294,7 +294,7 @@ describe("nextActions", () => {
   });
 
   it("asks a Delivered fix to be judged, unless the caller's owner judged it already", () => {
-    const delivered = { bug: bug({ status: "delivered" }) as unknown as TriageFacts["bug"] };
+    const delivered = { bug: bug({ status: "done", substatus: "requires_review" }) as unknown as TriageFacts["bug"] };
     expect(nextActions(manager, facts(delivered))[0]).toMatchObject({ action: "submit_test_result", minimumRole: "working", canAct: true });
     expect(nextActions(manager, facts({ ...delivered, judgedByCaller: true }))[0]).toMatchObject({
       canAct: false, blockedReason: "Your owner already judged this pull request.",
@@ -302,7 +302,7 @@ describe("nextActions", () => {
   });
 
   it("asks the merger to merge Ready to Merge work on GitHub, then report and resolve it", () => {
-    const ready = facts({ bug: bug({ status: "ready_to_merge" }) as unknown as TriageFacts["bug"] });
+    const ready = facts({ bug: bug({ status: "merge", substatus: "ready_to_merge" }) as unknown as TriageFacts["bug"] });
     expect(nextActions(manager, ready)[0]).toMatchObject({ action: "merge_on_github", minimumRole: "merger", canAct: false, blockedReason: "Needs a merger agent." });
     const [merge] = nextActions({ ...manager, level: "merger" }, ready);
     expect(merge).toMatchObject({ action: "merge_on_github", route: "/api/v1/issues/bug1/pull-request-status?projectId=p1", canAct: true });
@@ -318,7 +318,7 @@ describe("nextActions", () => {
 
   it("offers deliver_stranded, not also review_idle, on a stranded In progress issue", () => {
     const actions = nextActions(manager, facts({
-      bug: bug({ status: "in_progress", claims: [] }) as unknown as TriageFacts["bug"],
+      bug: bug({ status: "in_progress", substatus: "in_progress", claims: [] }) as unknown as TriageFacts["bug"],
       stranded: { pullRequestUrl: PR, creditedUserId: "cara", linkedAt: new Date(), goodVerdicts: 2, needed: 2 },
       idle: { held: false, holderOwners: [], idleHours: 5 },
     }));
@@ -328,7 +328,7 @@ describe("nextActions", () => {
 
   it("blocks deliver_stranded on a PR reported 404 and offers review_idle instead", () => {
     const actions = nextActions(manager, facts({
-      bug: bug({ status: "in_progress", claims: [] }) as unknown as TriageFacts["bug"],
+      bug: bug({ status: "in_progress", substatus: "in_progress", claims: [] }) as unknown as TriageFacts["bug"],
       pullRequest: pr(report({ state: "not_found" })),
       stranded: { pullRequestUrl: PR, creditedUserId: "cara", linkedAt: new Date(), goodVerdicts: 2, needed: 2 },
       idle: { held: false, holderOwners: [], idleHours: 5 },
@@ -342,19 +342,19 @@ describe("nextActions", () => {
 
   it("offers review_idle for idle work nobody holds, and an Abandoned vote for held work", () => {
     const unheld = nextActions(manager, facts({
-      bug: bug({ status: "in_progress", claims: [], assigneeId: null }) as unknown as TriageFacts["bug"],
+      bug: bug({ status: "in_progress", substatus: "in_progress", claims: [], assigneeId: null }) as unknown as TriageFacts["bug"],
       idle: { held: false, holderOwners: [], idleHours: 3 },
     }));
     expect(unheld[0]).toMatchObject({ action: "review_idle", route: "/api/v1/issues/bug1/reclaim?projectId=p1", canAct: true });
     const held = nextActions(manager, facts({
-      bug: bug({ status: "in_progress" }) as unknown as TriageFacts["bug"],
+      bug: bug({ status: "in_progress", substatus: "in_progress" }) as unknown as TriageFacts["bug"],
       idle: { held: true, holderOwners: ["cara"], idleHours: 3 },
     }));
     expect(held[0]).toMatchObject({ action: "vote_abandoned", canAct: true });
   });
 
   it("lets any agent award the most voted bid once it reached the threshold, its own owner's too", () => {
-    const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
+    const openIssue = { bug: bug({ status: "open", substatus: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
     const bids = [{ id: "bid-dana", votes: 5, ownerIds: ["dana"] }, { id: "bid-erin", votes: 2, ownerIds: ["erin"] }];
     expect(nextActions(manager, facts({ ...openIssue, bids }))).toEqual([expect.objectContaining({
       action: "award_bid", route: "/api/v1/bids/bid-dana/award?projectId=p1", minimumRole: "working", canAct: true,
@@ -366,7 +366,7 @@ describe("nextActions", () => {
   });
 
   it("asks for a vote, not an award, while every bid is below the threshold", () => {
-    const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
+    const openIssue = { bug: bug({ status: "open", substatus: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
     const bids = [{ id: "bid-dana", votes: 2, ownerIds: ["dana"] }, { id: "bid-erin", votes: 1, ownerIds: ["erin"] }];
     // A manager may vote for its own owner's bid.
     expect(nextActions(manager, facts({ ...openIssue, bids }))).toEqual([expect.objectContaining({
@@ -397,8 +397,8 @@ describe("triageQueue", () => {
   it("returns one item per issue with its holder, PR from the latest report, judgements and next actions", async () => {
     const old553 = "https://github.com/Zedu-Endor/issue-tracker/pull/553";
     db.bug.findMany.mockResolvedValue([
-      bug({ id: "bug1", status: "in_progress" }),
-      bug({ id: "bug2", number: 553, status: "done", pullRequestUrl: old553 }),
+      bug({ id: "bug1", status: "in_progress", substatus: "in_progress" }),
+      bug({ id: "bug2", number: 553, status: "done", substatus: "accepted", pullRequestUrl: old553 }),
     ]);
     db.pullRequestReport.findMany.mockResolvedValue([
       report({ id: "rep2", state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" }),
@@ -417,7 +417,7 @@ describe("triageQueue", () => {
     expect(page).toEqual({ items: expect.any(Array), nextCursor: null });
     expect(page.items).toHaveLength(2);
     const [first, second] = page.items;
-    expect(first.issue).toMatchObject({ id: "bug1", number: 552, status: "in_progress" });
+    expect(first.issue).toMatchObject({ id: "bug1", number: 552, status: "in_progress", substatus: "in_progress" });
     expect(first.issue.url).toMatch(/\/ziki\/552$/);
     expect(first.holder).toMatchObject({ state: "active_claim", agentName: "Cara's agent", personName: "Cara", via: "bid", staleAssignee: false });
     // The latest report counts: the first row per issue.
@@ -444,7 +444,7 @@ describe("triageQueue", () => {
   });
 
   it("flags an Open issue's stale assignee and counts its open bids", async () => {
-    db.bug.findMany.mockResolvedValue([bug({ status: "open", claims: [], pullRequestUrl: null })]);
+    db.bug.findMany.mockResolvedValue([bug({ status: "open", substatus: "open", claims: [], pullRequestUrl: null })]);
     db.issueBid.findMany.mockResolvedValue([
       { id: "bid1", beneficiaryUserId: "erin", agent: { ownerUserId: "erin" }, votes: [{ onBehalfOfUserId: "gus", agent: { level: "working" } }] },
       { id: "bid2", beneficiaryUserId: "finn", agent: { ownerUserId: "finn" }, votes: [{ onBehalfOfUserId: "hana", agent: { level: "manager" } }] },

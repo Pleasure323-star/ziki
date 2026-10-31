@@ -7,7 +7,7 @@ import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
-import { commentSchema, statusSchema } from "@/lib/validations/issue";
+import { commentSchema, statusSchema, substatusSchema } from "@/lib/validations/issue";
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
@@ -139,7 +139,7 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true,
   // #close-reasons: why, on what evidence and when a closed issue was closed.
   closeReason: true, closeEvidence: true, closedAt: true,
   categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
@@ -170,6 +170,7 @@ export function requireKnownFilter(name: "platform" | "area", raw: string | null
 
 export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const status = enumFilter("status", params.get("status"), statusSchema.options);
+  const substatus = enumFilter("substatus", params.get("substatus"), substatusSchema.options);
   const assignee = params.get("assignee");
   let assigneeId: string | null | undefined;
   if (assignee) {
@@ -204,6 +205,7 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const filtered: Prisma.BugWhereInput = {
     ...scope, isDeleted: false, ...search,
     ...(status ? { status } : {}),
+    ...(substatus ? { substatus } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
     ...platformFilterWhere(requireKnownFilter("platform", params.get("platform"), parsePlatformFilter(params.get("platform"), platforms))),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
@@ -280,17 +282,21 @@ export async function readAgentIssue(scope: Scope, id: string) {
  * `all` is every issue.
  */
 export async function countAgentIssues(scope: Scope) {
-  const [issueRows, ideaRows] = await Promise.all([
+  const [issueRows, substatusRows, ideaRows] = await Promise.all([
     prisma.bug.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
     prisma.idea.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
   ]);
   const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
   for (const row of issueRows) issues[row.status] = row._count._all;
+  const bySubstatus = Object.fromEntries(substatusSchema.options.map((substatus) => [substatus, 0])) as Record<(typeof substatusSchema.options)[number], number>;
+  for (const row of substatusRows) bySubstatus[row.substatus] = row._count._all;
   const ideas = { open: 0, converted: 0, rejected: 0, archived: 0 };
   for (const row of ideaRows) ideas[row.status] = row._count._all;
   return {
     projectId: scope.projectId,
     issues: { ...issues, all: Object.values(issues).reduce((sum, n) => sum + n, 0) },
+    substatuses: bySubstatus,
     ideas,
   };
 }
@@ -370,7 +376,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
     const resolvedId = await issueIdFor(tx, issueRef, scope.tenantId);
     const found = resolvedId ? await tx.bug.findFirst({
       where: { ...scope, id: resolvedId, isDeleted: false },
-      select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, pullRequestUrl: true },
+      select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, substatus: true, pullRequestUrl: true },
     }) : null;
     if (!found) throw new IssueApiError(404, "Issue not found.");
     const bugId = found.id;

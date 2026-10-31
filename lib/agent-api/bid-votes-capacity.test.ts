@@ -37,7 +37,7 @@ const scope = { id: "bid1", bugId: "issue1", bug: { tenantId: "tenant", projectI
 const openBid = {
   id: "bid1", bugId: "issue1", agentId: "pixel-agent", beneficiaryUserId: "pix", withdrawnAt: null, awardedAt: null,
   agent: { ownerUserId: "pix" },
-  bug: { number: 7, status: "open" },
+  bug: { number: 7, status: "open", substatus: "open" },
 };
 
 beforeEach(() => {

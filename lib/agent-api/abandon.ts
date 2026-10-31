@@ -12,6 +12,7 @@ import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
 import { voteWeight } from "@/lib/governance";
 import { idleInProgress, inProgressWork, isIdle } from "@/lib/agent-api/idle";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Sense checks on stale in-progress work (#abandon). When held work is idle
@@ -101,7 +102,7 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
     if (abandoned) {
       const now = new Date();
       await tx.issueClaim.update({ where: { id: claim.id }, data: { status: "released", releasedAt: now, releaseReason: "abandoned" } });
-      await tx.bug.update({ where: { id: bug.id }, data: { status: "open", assigneeId: null } });
+      await tx.bug.update({ where: { id: bug.id }, data: { ...moveTo("open"), assigneeId: null } });
       await tx.bugActivity.create({
         data: {
           bugId: bug.id,

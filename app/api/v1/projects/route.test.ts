@@ -97,7 +97,7 @@ describe("agent project discovery (#607)", () => {
   it("never counts another tenant's issues", async () => {
     db.project.findMany.mockResolvedValue([{ id: "project-web", slug: "web", name: "Web", goal: "", repoUrl: "", stagingUrl: "" }]);
     await list(request());
-    expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantId: "tenant-a", isDeleted: false, status: "open" }) }));
+    expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ tenantId: "tenant-a", isDeleted: false, substatus: "open" }) }));
   });
 
   it("reads one project by id, tenant-scoped; foreign ids are 404", async () => {

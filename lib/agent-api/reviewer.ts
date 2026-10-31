@@ -35,7 +35,7 @@ export async function findReviewableIssues(
         tenantId: agent.tenantId,
         projectId,
         isDeleted: false,
-        status: "delivered",
+        substatus: "requires_review",
         pullRequestUrl: { not: null },
         testVerdicts: {
           none: {

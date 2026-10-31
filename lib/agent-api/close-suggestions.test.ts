@@ -49,7 +49,7 @@ const closeInput = { reason: "superseded" as const, evidence: "#3 shipped the sa
 /** The locked issue row, as the close core reads it. */
 function row(extra: Record<string, unknown> = {}) {
   return {
-    status: "open", isDeleted: false, isBoosted: false, closeReason: null,
+    status: "open", substatus: "open", isDeleted: false, isBoosted: false, closeReason: null,
     reporterId: "ada", beneficiaryUserId: null, assigneeId: null, createdByAgent: null,
     ...extra,
   };
@@ -188,16 +188,16 @@ describe("closeIssue (#close-reasons)", () => {
 
   it("closes the issue with its reason and evidence, releases live claims and publishes issue.closed", async () => {
     tally(5);
-    db.bug.findUnique.mockResolvedValue(row({ status: "in_progress", isBoosted: true }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "in_progress", substatus: "in_progress", isBoosted: true }));
     db.issueClaim.findMany.mockResolvedValue([{ id: "claim1", agentId: "cara-agent", beneficiaryUserId: "cara" }]);
     const evidence = "Ran it 3 times on main (requests r1, r2, r3): all fine.";
     await expect(closeIssue(dana, "project", "7", { reason: "not_reproducible", evidence })).resolves.toEqual({
-      issueId: "issue1", issueNumber: 7, status: "closed", closeReason: "not_reproducible", closeEvidence: evidence, duplicateOfId: null,
+      issueId: "issue1", issueNumber: 7, status: "closed", substatus: "closed", closeReason: "not_reproducible", closeEvidence: evidence, duplicateOfId: null,
       votes: 5, threshold: 3, releasedClaimIds: ["claim1"],
     });
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "issue1" },
-      data: { status: "closed", closeReason: "not_reproducible", closeEvidence: evidence, closedAt: expect.any(Date), isBoosted: false, boostedAt: null },
+      data: { status: "closed", substatus: "closed", closeReason: "not_reproducible", closeEvidence: evidence, closedAt: expect.any(Date), isBoosted: false, boostedAt: null },
     });
     expect(db.issueClaim.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["claim1"] } },
@@ -245,7 +245,7 @@ describe("closeIssue (#close-reasons)", () => {
 
   it("refuses an issue that is already closed", async () => {
     tally(5);
-    db.bug.findUnique.mockResolvedValue(row({ status: "closed" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "closed", substatus: "closed" }));
     await expect(closeIssue(dana, "project", "7", closeInput)).rejects.toMatchObject({
       status: 409,
       body: expect.objectContaining({ error: "already_closed" }),
@@ -258,13 +258,13 @@ describe("reopenIssue (#close-reasons)", () => {
   const fresh = { evidence: "Fails again on main: request id req_9f2." };
 
   it("reopens an issue closed as not reproducible to Open when it had been confirmed", async () => {
-    db.bug.findUnique.mockResolvedValue(row({ status: "closed", closeReason: "not_reproducible" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "closed", substatus: "closed", closeReason: "not_reproducible" }));
     await expect(reopenIssue(dana, "project", "7", fresh)).resolves.toEqual({
-      issueId: "issue1", issueNumber: 7, status: "open", previousReason: "not_reproducible", evidence: fresh.evidence, clearedSuggestions: 2,
+      issueId: "issue1", issueNumber: 7, status: "open", substatus: "open", previousReason: "not_reproducible", evidence: fresh.evidence, clearedSuggestions: 2,
     });
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "issue1" },
-      data: { status: "open", closeReason: null, closeEvidence: null, closedAt: null },
+      data: { status: "open", substatus: "open", closeReason: null, closeEvidence: null, closedAt: null },
     });
     expect(db.closeSuggestion.deleteMany).toHaveBeenCalledWith({ where: { bugId: "issue1", reason: "not_reproducible" } });
     expect(db.bugActivity.create).toHaveBeenCalledWith({ data: expect.objectContaining({
@@ -275,23 +275,23 @@ describe("reopenIssue (#close-reasons)", () => {
   });
 
   it("reopens to Requires confirmation when it had not been confirmed", async () => {
-    db.bug.findUnique.mockResolvedValue(row({ status: "closed", closeReason: "not_reproducible" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "closed", substatus: "closed", closeReason: "not_reproducible" }));
     confirmed.isConfirmed.mockResolvedValue(false);
-    await expect(reopenIssue(dana, "project", "7", fresh)).resolves.toMatchObject({ status: "requires_confirmation" });
+    await expect(reopenIssue(dana, "project", "7", fresh)).resolves.toMatchObject({ status: "open", substatus: "requires_confirmation" });
   });
 
   it("refuses any other close with 409 not_reopenable", async () => {
     for (const closeReason of ["superseded", "already_implemented", "duplicate", "not_planned", "withdrawn"]) {
-      db.bug.findUnique.mockResolvedValue(row({ status: "closed", closeReason }));
+      db.bug.findUnique.mockResolvedValue(row({ status: "closed", substatus: "closed", closeReason }));
       await expect(reopenIssue(dana, "project", "7", fresh)).rejects.toMatchObject({ status: 409, body: expect.objectContaining({ error: "not_reopenable" }) });
     }
-    db.bug.findUnique.mockResolvedValue(row({ status: "open" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "open", substatus: "open" }));
     await expect(reopenIssue(dana, "project", "7", fresh)).rejects.toMatchObject({ status: 409 });
     expect(db.bug.update).not.toHaveBeenCalled();
   });
 
   it("needs a manager agent independent of the issue", async () => {
-    db.bug.findUnique.mockResolvedValue(row({ status: "closed", closeReason: "not_reproducible", reporterId: "dana" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "closed", substatus: "closed", closeReason: "not_reproducible", reporterId: "dana" }));
     await expect(reopenIssue(dana, "project", "7", fresh)).rejects.toMatchObject({ status: 403, body: expect.objectContaining({ error: "not_independent" }) });
     await expect(reopenIssue(bob, "project", "7", fresh)).rejects.toThrow("This needs a manager agent.");
     expect(db.bug.update).not.toHaveBeenCalled();
@@ -304,12 +304,12 @@ describe("withdrawIssue (#close-reasons)", () => {
   it("closes the owner's issue as withdrawn at once, without votes", async () => {
     db.issueClaim.findMany.mockResolvedValue([{ id: "offer1", agentId: "bob-agent", beneficiaryUserId: "bob" }]);
     await expect(withdrawIssue(ada, "project", "7", { evidence: "Not needed any more." })).resolves.toMatchObject({
-      issueId: "issue1", status: "closed", closeReason: "withdrawn", closeEvidence: "Not needed any more.", releasedClaimIds: ["offer1"],
+      issueId: "issue1", status: "closed", substatus: "closed", closeReason: "withdrawn", closeEvidence: "Not needed any more.", releasedClaimIds: ["offer1"],
     });
     expect(db.closeSuggestion.aggregate).not.toHaveBeenCalled();
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "issue1" },
-      data: expect.objectContaining({ status: "closed", closeReason: "withdrawn", closeEvidence: "Not needed any more." }),
+      data: expect.objectContaining({ status: "closed", substatus: "closed", closeReason: "withdrawn", closeEvidence: "Not needed any more." }),
     });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
       type: "issue.closed",
@@ -331,7 +331,7 @@ describe("withdrawIssue (#close-reasons)", () => {
   });
 
   it("refuses a closed or live issue with 409 already_closed", async () => {
-    db.bug.findUnique.mockResolvedValue(row({ status: "resolved" }));
+    db.bug.findUnique.mockResolvedValue(row({ status: "resolved", substatus: "on_dev" }));
     await expect(withdrawIssue(ada, "project", "7")).rejects.toMatchObject({ status: 409, body: expect.objectContaining({ error: "already_closed" }) });
   });
 });

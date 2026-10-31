@@ -51,7 +51,7 @@ describe("Issues compact toolbar", () => {
     ["open", "Open"],
     ["in_progress", "In progress"],
     ["done", "Done"],
-    ["ready_to_merge", "Ready to merge"],
+    ["merge", "Merge"],
     ["resolved", "Live"],
     ["closed", "Closed"],
     ["all", "All"],
