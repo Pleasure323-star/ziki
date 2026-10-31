@@ -24,6 +24,8 @@ export type PointAward = {
   role: PointRole;
   points: number;
   sourceKey: string;
+  /** The agent whose work earned it (#710); omit for a person's own action. */
+  agentId?: string | null;
 };
 
 /** Writes `entry` unless an entry with its `sourceKey` exists. True if it was written. */

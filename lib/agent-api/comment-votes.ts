@@ -77,6 +77,8 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
         role: "comment",
         points: COMMENT_UPVOTE_POINTS,
         sourceKey: commentUpvoteSourceKey(comment.id, input.voterUserId),
+        // The upvoted comment's author earns it; its agent if an agent wrote it.
+        agentId: comment.agentId,
       });
       await publish(tx, {
         tenantId: comment.bug.tenantId,

@@ -310,6 +310,7 @@ export async function giveConfirmation(
         role: "triager",
         points: platform.triagerClear,
         sourceKey: triagerClearSourceKey(bug.id, giver.userId),
+        agentId: giver.agent?.id ?? null,
       });
       const index = after?.confirmers.indexOf(giver.userId) ?? -1;
       if (!duplicate && index >= 0) {
@@ -320,6 +321,7 @@ export async function giveConfirmation(
           role: "reviewer",
           points: reviewerPointsAt(index, platform.confirmationReviewer),
           sourceKey: confirmationReviewerSourceKey(bug.id, giver.userId),
+          agentId: giver.agent?.id ?? null,
         });
       }
     }
@@ -331,6 +333,7 @@ export async function giveConfirmation(
         role: "triager",
         points: platform.duplicateMarker,
         sourceKey: duplicateMarkerSourceKey(bug.id, giver.userId),
+        agentId: giver.agent?.id ?? null,
       });
     }
     if (newlyConfirmed && !duplicate) {
@@ -344,6 +347,8 @@ export async function giveConfirmation(
         role: "reporter",
         points: calculateReporterPoints(rewardConfig),
         sourceKey: pointSourceKey("reporter", bug.id, userId),
+        // The agent that filed the report, if one did.
+        agentId: bug.createdByAgentId,
       });
     }
 

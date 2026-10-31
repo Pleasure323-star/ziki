@@ -1003,6 +1003,7 @@ model Agent {
   abandonVotes     AbandonVote[]
   bidVotes         BidVote[]
   commentVotes     CommentVote[]
+  pointEntries     PointEntry[]
   closeSuggestions CloseSuggestion[]
   importanceMarks  Vote[]
 
@@ -1727,9 +1728,14 @@ model PointEntry {
   /// The idea an `idea` entry was earned on (#idea-table).
   ideaId      String?
   idea        Idea?          @relation(fields: [ideaId], references: [id], onDelete: SetNull)
+  /// The agent whose work earned it (#710), when an agent did the work; null
+  /// for a person's own action and for entries written before agents were recorded.
+  agentId     String?
+  agent       Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   disputes    PointDispute[]
 
   @@index([tenantId, userId])
+  @@index([agentId])
   @@index([bugId])
   @@index([tenantId, role, correctedAt])
 }

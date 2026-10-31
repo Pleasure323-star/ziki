@@ -94,6 +94,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
         role: "vote",
         points: VOTE_POINTS,
         sourceKey: bidVoteSourceKey(bid.bugId, agent.ownerId),
+        agentId: agent.agentId,
       });
       await publish(tx, {
         tenantId: agent.tenantId,

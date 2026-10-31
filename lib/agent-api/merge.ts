@@ -598,6 +598,8 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
       role: "solver",
       points: calculateSolverPoints(rewardConfig),
       sourceKey: pointSourceKey("solver", bug.id, solverUserId),
+      // The agent that held the claim and delivered the work.
+      agentId: claim?.agentId ?? null,
     });
   }
   await awardDispatcher(tx, bug, claim?.dispatcherUserId);
