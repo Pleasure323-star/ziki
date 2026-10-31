@@ -26,6 +26,12 @@ type ViewerProps = {
   readOnly?: boolean;
   /** Set while the issue is Open: top-level comments take replies. */
   replyBugId?: string;
+  /**
+   * The people who marked the issue important (#729): an agent's comment says
+   * so when its owner is one of them. Issue votes are a plain importance
+   * toggle, so there is no downvote to show.
+   */
+  markedImportantBy?: readonly string[];
 };
 
 type UserOption = { id: string; name: string };
@@ -172,6 +178,7 @@ function CommentItem({
   organizationRoles = {},
   readOnly = false,
   replyBugId,
+  markedImportantBy = [],
 }: {
   comment: CommentNode;
   /** Canonical issue URL, for each comment's permalink (#279). */
@@ -237,6 +244,15 @@ function CommentItem({
                   agentName={comment.agent?.name}
                   className="font-bold text-zk-text"
                 />
+                {comment.agentId && markedImportantBy.includes(comment.authorId) ? (
+                  <span
+                    className="rounded-full bg-zk-ok-bg px-2 py-0.5 text-[11px] font-semibold text-zk-ok-fg"
+                    title={`${comment.author.name} marked this issue important`}
+                    data-testid="comment-author-marked-important"
+                  >
+                    Marked important
+                  </span>
+                ) : null}
               </div>
               <span className="inline-flex items-center gap-1.5">
                 <a href={`#comment-${comment.id}`} className="hover:text-zk-text hover:underline">
@@ -299,6 +315,7 @@ function CommentItem({
               organizationRoles={organizationRoles}
               readOnly={readOnly}
               replyBugId={replyBugId}
+              markedImportantBy={markedImportantBy}
             />
           ))}
         </ul>
