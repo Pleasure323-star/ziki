@@ -5,13 +5,13 @@ const bug = { beneficiaryUserId: "beneficiary", reporterId: "reporter", createdB
 
 describe("issueStage", () => {
   it("follows the status: Requires confirmation is confirming, Open is ready (#requires-confirmation)", () => {
-    expect(issueStage({ status: "requires_confirmation" })).toBe("confirming");
-    expect(issueStage({ status: "open" })).toBe("ready");
+    expect(issueStage({ substatus: "requires_confirmation" })).toBe("confirming");
+    expect(issueStage({ substatus: "open" })).toBe("ready");
   });
 
   it("has no stage once someone starts the work", () => {
-    expect(issueStage({ status: "in_progress" })).toBeNull();
-    expect(issueStage({ status: "resolved" })).toBeNull();
+    expect(issueStage({ substatus: "in_progress" })).toBeNull();
+    expect(issueStage({ substatus: "on_prod" })).toBeNull();
   });
 });
 

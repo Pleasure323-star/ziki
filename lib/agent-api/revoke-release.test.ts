@@ -20,7 +20,7 @@ function txWith(claims: { id: string; bugId: string; status: "offered" | "active
     },
     bug: {
       updateMany: vi.fn(async () => ({ count: 1 })),
-      findFirst: vi.fn(async () => ({ id: "bug-1", projectId: "project-1", title: "Example", status: "open", assigneeId: null })),
+      findFirst: vi.fn(async () => ({ id: "bug-1", projectId: "project-1", title: "Example", status: "open", substatus: "open", assigneeId: null })),
     },
     issueBid: { updateMany: vi.fn(async () => ({ count: 2 })) },
     agentAuditEvent: { create: vi.fn(async () => ({})) },
@@ -51,7 +51,7 @@ describe("revoking an agent hands its work back (#523)", () => {
     // Only reopened while it is still this person's in-progress issue, and no fix is linked yet.
     expect(tx.bug.updateMany).toHaveBeenCalledWith({
       where: { id: "bug-1", tenantId: "tenant-zedu", isDeleted: false, assigneeId: "ada", status: "in_progress", pullRequestUrl: null },
-      data: { assigneeId: null, status: "open" },
+      data: { assigneeId: null, status: "open", substatus: "open" },
     });
     expect(publish).toHaveBeenCalledWith(tx, expect.objectContaining({
       type: "claim.released",

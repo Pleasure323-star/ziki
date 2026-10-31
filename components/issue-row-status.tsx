@@ -3,6 +3,8 @@ import type { MergePath } from "@/lib/merge-history";
 import { MergePathChips } from "@/components/merge-path";
 import { ElapsedTime } from "@/components/elapsed-time";
 import { closedLabel } from "@/lib/close-reasons";
+import type { Substatus } from "@prisma/client";
+import { substatusLabel } from "@/lib/labels";
 
 const icon = "h-3 w-3 shrink-0";
 
@@ -87,7 +89,7 @@ export function ConfirmationCountBadge({ accepts, rejects, needed, confirmed }: 
 }
 
 export function IssueRowStatus({
-  status,
+  substatus,
   stage,
   botConfirmations,
   work,
@@ -97,7 +99,8 @@ export function IssueRowStatus({
   confirmed = false,
   closeReason = null,
 }: {
-  status: string;
+  /** The issue's substatus (#substatus): the row says which step of its status it is at. */
+  substatus: string;
   /** Why a closed issue was closed (#close-reasons): shown as "Closed: not reproducible". */
   closeReason?: string | null;
   stage: IssueStage | undefined;
@@ -112,35 +115,43 @@ export function IssueRowStatus({
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
-  const finished = status === "resolved" || status === "closed";
+  const live = substatus === "on_dev" || substatus === "on_staging" || substatus === "on_prod";
+  const finished = live || substatus === "closed";
   if (mergePath && finished) {
     return <MergePathChips path={mergePath} compact />;
   }
   if (finished) {
     return (
-      <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
-        <CheckIcon /> {status === "resolved" ? "Live" : closedLabel(closeReason)}
+      <span className={`issue-row-status inline-flex items-center gap-1 ${live ? "text-zk-ok-fg" : "text-zk-muted"}`}>
+        <CheckIcon /> {live ? substatusLabel[substatus as Substatus] : closedLabel(closeReason)}
       </span>
     );
   }
-  if (status === "delivered") {
+  if (substatus === "requires_review") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300">
-        <CheckIcon /> Delivered
+        <CheckIcon /> Requires review
       </span>
     );
   }
-  if (status === "done") {
+  if (substatus === "accepted") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-400">
-        <CheckIcon /> Done
+        <CheckIcon /> Accepted
       </span>
     );
   }
-  if (status === "ready_to_merge") {
+  if (substatus === "ready_to_merge") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
         <CheckIcon /> Ready to merge
+      </span>
+    );
+  }
+  if (substatus === "merge_error") {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-zk-bad-fg">
+        Merge error
       </span>
     );
   }
@@ -162,7 +173,7 @@ export function IssueRowStatus({
       </span>
     );
   }
-  if (status === "open" && offeredTo) {
+  if (substatus === "open" && offeredTo) {
     return (
       <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5">
         <span className="inline-flex items-center gap-1 font-medium text-zk-warn-fg">
@@ -197,7 +208,7 @@ export function IssueRowStatus({
         title={`Confirmed by ${bots} so far`}
       >
         <span className="text-zk-accent"><BotIcon /></span>
-        <span>Not confirmed</span>
+        <span>Requires confirmation</span>
         <span className="sr-only"> Confirmed by {bots}.</span>
       </span>
     );

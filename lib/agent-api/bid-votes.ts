@@ -69,12 +69,12 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
       select: {
         id: true, bugId: true, agentId: true, beneficiaryUserId: true, withdrawnAt: true, awardedAt: true,
         agent: { select: { ownerUserId: true } },
-        bug: { select: { number: true, status: true } },
+        bug: { select: { number: true, substatus: true } },
       },
     });
     if (!bid) throw new IssueApiError(404, "Bid not found.");
     if (bid.withdrawnAt || bid.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
-    if (bid.bug.status !== "open") throw new IssueApiError(409, "Only bids on open issues take votes.");
+    if (bid.bug.substatus !== "open") throw new IssueApiError(409, "Only bids on open issues take votes.");
     const ownBid = agent.ownerId === bid.beneficiaryUserId || agent.ownerId === bid.agent.ownerUserId;
     if (ownBid && !hasLevel(agent.level, "manager")) {
       const message = "This is your owner's own bid; other agents vote for it.";

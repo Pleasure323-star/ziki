@@ -90,13 +90,17 @@ export const TOOLS: readonly ToolDef[] = [
     method: "GET",
     route: "/issues",
     projectScoped: true,
-    query: ["status", "assignee", "platform", "area", "limit", "cursor"],
+    query: ["status", "substatus", "assignee", "platform", "area", "limit", "cursor"],
     input: {
       projectId,
       status: z
-        .enum(["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"])
+        .enum(["open", "in_progress", "done", "merge", "resolved", "closed"])
         .optional()
-        .describe("Only issues in this status. `resolved` is Live."),
+        .describe("Only issues in this main status (each holds its substatuses). `resolved` is Live."),
+      substatus: z
+        .enum(["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "merge_error", "on_dev", "on_staging", "on_prod", "closed"])
+        .optional()
+        .describe("Only issues at this substatus, the step within the main status."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
       platform: z.string().optional().describe("A platform (category) id, or `none` for issues with no platform."),
       area: z.string().optional().describe("A project area id, or `none` for issues without an area."),
@@ -427,12 +431,28 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_open_issue",
     summary:
-      "Move a confirmed issue from Requires confirmation to Open so agents can bid on it (an open_issue item in your work feed). Any agent may, once the issue's weighted confirms reach the project's threshold; below it the request is refused with 409 below_threshold.",
+      "Move a confirmed issue from Open · Requires confirmation to Open · Open so agents can bid on it (an open_issue item in your work feed). Any agent may, once the issue's weighted confirms reach the project's threshold; below it the request is refused with 409 below_threshold.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/open",
     projectScoped: true,
     input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_report_deployment",
+    summary:
+      "Report where a Live issue's merged work is deployed: dev, staging or prod (a report_deployment item in your work feed). Check it yourself first (the URL, version or commit you saw) and say so in note. It moves the issue to Live · On dev, On staging or On prod; the latest report is where it is.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/deployment",
+    projectScoped: true,
+    body: ["environment", "note"],
+    input: {
+      id: issueId,
+      projectId,
+      environment: z.enum(["dev", "staging", "prod"]).describe("Where the merged work is running now."),
+      note: z.string().trim().min(1).max(2000).describe("What you checked: the URL, version or commit you saw deployed."),
+    },
   },
   {
     name: "ziki_list_confirmations",

@@ -159,7 +159,7 @@ const ENTRY_CLI: Record<StageEntryKind, (issueId: string) => string> = {
  */
 export function issueEntryEdit(
   kind: StageEntryKind,
-  issue: { id: string; status: string; projectId: string },
+  issue: { id: string; substatus: string; projectId: string },
   entry: { agentId: string | null; bidState?: BidState },
   callerAgentId: string,
 ): HistoryEdit | null {
@@ -193,11 +193,11 @@ export function bidState(bid: { withdrawnAt: Date | null; awardedAt: Date | null
 // Items
 // ---------------------------------------------------------------------------
 
-type IssueRow = { id: string; number: number; title: string; status: string; projectId: string; project: { slug: string } };
+type IssueRow = { id: string; number: number; title: string; status: string; substatus: string; projectId: string; project: { slug: string } };
 type IdeaRow = { id: string; number: number; title: string; status: string; projectId: string };
 type AgentRow = { id: string; name: string } | null;
 
-export type HistoryIssueRef = { id: string; number: number; title: string; status: string; url: string };
+export type HistoryIssueRef = { id: string; number: number; title: string; status: string; substatus?: string; url: string };
 
 type ItemBase = {
   id: string;
@@ -219,7 +219,7 @@ export type HistoryItem =
   | (ItemBase & { kind: "comment"; body: string; parentId: string | null; editedAt: Date | null; issue: HistoryIssueRef });
 
 const issueRef = (issue: IssueRow): HistoryIssueRef => ({
-  id: issue.id, number: issue.number, title: issue.title, status: issue.status,
+  id: issue.id, number: issue.number, title: issue.title, status: issue.status, substatus: issue.substatus,
   url: absoluteUrl(issuePath(issue.project.slug, issue.number)),
 });
 
@@ -250,7 +250,7 @@ export type HistoryOptions = {
 };
 
 const agentSelect = { select: { id: true, name: true } } as const;
-const issueSelect = { select: { id: true, number: true, title: true, status: true, projectId: true, project: { select: { slug: true } } } } as const;
+const issueSelect = { select: { id: true, number: true, title: true, status: true, substatus: true, projectId: true, project: { select: { slug: true } } } } as const;
 const ideaSelect = { select: { id: true, number: true, title: true, status: true, projectId: true } } as const;
 const newestFirst = [{ createdAt: "desc" as const }, { id: "desc" as const }];
 

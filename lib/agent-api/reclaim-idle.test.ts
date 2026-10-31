@@ -56,7 +56,7 @@ const reviewed = {
 beforeEach(() => {
   vi.resetAllMocks();
   db.bug.findFirst.mockResolvedValue({ id: "b8", number: 8, tenantId: "t1", projectId: "p1" });
-  db.bug.findUnique.mockImplementation(async (args: { select: Record<string, unknown> }) => ("reporterId" in args.select ? reviewed : { assigneeId: "owner-cara" }));
+  db.bug.findUnique.mockImplementation(async (args: { select: Record<string, unknown> }) => ("reporterId" in args.select ? reviewed : { assigneeId: "owner-cara", status: "open", substatus: "open" }));
   db.bug.updateMany.mockResolvedValue({ count: 1 });
   db.$queryRaw.mockResolvedValue([{ id: "b8" }]);
   db.$transaction.mockImplementation((run: (tx: typeof db) => unknown) => run(db));
@@ -67,10 +67,10 @@ beforeEach(() => {
 
 describe("reclaiming idle In progress work nobody holds (#idle)", () => {
   it("lets an independent manager send it back to Open with no assignee", async () => {
-    await expect(reclaimStaleIssue(manager(), "p1", "b8")).resolves.toEqual({ issueId: "b8", issueNumber: 8, claimId: null, reason: "idle", status: "open" });
+    await expect(reclaimStaleIssue(manager(), "p1", "b8")).resolves.toEqual({ issueId: "b8", issueNumber: 8, claimId: null, reason: "idle", status: "open", substatus: "open" });
     expect(db.bug.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ id: "b8", status: "in_progress", isDeleted: false }),
-      data: { status: "open", assigneeId: null },
+      data: { status: "open", substatus: "open", assigneeId: null },
     });
     expect(db.bugActivity.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ bugId: "b8", type: "status_changed", metadata: expect.objectContaining({ from: "in_progress", to: "open", via: "idle" }) }),

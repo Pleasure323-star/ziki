@@ -10,7 +10,7 @@ import {
 } from "./dashboard-overview";
 import { isDone } from "./issue-state";
 
-const ALL_STATUSES = ["requires_confirmation", "open", "in_progress", "resolved", "closed"] as const;
+const ALL_STATUSES = ["open", "in_progress", "done", "merge", "resolved", "closed"] as const;
 
 describe("dashboard overview counts (#dashboard)", () => {
   it("partitions every issue into unresolved or resolved, never both", () => {
@@ -37,8 +37,8 @@ describe("dashboard overview counts (#dashboard)", () => {
     expect(sql.values).toContain("tenant-acme");
   });
 
-  it("counts requires confirmation, open and in progress as unresolved and resolved + closed as resolved", () => {
-    expect([...UNRESOLVED_STATUSES]).toEqual(["requires_confirmation", "open", "in_progress"]);
+  it("counts open, in progress, done and merge as unresolved and resolved + closed as resolved", () => {
+    expect([...UNRESOLVED_STATUSES]).toEqual(["open", "in_progress", "done", "merge"]);
     expect([...RESOLVED_STATUSES]).toEqual(["resolved", "closed"]);
     // Together they cover the whole Status enum — no issue is left uncounted.
     expect(new Set([...UNRESOLVED_STATUSES, ...RESOLVED_STATUSES])).toEqual(

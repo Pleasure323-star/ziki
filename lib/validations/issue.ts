@@ -4,9 +4,14 @@ import { BCRYPT_MAX_PASSWORD_BYTES } from "@/lib/password";
 import { isGitHubUrl, splitProofLinkLines } from "@/lib/proof-links";
 import { stripGitHubMarkup } from "@/lib/github-paste";
 
-export const statuses = ["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"] as const;
+export const statuses = ["open", "in_progress", "done", "merge", "resolved", "closed"] as const;
 
 export const statusSchema = z.enum(statuses);
+
+/** The step within a main status (#substatus, lib/issue-substatus.ts). */
+export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "merge_error", "on_dev", "on_staging", "on_prod", "closed"] as const;
+
+export const substatusSchema = z.enum(substatuses);
 
 const MAX_PROOF_LINKS = 20;
 

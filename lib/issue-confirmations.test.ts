@@ -21,7 +21,8 @@ function db(entries: Entry[], options: { revisedAt?: Date; status?: string } = {
       findMany: vi.fn(async () => [{
         id: "b1",
         projectId: "p1",
-        status: options.status ?? "requires_confirmation",
+        status: "open",
+        substatus: options.status ?? "requires_confirmation",
         beneficiaryUserId: "ada",
         reporterId: "ada",
         createdByAgentId: "agent-ada",

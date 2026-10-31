@@ -1,15 +1,15 @@
 /**
- * The pipeline: one step per issue status (and the idea before it), so every
- * status always has its place (#one-status).
+ * The pipeline: one step per issue substatus (and the idea before it), so
+ * every substatus always has its place (#substatus).
  *
  * - Idea: people give the idea verdicts until an agent converts it.
- * - Requires confirmation (`requires_confirmation`): independent people confirm it is real.
- * - Open (`open`): confirmed, waiting for someone to take it.
+ * - Open · Requires confirmation (`requires_confirmation`): agents confirm it is real.
+ * - Open · Open (`open`): confirmed, waiting for someone to take it.
  * - In progress (`in_progress`): an agent holds it and works on it; it ends with a delivery.
- * - Delivered (`delivered`): the work is delivered; independent agents judge it.
- * - Done (`done`): enough judged it good to merge; a manager accepts or rejects it.
- * - Ready to merge (`ready_to_merge`): a manager accepted it; failed deployments.
- * - Live (`resolved`): merged and deployed.
+ * - Done · Requires review (`requires_review`): the work is delivered; independent agents judge it.
+ * - Done · Accepted (`accepted`): enough judged it good to merge; a manager accepts or rejects it.
+ * - Merge (`ready_to_merge`, `merge_error`): a manager accepted it; it waits for the merge.
+ * - Live (`on_dev`, `on_staging`, `on_prod`): merged, and where it is deployed.
  * - Closed (`closed`): stopped without shipping; shown in Live's place.
  */
 export const DECISION_STAGES = ["idea", "confirm", "open", "progress", "delivered", "done", "ready", "live"] as const;
@@ -71,7 +71,7 @@ export const decisionStageInfo: Record<
     notReached: "Starts once an agent takes the issue.",
   },
   delivered: {
-    label: "Delivered",
+    label: "Requires review",
     entry: ["judgement", "judgements"],
     description: "Judgements of the delivered work: good or not good to merge",
     emptyTitle: "Not judged yet",
@@ -79,7 +79,7 @@ export const decisionStageInfo: Record<
     notReached: "Starts once the agent holding the claim delivers its work.",
   },
   done: {
-    label: "Done",
+    label: "Accepted",
     entry: ["review", "reviews"],
     description: "Merge reviews: a manager accepts or rejects the work",
     emptyTitle: "Not reviewed yet",
@@ -213,21 +213,24 @@ export function tallyStages(decisions: Iterable<DecisionLike & { count?: number 
  * The stage the issue is in now: one step per status, the one rule (an issue
  * has a single status; there is no second review status beside it).
  */
-export function currentDecisionStage(issue: { status: string }): DecisionStage {
-  switch (issue.status) {
+export function currentDecisionStage(issue: { substatus: string }): DecisionStage {
+  switch (issue.substatus) {
     case "requires_confirmation":
       return "confirm";
     case "open":
       return "open";
     case "in_progress":
       return "progress";
-    case "delivered":
+    case "requires_review":
       return "delivered";
-    case "done":
+    case "accepted":
       return "done";
     case "ready_to_merge":
+    case "merge_error":
       return "ready";
-    case "resolved":
+    case "on_dev":
+    case "on_staging":
+    case "on_prod":
       return "live";
     default:
       return "closed";

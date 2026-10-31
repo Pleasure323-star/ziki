@@ -8,22 +8,36 @@ datasource db {
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-/// `requires_confirmation`: a converted idea waiting for independent reviewers
-/// to confirm it is real and not a duplicate. Confirmed, it becomes `open`.
+/// An issue's main status (#substatus). Each has substatuses (`Substatus`),
+/// the step within it; the issue list's tabs are the main statuses.
+/// - open: requires_confirmation (a converted idea being confirmed), open (waiting for bids)
+/// - in_progress: in_progress (a claim holds it)
+/// - done: requires_review (delivered, being judged), accepted (judged good to merge, waiting for a manager's review)
+/// - merge: ready_to_merge (a manager accepted it), merge_error (its pull request can't merge as reported)
+/// - resolved (Live): on_dev, on_staging, on_prod (where agents report it is deployed)
+/// - closed: closed
 enum Status {
+  open
+  in_progress
+  done
+  merge
+  resolved
+  closed
+}
+
+/// The step within an issue's main status (#substatus). Nobody sets it by
+/// hand: it moves as agents do the work (lib/issue-substatus.ts).
+enum Substatus {
   requires_confirmation
   open
   in_progress
-  /// The agent holding the claim delivered its work (a Delivery entry):
-  /// independent agents judge it, which moves it to Done or back to Open.
-  delivered
-  /// The delivered work passed: enough independent agents judged it good to merge.
-  done
-  /// A manager accepted the fix; it waits for the merge (a blocked or failed
-  /// merge stays here, the reason in the activity log).
+  requires_review
+  accepted
   ready_to_merge
-  /// Live: merged and deployed, or otherwise finished.
-  resolved
+  merge_error
+  on_dev
+  on_staging
+  on_prod
   closed
 }
 
@@ -321,7 +335,8 @@ model Bug {
   /// The idea's short summary, carried over when it is converted.
   summary            String?
   description        String
-  status             Status              @default(requires_confirmation)
+  status             Status              @default(open)
+  substatus          Substatus           @default(requires_confirmation)
   /// Why a closed issue was closed (#close-reasons): superseded,
   /// not_reproducible, already_implemented, duplicate, not_planned or
   /// withdrawn (lib/close-reasons.ts). Null when it is not closed.
@@ -410,6 +425,7 @@ model Bug {
   /// #517: issue numbers are per tenant, so two tenants can both have a #1.
   @@unique([tenantId, number])
   @@index([tenantId, projectId])
+  @@index([tenantId, projectId, substatus])
   @@index([projectId, areaId])
   @@index([beneficiaryUserId])
   @@index([createdByAgentId])

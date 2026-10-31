@@ -47,7 +47,7 @@ describe("pull request state, reported by agents", () => {
   it("can't be accepted until an independent agent reports it ready", async () => {
     await ok("bob", "submit-test-result", { id, ...good });
     await ok("eli", "submit-test-result", { id, ...good });
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "done", pullRequestState: null });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "done", substatus: "accepted", pullRequestState: null });
     expect((await refused("dana", "merge-fix", { id, ...review }, 409)).error).toBe("needs_pr_report");
 
     const report = await ok("bob", "report-pr-status", { id, pullRequestUrl, state: "open", checks: "passing", mergeable: true, note: "Open, all checks green, no conflict." });
@@ -56,7 +56,7 @@ describe("pull request state, reported by agents", () => {
 
     const accepted = await ok("dana", "merge-fix", { id, ...review });
     expect(accepted).toMatchObject({ accepted: true, readyToMerge: true });
-    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("ready_to_merge");
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "merge", substatus: "ready_to_merge" });
   });
 
   it("waits for the release when it is reported merged into staging", async () => {
@@ -71,13 +71,27 @@ describe("pull request state, reported by agents", () => {
 
   it("can't be delivered or resolved once reported missing, until a newer report corrects it", async () => {
     await ok("bob", "report-pr-status", { id, pullRequestUrl, state: "not_found", note: "GitHub answers 404." });
+    // In Merge, a report that it can't merge is a Merge error (#substatus).
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "merge", substatus: "merge_error" });
     expect((await refused("cara", "deliver", { id, ...delivery }, 422)).error).toBe("pull_request_not_found");
     expect((await refused("dana", "resolve-issue", { id }, 409)).error).toBe("pr_broken");
 
     // The latest report counts: eli saw it merged into main after all.
     await ok("eli", "report-pr-status", { id, pullRequestUrl, state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "9f2c7aa", note: "Released: main contains the merge." });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "merge", substatus: "ready_to_merge" });
     const resolved = await ok("dana", "resolve-issue", { id });
     expect(resolved).toMatchObject({ resolved: true, reconciled: true, mergedInto: "main", pullRequestState: { state: "merged", inDefaultBranch: true } });
-    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("resolved");
+    // Live starts On dev, until an agent reports where it is deployed.
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "resolved", substatus: "on_dev" });
+  });
+
+  it("moves through Live as agents report where it is deployed (#substatus)", async () => {
+    expect(await feedItem("bob", "report_deployment", id)).toBeTruthy();
+    const staging = await ok("bob", "report-deployment", { id, environment: "staging", note: "The staging site serves 9f2c7aa." });
+    expect(staging).toMatchObject({ status: "resolved", substatus: "on_staging", previousSubstatus: "on_dev", changed: true });
+    const prod = await ok("cara", "report-deployment", { id, environment: "prod", note: "Production health reports 9f2c7aa." });
+    expect(prod).toMatchObject({ substatus: "on_prod", changed: true });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "resolved", substatus: "on_prod" });
+    expect(await feedItem("bob", "report_deployment", id)).toBeUndefined();
   });
 });

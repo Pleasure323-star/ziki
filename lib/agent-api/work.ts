@@ -70,6 +70,7 @@ export type WorkKind =
   | "confirm_issue"
   | "open_issue"
   | "vote_importance"
+  | "report_deployment"
   | "test_fix"
   | "ready_issue"
   | "review_bid"
@@ -280,6 +281,8 @@ export type ProjectWork = {
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
   /** Issues still being decided or worked on, with who marked each important (#importance). */
   importance: (IssueRef & { markers: string[] })[];
+  /** Live issues not yet reported on prod, resolved in the last week: agents report where they are deployed (#substatus). */
+  deployments: (IssueRef & { substatus: string })[];
 };
 
 /** An issue In progress or later with its linked pull request and the latest report on it (#pr-reports). */
@@ -333,8 +336,8 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   const [tests, ready, toAccept, toMerge, ideas, jobs] = await Promise.all([
     findReviewableIssues(caller, project.id, "test"),
     findClaimableIssues(caller, project.id, confirmations),
-    findReadyToMergeIssues(caller, project.id, "done"),
-    findReadyToMergeIssues(caller, project.id, "ready_to_merge"),
+    findReadyToMergeIssues(caller, project.id, "accepted"),
+    findReadyToMergeIssues(caller, project.id, "merge"),
     openIdeas(tenantId, project.id, workflow.ideaThreshold),
     openJobs(tenantId, project.id),
   ]);
@@ -419,6 +422,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     offerWindowSeconds: workflow.offerWindowSeconds,
     capacity: workflow.maxActiveClaims,
     importance: await importanceWork(tenantId, project.id),
+    deployments: await deploymentWork(tenantId, project.id),
     governance: {
       thresholdOnly,
       managerVoteWeight: workflow.managerVoteWeight,
@@ -429,10 +433,25 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   };
 }
 
+/** How long a Live issue not on prod keeps asking for a deployment report. */
+const DEPLOYMENT_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Live issues On dev or On staging that changed in the last week: where is the work deployed now? */
+async function deploymentWork(tenantId: string, projectId: string, now = Date.now()): Promise<ProjectWork["deployments"]> {
+  return prisma.bug.findMany({
+    where: {
+      tenantId, projectId, isDeleted: false, status: "resolved", substatus: { in: ["on_dev", "on_staging"] },
+      updatedAt: { gte: new Date(now - DEPLOYMENT_REPORT_WINDOW_MS) },
+    },
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: { id: true, number: true, title: true, substatus: true },
+  });
+}
+
 /** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
 async function importanceWork(tenantId: string, projectId: string): Promise<ProjectWork["importance"]> {
   const rows = await prisma.bug.findMany({
-    where: { tenantId, projectId, isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] } },
+    where: { tenantId, projectId, isDeleted: false, status: { in: ["open", "in_progress"] } },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { id: true, number: true, title: true, votes: { select: { userId: true } } },
   });
@@ -536,7 +555,7 @@ async function pullRequestWork(
       tenantId,
       projectId,
       isDeleted: false,
-      status: { in: ["in_progress", "delivered", "done", "ready_to_merge"] },
+      status: { in: ["in_progress", "done", "merge"] },
       pullRequestUrl: { not: null },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -607,7 +626,7 @@ async function closableIssues(tenantId: string, projectId: string, threshold: nu
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
 async function openBids(tenantId: string, projectId: string, managerVoteWeight: number, offerWindowSeconds: number): Promise<OpenBid[]> {
   const rows = await prisma.issueBid.findMany({
-    where: { ...OPEN_BID_WHERE, bug: { tenantId, projectId, isDeleted: false, status: "open" } },
+    where: { ...OPEN_BID_WHERE, bug: { tenantId, projectId, isDeleted: false, substatus: "open" } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
@@ -657,7 +676,7 @@ async function openIssueComments(
         deliveryId: null,
         testVerdictId: null,
         mergeReviewId: null,
-        bug: { tenantId, projectId, isDeleted: false, status: "open" },
+        bug: { tenantId, projectId, isDeleted: false, substatus: "open" },
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
@@ -1044,6 +1063,20 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
         { name: "list_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}`, cli: "list-issues" },
         { name: "mark_important", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/importance?projectId=${pid}`, cli: "mark-important --id <issue>" },
       ],
+    });
+  }
+
+  // 3c. Deployments: where is each recently Live issue running now (#substatus)?
+  for (const issue of work.deployments) {
+    items.push({
+      kind: "report_deployment",
+      key: `report_deployment:${issue.id}:${issue.substatus}`,
+      title: `Report where #${issue.number} is deployed`,
+      detail: `Live and ${issue.substatus === "on_dev" ? "on dev" : "on staging"} so far. Check where its merged work is running (dev, staging or prod) and report it, with what you checked (the URL, version or commit you saw).`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(issue),
+      actions: [{ name: "report_deployment", minimumRole: "working", method: "POST", path: apiPath(issue.id, "deployment", pid), cli: `report-deployment --id ${issue.id} --environment dev|staging|prod --note <what you checked>` }],
     });
   }
 
@@ -1582,6 +1615,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
+  if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " is" : "s are"} not yet reported on prod. Check where each is deployed and report it (report_deployment).`);
   if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;
   if (newIdeas) {

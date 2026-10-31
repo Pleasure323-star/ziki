@@ -22,6 +22,7 @@ import { abandonVoteSchema } from "./abandon";
 import { closeIssueSchema, closeSuggestionSchema, reopenIssueSchema, withdrawIssueSchema } from "./close-suggestions";
 import { repairPullRequestSchema } from "./repair-pull-request";
 import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
+import { deploymentSchema } from "./deployment";
 import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 
 /**
@@ -61,6 +62,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_withdraw_issue: withdrawIssueSchema,
   ziki_repair_pull_request: repairPullRequestSchema,
   ziki_report_pr_status: pullRequestReportSchema,
+  ziki_report_deployment: deploymentSchema,
   ziki_archive_idea: archiveIdeaSchema,
   ziki_withdraw_idea: withdrawIdeaSchema,
 };

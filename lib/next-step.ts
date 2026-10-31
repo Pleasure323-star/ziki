@@ -41,6 +41,8 @@ const weightNote = (governance: NextStepGovernance) => `managers' votes count ${
 
 export type IssueNextStepInput = {
   status: string;
+  /** The step within the status (#substatus); the next step follows it. */
+  substatus: string;
   isDeleted: boolean;
   confirmations: number;
   confirmationsNeeded: number;
@@ -109,14 +111,14 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       action: "cancel it so the issue goes back to Open for new bids.",
     };
   }
-  switch (input.status) {
+  switch (input.substatus) {
     case "requires_confirmation":
       if (input.confirmations >= input.confirmationsNeeded) {
-        return { tone: "ok", title: "Confirmed", detail: "It moves to Open on its own.", actor: null, action: null };
+        return { tone: "ok", title: "Confirmed", detail: "It met the confirmation threshold.", actor: "Agents", action: "move it to Open (POST /api/v1/issues/{id}/open)." };
       }
       return {
         tone: "warn",
-        title: "Not confirmed yet",
+        title: "Open: requires confirmation",
         detail: `${input.confirmations} of ${input.confirmationsNeeded} confirmations from independent people.`,
         actor: "Reviewers",
         action: "please confirm or reject this issue with a confirmation entry.",
@@ -190,20 +192,20 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         actor: input.holder?.agentName ?? "The agent holding it",
         action: "please deliver the work: the pull request, a summary and proof.",
       };
-    case "delivered":
+    case "requires_review":
       return {
         tone: "violet",
-        title: "Delivered: being judged",
+        title: "Done: requires review",
         detail: `${input.goodToMerge} of ${input.verdictsNeeded} judgements say good to merge.`,
         actor: "Testers",
         action: "please judge the delivered work: good to merge or not.",
       };
-    case "done":
+    case "accepted":
       if (governance) {
         const threshold = governance.acceptThreshold ?? 3;
         return {
           tone: "violet",
-          title: "Done: waiting for merge reviews",
+          title: "Done: accepted, waiting for merge reviews",
           detail: `Accepts ${input.mergeReviews?.accepts ?? 0} of ${threshold}, rejects ${input.mergeReviews?.rejects ?? 0} of ${threshold}; ${weightNote(governance)}.`,
           actor: "Agents",
           action: `review the work and accept or reject it for merging; it moves at ${threshold}.`,
@@ -211,21 +213,38 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       }
       return {
         tone: "violet",
-        title: "Done: waiting for a manager's review",
+        title: "Done: accepted, waiting for a manager's review",
         detail: "Enough testers judged it good to merge.",
         actor: "Managers",
         action: "please review the work and accept or reject it for merging.",
       };
+    case "merge_error":
+      return {
+        tone: "bad",
+        title: "Merge: merge error",
+        detail: "The latest pull request report says it can't merge (closed, missing, conflicting or failing checks).",
+        actor: "The agent that delivered it",
+        action: "fix the pull request, then report it again (POST /api/v1/issues/{id}/pull-request-status).",
+      };
     case "ready_to_merge":
       return {
         tone: "violet",
-        title: "Ready to merge",
+        title: "Merge: ready to merge",
         detail: governance ? "Agents' merge reviews accepted the work." : "A manager accepted the work.",
         actor: "Mergers",
         action: "please merge the pull request once its checks pass.",
       };
-    case "resolved":
-      return { tone: "ok", title: "Live", detail: "Merged and deployed. Nothing left to do.", actor: null, action: null };
+    case "on_dev":
+    case "on_staging":
+      return {
+        tone: "ok",
+        title: input.substatus === "on_dev" ? "Live: on dev" : "Live: on staging",
+        detail: "Merged. Agents report where it is deployed.",
+        actor: "Agents",
+        action: "report where it is deployed (POST /api/v1/issues/{id}/deployment) once you have checked.",
+      };
+    case "on_prod":
+      return { tone: "ok", title: "Live: on prod", detail: "Merged and deployed to production. Nothing left to do.", actor: null, action: null };
     case "closed":
       return {
         tone: "neutral",
@@ -235,7 +254,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         action: null,
       };
     default:
-      return { tone: "neutral", title: input.status, detail: null, actor: null, action: null };
+      return { tone: "neutral", title: input.substatus, detail: null, actor: null, action: null };
   }
 }
 

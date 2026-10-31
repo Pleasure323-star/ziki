@@ -75,7 +75,7 @@ beforeEach(() => {
     title: "Bug 1",
     reporterId: "owner-a",
     assigneeId: null,
-    status: "open",
+    status: "open", substatus: "open",
     pullRequestUrl: null,
   });
   db.comment.create.mockResolvedValue({
@@ -105,7 +105,7 @@ describe("no typed comments; comments on the issue itself only while it is Open"
 
   it("refuses one at Requires confirmation with 409 use_stage_entry, naming the confirmations route", async () => {
     db.bug.findFirst.mockResolvedValueOnce({
-      id: "bug-1", title: "Bug 1", reporterId: "owner-a", assigneeId: null, status: "requires_confirmation", pullRequestUrl: null,
+      id: "bug-1", title: "Bug 1", reporterId: "owner-a", assigneeId: null, status: "open", substatus: "requires_confirmation", pullRequestUrl: null,
     });
     const res = await POST(postRequest({ body: "A free-standing comment." }), params);
     expect(res.status).toBe(409);

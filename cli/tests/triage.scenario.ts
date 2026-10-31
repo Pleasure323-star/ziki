@@ -59,7 +59,7 @@ describe("triage", () => {
       expect(LINK_STATES).toContain(entry.pullRequest.linkState);
       expect(PR_STATES).toContain(entry.pullRequest.state);
       for (const action of entry.nextActions) if (!action.canAct) expect(action.blockedReason).toBeTruthy();
-      expect(["in_progress", "delivered", "done", "ready_to_merge", "open"]).toContain(entry.issue.status);
+      expect(["in_progress", "done", "merge", "open"]).toContain(entry.issue.status);
     }
   });
 

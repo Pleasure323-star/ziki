@@ -18,6 +18,7 @@ import { issueIdFor, parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { isDeliveryOverdue, isOwnerWaitOver, ownerWaitCapMinutes, OWNER_REMINDER_MINUTES } from "@/lib/claim-deadline";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
+import { moveTo } from "@/lib/issue-substatus";
 
 function heartbeatCutoff(now: Date, heartbeatMinutes: number): Date {
   return new Date(now.getTime() - heartbeatMinutes * 60_000);
@@ -137,7 +138,7 @@ async function releaseClaimIfStale(
     // A delivered fix stays where it got to (#one-status).
     if (!otherClaim) {
       const reopenedRow = await tx.bug.updateMany({ where: { id: fresh.bugId, projectId, tenantId,
-        isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open" } });
+        isDeleted: false, assigneeId: fresh.beneficiaryUserId, status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, ...moveTo("open") } });
       reopened = reopenedRow.count > 0;
     }
     return { released: true, opened: reopened };
@@ -244,8 +245,8 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
       { actorUserId: agent.ownerId },
     );
   }
-  const after = await prisma.bug.findUnique({ where: { id: row.id }, select: { status: true } });
-  return { issueId: row.id, issueNumber: row.number, claimId: stale.claimId, reason: stale.kind, status: after?.status ?? null };
+  const after = await prisma.bug.findUnique({ where: { id: row.id }, select: { status: true, substatus: true } });
+  return { issueId: row.id, issueNumber: row.number, claimId: stale.claimId, reason: stale.kind, status: after?.status ?? null, substatus: after?.substatus ?? null };
 }
 
 /**
@@ -292,7 +293,7 @@ async function reclaimIdleIssue(
     const bug = await tx.bug.findUnique({ where: { id: row.id }, select: { assigneeId: true } });
     const reopened = await tx.bug.updateMany({
       where: { id: row.id, tenantId: row.tenantId, projectId: row.projectId, isDeleted: false, status: "in_progress" },
-      data: { status: "open", assigneeId: null },
+      data: { ...moveTo("open"), assigneeId: null },
     });
     if (reopened.count !== 1) {
       const message = "Nothing to reclaim: this issue is no longer In progress.";
@@ -316,7 +317,7 @@ async function reclaimIdleIssue(
       payload: {
         issueId: row.id,
         projectId: row.projectId,
-        ...issueChangePayload({ status: "open", assigneeId: null }),
+        ...issueChangePayload({ ...moveTo("open"), assigneeId: null }),
         reason: "idle",
         previousStatus: "in_progress",
         previousAssigneeId: bug?.assigneeId ?? null,
@@ -332,7 +333,7 @@ async function reclaimIdleIssue(
     previousAssigneeId: result.previousAssigneeId,
     lastUpdate: result.lastUpdate.toISOString(),
   }, { bugId: row.id });
-  return { issueId: row.id, issueNumber: row.number, claimId: null, reason: "idle" as const, status: "open" as const };
+  return { issueId: row.id, issueNumber: row.number, claimId: null, reason: "idle" as const, ...moveTo("open") };
 }
 
 /** Super-admin server action. Invoke periodically from an authenticated admin context.

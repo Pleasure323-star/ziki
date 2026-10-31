@@ -8,6 +8,8 @@ import { notifyMergeFailed } from "@/lib/agent-notifications";
 import { issueIdFor } from "@/lib/issue-ref";
 import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
 import type { GateReport } from "@/lib/agent-api/pr-gate";
+import { moveTo } from "@/lib/issue-substatus";
+import { statusChangedSummary } from "@/lib/activity-log";
 
 /**
  * Pull request reports (#pr-reports).
@@ -171,6 +173,18 @@ const fail = (status: 400 | 403 | 404 | 409, error: string, message: string, fie
  * the issue (as the pull_request webhook does), so judgements and the accept
  * bind to the code that is there now.
  */
+/**
+ * Where a report puts an issue in Merge (#substatus): Merge error when its
+ * pull request can't merge as it is (closed without merging, missing,
+ * conflicting or with failing checks), else Ready to merge. A merged report
+ * leaves it Ready to merge: the merger resolves it.
+ */
+export function mergeSubstatusFor(report: { state: string; mergeable?: boolean | null; checks?: string | null }): "ready_to_merge" | "merge_error" {
+  if (report.state === "closed" || report.state === "not_found") return "merge_error";
+  if (report.state === "open" && (report.mergeable === false || report.checks === "failing")) return "merge_error";
+  return "ready_to_merge";
+}
+
 export async function reportPullRequestStatus(
   agent: AgentContext,
   scope: { tenantId: string; projectId: string },
@@ -193,6 +207,8 @@ export async function reportPullRequestStatus(
       id: true,
       tenantId: true,
       projectId: true,
+      status: true,
+      substatus: true,
       pullRequestUrl: true,
       pullRequestHeadSha: true,
       beneficiaryUserId: true,
@@ -245,6 +261,22 @@ export async function reportPullRequestStatus(
     if (headMoved) {
       await tx.bug.updateMany({ where: { id: bug.id, pullRequestUrl }, data: { pullRequestHeadSha: body.headSha } });
     }
+    // In Merge, the latest report decides Ready to merge or Merge error (#substatus).
+    const mergeStep = bug.status === "merge" ? mergeSubstatusFor(body) : null;
+    if (mergeStep && mergeStep !== bug.substatus) {
+      const moved = await tx.bug.updateMany({ where: { id: bug.id, status: "merge", pullRequestUrl }, data: moveTo(mergeStep) });
+      if (moved.count) {
+        await tx.bugActivity.create({
+          data: {
+            bugId: bug.id,
+            actorId: agent.ownerId,
+            type: "status_changed",
+            summary: statusChangedSummary(bug.substatus, mergeStep),
+            metadata: { field: "status", from: bug.substatus, to: mergeStep, via: "pull_request_report", pullRequestReportId: report.id },
+          },
+        });
+      }
+    }
     const payload: Prisma.InputJsonObject = {
       issueId: bug.id,
       projectId: bug.projectId,
@@ -258,6 +290,7 @@ export async function reportPullRequestStatus(
       checks: body.checks ?? null,
       mergeable: body.mergeable ?? null,
       note: body.note,
+      ...(mergeStep && mergeStep !== bug.substatus ? { substatus: { from: bug.substatus, to: mergeStep } } : {}),
       ...(headMoved ? { headMoved: { from: bug.pullRequestHeadSha, to: body.headSha ?? null } } : {}),
     };
     await audit(agent, "issue.pull_request_reported", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });

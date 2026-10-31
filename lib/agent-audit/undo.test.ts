@@ -145,11 +145,11 @@ describe("undoAuditEvent (#450)", () => {
       undoneAt: null,
       updatedAt: new Date("2026-12-04T10:00:00.000Z"),
     });
-    db.bug.findUnique.mockResolvedValue({ id: "bug-1", tenantId, beneficiaryUserId: null, reporterId: "user-reporter", status: "open" });
+    db.bug.findUnique.mockResolvedValue({ id: "bug-1", tenantId, beneficiaryUserId: null, reporterId: "user-reporter", status: "open", substatus: "open" });
 
     await undoAuditEvent(db as unknown as PrismaClient, { auditEventId: eventId, actorUserId: actor, tenantId });
 
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug-1" }, data: { status: "requires_confirmation" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug-1" }, data: { status: "open", substatus: "requires_confirmation" } });
   });
 
   it("reverses the reporter points when the confirmation confirmed the issue", async () => {

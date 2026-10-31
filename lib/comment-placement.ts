@@ -42,11 +42,11 @@ export class CommentPlacementError extends Error {
  * - A reply to one stage entry (a confirmation, a bid, a delivery, a test
  *   verdict or a merge review), at any stage.
  * - A comment on the issue itself, or a reply to one, only while the issue is
- *   Open (status `open`). At every other stage what anyone says is an entry.
+ *   Open (substatus `open`). At every other stage what anyone says is an entry.
  */
 export async function placeComment(
   db: Db,
-  bug: { id: string; status: string; pullRequestUrl?: string | null },
+  bug: { id: string; substatus: string; pullRequestUrl?: string | null },
   input: CommentPlacementInput,
 ): Promise<CommentPlacement> {
   const placement: CommentPlacement = {
@@ -93,7 +93,7 @@ export async function placeComment(
     return { ...placement, parentAuthorId: review.onBehalfOfUserId };
   }
 
-  if (bug.status !== "open") {
+  if (bug.substatus !== "open") {
     const entry = stageEntryRoute(bug);
     throw new CommentPlacementError(
       409,

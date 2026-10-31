@@ -20,13 +20,13 @@ type Tx = Prisma.TransactionClient;
  */
 export async function clearStaleAssignee(
   tx: Tx,
-  bug: { id: string; tenantId: string; projectId: string; status: string; assigneeId: string | null; assignee?: { name: string | null } | null },
+  bug: { id: string; tenantId: string; projectId: string; substatus: string; assigneeId: string | null; assignee?: { name: string | null } | null },
   actor: { userId: string; agentId: string | null },
 ): Promise<boolean> {
-  if (bug.status !== "open" || !bug.assigneeId) return false;
+  if (bug.substatus !== "open" || !bug.assigneeId) return false;
   if (await liveHold({ id: bug.id, projectId: bug.projectId }, tx)) return false;
   const cleared = await tx.bug.updateMany({
-    where: { id: bug.id, assigneeId: bug.assigneeId, status: "open" },
+    where: { id: bug.id, assigneeId: bug.assigneeId, substatus: "open" },
     data: { assigneeId: null },
   });
   if (cleared.count !== 1) return false;

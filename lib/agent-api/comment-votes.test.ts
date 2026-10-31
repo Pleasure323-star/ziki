@@ -35,7 +35,7 @@ const openComment = {
   id: "c1", bugId: "issue1", authorId: "bob", agentId: "bob-agent", deletedAt: null,
   confirmationId: null, bidId: null, deliveryId: null, testVerdictId: null, mergeReviewId: null,
   agent: { ownerUserId: "bob" },
-  bug: { number: 7, status: "open", tenantId: "tenant", projectId: "project", isDeleted: false },
+  bug: { number: 7, status: "open", substatus: "open", tenantId: "tenant", projectId: "project", isDeleted: false },
 };
 
 beforeEach(() => {
@@ -97,7 +97,7 @@ describe("upvoteComment (#comment-votes)", () => {
 
   it("refuses a comment on an issue that is not Open, and a reply under a stage entry, with 409", async () => {
     for (const comment of [
-      { ...openComment, bug: { ...openComment.bug, status: "in_progress" } },
+      { ...openComment, bug: { ...openComment.bug, status: "in_progress", substatus: "in_progress" } },
       { ...openComment, bidId: "bid1" },
       { ...openComment, testVerdictId: "tv1" },
     ]) {

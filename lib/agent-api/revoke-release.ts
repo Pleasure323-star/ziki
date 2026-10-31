@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Hands back the work of an agent that is being revoked (#523).
@@ -48,7 +49,7 @@ export async function releaseWorkOfRevokedAgent(
       await tx.bug.updateMany({
         // A delivered fix stays where it got to (#one-status).
         where: { id: claim.bugId, tenantId, isDeleted: false, assigneeId: claim.beneficiaryUserId, status: "in_progress", pullRequestUrl: null },
-        data: { assigneeId: null, status: "open" },
+        data: { assigneeId: null, ...moveTo("open") },
       });
     }
     await publish(tx, {

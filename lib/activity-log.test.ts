@@ -27,8 +27,8 @@ describe("activity summary helpers", () => {
   });
 
   it("summarizes status changes", () => {
-    expect(statusChangedSummary("open", "resolved")).toBe(
-      "changed status from Open to Live",
+    expect(statusChangedSummary("requires_confirmation", "on_prod")).toBe(
+      "changed status from Open · Requires confirmation to Live · On prod",
     );
   });
 

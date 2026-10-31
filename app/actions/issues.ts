@@ -66,7 +66,7 @@ import {
   getProofLinkChanges,
   TICKET_EDIT_ERRORS,
 } from "@/lib/ticket-editing";
-import { Prisma, type ActivityType } from "@prisma/client";
+import { Prisma, type ActivityType, type Substatus } from "@prisma/client";
 import { notifyLater } from "@/lib/notify";
 import { ensureWatching } from "@/lib/watch";
 import { parseResolutionNote } from "@/lib/resolution-note";
@@ -105,6 +105,7 @@ import {
   type MentionedAgent,
 } from "@/lib/agent-mentions";
 import { ideaPath } from "@/lib/issue-ref";
+import { ENTRY_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
 
 export type ActionResult = {
   error?: string;
@@ -480,6 +481,7 @@ export async function updateBugAction(
 
   const data: {
     status?: typeof parsed.data.status;
+    substatus?: Substatus;
     typeId?: string | null;
     assigneeId?: string | null;
     categoryId?: string | null;
@@ -489,7 +491,7 @@ export async function updateBugAction(
     boostedAt?: Date | null;
   } = {};
 
-  if (parsed.data.status) data.status = parsed.data.status;
+  if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(ENTRY_SUBSTATUS[parsed.data.status]));
   if (admin) {
     if (parsed.data.typeId !== undefined) {
       data.typeId = parsed.data.typeId === "" ? null : parsed.data.typeId;
@@ -514,14 +516,14 @@ export async function updateBugAction(
   };
   const pending: PendingActivity[] = [];
 
-  if (data.status && data.status !== existing.status) {
+  if (data.substatus && data.substatus !== existing.substatus) {
     pending.push({
       type: "status_changed",
-      summary: statusChangedSummary(existing.status, data.status),
+      summary: statusChangedSummary(existing.substatus, data.substatus),
       metadata: {
         field: "status",
-        from: existing.status,
-        to: data.status,
+        from: existing.substatus,
+        to: data.substatus,
         ...(resolutionNote ? { note: resolutionNote } : {}),
       },
     });
@@ -890,7 +892,7 @@ export async function reopenAgentResolvedAction(bugId: string): Promise<ActionRe
   const tenantId = await currentTenantIdFor(user.id);
   const existing = await prisma.bug.findUnique({
     where: { id: bugId, ...bugInTenant(tenantId) },
-    select: { id: true, status: true, assigneeId: true, isDeleted: true },
+    select: { id: true, status: true, substatus: true, assigneeId: true, isDeleted: true },
   });
   if (!existing || existing.isDeleted) return { error: "Issue not found" };
   if (
@@ -915,18 +917,18 @@ export async function reopenAgentResolvedAction(bugId: string): Promise<ActionRe
 
   const reopened = await prisma.$transaction(async (tx) => {
     // Someone may have changed the status since the read above.
-    const changed = await tx.bug.updateMany({ where: { id: bugId, status: "resolved" }, data: { status: to } });
+    const changed = await tx.bug.updateMany({ where: { id: bugId, status: "resolved" }, data: moveTo(to) });
     if (changed.count !== 1) return false;
     await tx.bugActivity.create({
       data: {
         bugId,
         actorId: user.id,
         type: "status_changed",
-        summary: statusChangedSummary("resolved", to),
-        metadata: { field: "status", from: "resolved", to, via: "reopen_agent_resolve" },
+        summary: statusChangedSummary(existing.substatus, to),
+        metadata: { field: "status", from: existing.substatus, to, via: "reopen_agent_resolve" },
       },
     });
-    await publishWebEvent(tx, { bugId, type: "issue.updated", actorUserId: user.id, payload: issueChangePayload({ status: to }) });
+    await publishWebEvent(tx, { bugId, type: "issue.updated", actorUserId: user.id, payload: issueChangePayload(moveTo(to)) });
     return true;
   });
   if (!reopened) return { error: "The issue's status changed meanwhile. Refresh and try again." };
@@ -975,6 +977,7 @@ export async function editBugContentAction(
       reporterId: true,
       beneficiaryUserId: true,
       status: true,
+      substatus: true,
       tenantId: true,
       isDeleted: true,
     },
@@ -1078,7 +1081,7 @@ export async function editBugContentAction(
         description: normalizedDescription,
         updatedAt: new Date(),
         // #requires-confirmation: the edit voided its confirmations, so an Open issue needs confirming again.
-        ...(existing.status === "open" ? { status: "requires_confirmation" as const } : {}),
+        ...(existing.substatus === "open" ? moveTo("requires_confirmation") : {}),
       },
     });
 
@@ -1303,6 +1306,7 @@ export async function addCommentAction(
       assigneeId: true,
       tenantId: true,
       status: true,
+      substatus: true,
       pullRequestUrl: true,
     },
   });

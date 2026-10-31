@@ -9,6 +9,7 @@ const PR = "https://github.com/emerjent/ziki/pull/9";
 
 function makeDb(opts: {
   status?: string;
+  substatus?: string;
   pullRequestUrl?: string | null;
   verdicts?: { owner: string; good?: boolean; agent?: string; onBehalfOf?: string }[];
   claimOwner?: string;
@@ -17,7 +18,8 @@ function makeDb(opts: {
     id: "bug1",
     tenantId: "t1",
     projectId: "p1",
-    status: opts.status ?? "delivered",
+    status: opts.status ?? "done",
+    substatus: opts.substatus ?? "requires_review",
     pullRequestUrl: opts.pullRequestUrl === undefined ? PR : opts.pullRequestUrl,
     assigneeId: "ada",
     beneficiaryUserId: "ada",
@@ -50,8 +52,8 @@ describe("refreshJudgedStatus: the Delivered step (#delivered-step)", () => {
 
   it("moves delivered work to Done once two independent agents judge it good to merge", async () => {
     const db = makeDb({ verdicts: [{ owner: "rob" }, { owner: "sam" }] });
-    expect(await refreshJudgedStatus(db as never, "bug1", "sam")).toBe("done");
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "done" } });
+    expect(await refreshJudgedStatus(db as never, "bug1", "sam")).toBe("accepted");
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "done", substatus: "accepted" } });
     expect(db.bugActivity.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ summary: expect.stringContaining("moved to Done") }) }),
     );
@@ -66,7 +68,7 @@ describe("refreshJudgedStatus: the Delivered step (#delivered-step)", () => {
     });
     expect(db.bug.update).toHaveBeenCalledWith({
       where: { id: "bug1" },
-      data: { status: "open", assigneeId: null, pullRequestUrl: null, pullRequestHeadSha: null },
+      data: { status: "open", substatus: "open", assigneeId: null, pullRequestUrl: null, pullRequestHeadSha: null },
     });
     expect(events.publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "claim.released" }));
   });
@@ -83,9 +85,9 @@ describe("refreshJudgedStatus: the Delivered step (#delivered-step)", () => {
   });
 
   it("returns Done to Delivered when a judgement changes and the good count drops", async () => {
-    const db = makeDb({ status: "done", verdicts: [{ owner: "rob" }] });
-    expect(await refreshJudgedStatus(db as never, "bug1", "sam")).toBe("delivered");
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "delivered" } });
+    const db = makeDb({ status: "done", substatus: "accepted", verdicts: [{ owner: "rob" }] });
+    expect(await refreshJudgedStatus(db as never, "bug1", "sam")).toBe("requires_review");
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { status: "done", substatus: "requires_review" } });
   });
 
   it("leaves every other status alone", async () => {

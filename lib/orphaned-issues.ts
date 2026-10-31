@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { publish } from "@/lib/agent-api/events";
 import { issueChangePayload } from "@/lib/agent-api/web-events";
+import { moveTo } from "@/lib/issue-substatus";
 
 export const ORPHANED_ISSUE_BATCH = 100;
 
@@ -33,7 +34,7 @@ export async function sweepOrphanedIssues(): Promise<{ reopened: number }> {
         AND "tenantId" = ${bug.tenantId} AND "projectId" = ${bug.projectId} FOR NO KEY UPDATE`;
       const updated = await tx.bug.updateMany({
         where: { id: bug.id, tenantId: bug.tenantId, projectId: bug.projectId, ...orphanedWhere },
-        data: { status: "open" },
+        data: moveTo("open"),
       });
       if (!updated.count) return false;
       // A system event records why the status changed without attributing the
@@ -46,7 +47,7 @@ export async function sweepOrphanedIssues(): Promise<{ reopened: number }> {
         payload: {
           issueId: bug.id,
           projectId: bug.projectId,
-          ...issueChangePayload({ status: "open" }),
+          ...issueChangePayload(moveTo("open")),
           actor: { type: "system" },
           reason: "orphaned_in_progress",
           previousStatus: "in_progress",

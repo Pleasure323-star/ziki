@@ -84,6 +84,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     tenantId: "t1",
     project: { id: "p1", slug: "ziki", name: "Ziki" },
     importance: [],
+    deployments: [],
     ideas: [],
     toConvert: [],
     toReject: [],

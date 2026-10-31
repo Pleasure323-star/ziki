@@ -9,22 +9,22 @@ import { mergePathOf } from "@/lib/merge-history";
 
 afterEach(() => cleanup());
 
-const base = { status: "open", stage: undefined, botConfirmations: 0, work: null } as const;
+const base = { substatus: "open", stage: undefined, botConfirmations: 0, work: null } as const;
 const text = (ui: React.ReactElement) => render(ui).container.textContent?.replace(/\s+/g, " ").trim();
 
 describe("IssueRowStatus", () => {
 
-  it("says Not confirmed with the confirmers in the label, and no upvote count", () => {
-    const { container } = render(<IssueRowStatus {...base} stage="confirming" botConfirmations={2} />);
-    expect(container.textContent).toContain("Not confirmed");
+  it("says Requires confirmation with the confirmers in the label, and no upvote count", () => {
+    const { container } = render(<IssueRowStatus {...base} substatus="requires_confirmation" stage="confirming" botConfirmations={2} />);
+    expect(container.textContent).toContain("Requires confirmation");
     expect(container.textContent).toContain("2");
     expect(container.textContent).not.toMatch(/upvote/i);
   });
 
   it("says Confirmed once enough people confirmed it, still at Requires confirmation", () => {
-    const { container } = render(<IssueRowStatus {...base} status="requires_confirmation" stage="confirming" botConfirmations={2} confirmed />);
+    const { container } = render(<IssueRowStatus {...base} substatus="requires_confirmation" stage="confirming" botConfirmations={2} confirmed />);
     expect(container.textContent?.trim()).toBe("Confirmed");
-    expect(container.textContent).not.toContain("Not confirmed");
+    expect(container.textContent).not.toContain("Requires confirmation");
   });
 
   it("says Ready for bids once confirmed", () => {
@@ -33,35 +33,39 @@ describe("IssueRowStatus", () => {
 
   it("shows who is working and for how long", () => {
     const since = new Date(Date.now() - (2 * 60 + 14) * 60_000);
-    const { container } = render(<IssueRowStatus {...base} status="in_progress" work={{ person: "Cara QA", since }} />);
+    const { container } = render(<IssueRowStatus {...base} substatus="in_progress" work={{ person: "Cara QA", since }} />);
     expect(container.textContent).toContain("Cara QA");
     expect(container.querySelector("time")?.textContent).toBe("2h 14m");
   });
 
   it("leaves the timer out when the start time is unknown", () => {
-    const { container } = render(<IssueRowStatus {...base} status="in_progress" work={{ person: "Ada", since: null }} />);
+    const { container } = render(<IssueRowStatus {...base} substatus="in_progress" work={{ person: "Ada", since: null }} />);
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).toContain("Ada");
   });
 
-  it("labels finished issues", () => {
-    expect(text(<IssueRowStatus {...base} status="resolved" />)).toBe("Live");
+  it("labels finished issues, a Live one by where it is deployed", () => {
+    expect(text(<IssueRowStatus {...base} substatus="on_prod" />)).toBe("On prod");
     cleanup();
-    expect(text(<IssueRowStatus {...base} status="closed" />)).toBe("Closed");
+    expect(text(<IssueRowStatus {...base} substatus="closed" />)).toBe("Closed");
   });
 
   it("says why an issue was closed (#close-reasons)", () => {
-    expect(text(<IssueRowStatus {...base} status="closed" closeReason="superseded" />)).toBe("Closed: superseded");
+    expect(text(<IssueRowStatus {...base} substatus="closed" closeReason="superseded" />)).toBe("Closed: superseded");
     cleanup();
-    expect(text(<IssueRowStatus {...base} status="closed" closeReason="not_reproducible" />)).toBe("Closed: not reproducible");
+    expect(text(<IssueRowStatus {...base} substatus="closed" closeReason="not_reproducible" />)).toBe("Closed: not reproducible");
     cleanup();
-    expect(text(<IssueRowStatus {...base} status="closed" closeReason="duplicate" />)).toBe("Closed: duplicate");
+    expect(text(<IssueRowStatus {...base} substatus="closed" closeReason="duplicate" />)).toBe("Closed: duplicate");
   });
 
-  it("labels the tested and accepted steps from the one status", () => {
-    expect(text(<IssueRowStatus {...base} status="done" />)).toContain("Done");
+  it("labels the steps within Done and Merge from the substatus (#substatus)", () => {
+    expect(text(<IssueRowStatus {...base} substatus="requires_review" />)).toContain("Requires review");
     cleanup();
-    expect(text(<IssueRowStatus {...base} status="ready_to_merge" />)).toContain("Ready to merge");
+    expect(text(<IssueRowStatus {...base} substatus="accepted" />)).toContain("Accepted");
+    cleanup();
+    expect(text(<IssueRowStatus {...base} substatus="merge_error" />)).toContain("Merge error");
+    cleanup();
+    expect(text(<IssueRowStatus {...base} substatus="ready_to_merge" />)).toContain("Ready to merge");
   });
 });
 
@@ -88,7 +92,7 @@ describe("IssueRowStatus merge path", () => {
   });
 
   it("shows the merge history chips instead of Live once the fix is merged", () => {
-    const { container } = render(<IssueRowStatus {...base} status="resolved" mergePath={merged} />);
+    const { container } = render(<IssueRowStatus {...base} substatus="on_prod" mergePath={merged} />);
     const chips = Array.from(container.querySelectorAll("[data-stage]")).map((el) => `${el.textContent}:${el.getAttribute("data-state")}`);
     expect(chips).toEqual(["dev:merged", "staging:pending", "main:pending"]);
     expect(container.textContent).not.toContain("Live");
@@ -96,13 +100,13 @@ describe("IssueRowStatus merge path", () => {
   });
 
   it("shows the live status, not the chips, for a reopened issue whose fix had merged", () => {
-    const { container } = render(<IssueRowStatus {...base} status="in_progress" mergePath={merged} work={{ person: "Ada", since: null }} />);
+    const { container } = render(<IssueRowStatus {...base} substatus="in_progress" mergePath={merged} work={{ person: "Ada", since: null }} />);
     expect(container.querySelector("[data-stage]")).toBeNull();
     expect(container.textContent).toContain("Ada");
   });
 
   it("keeps the usual label when there is no merge path", () => {
-    expect(text(<IssueRowStatus {...base} status="resolved" mergePath={null} />)).toBe("Live");
+    expect(text(<IssueRowStatus {...base} substatus="on_prod" mergePath={null} />)).toBe("On prod");
     cleanup();
     expect(text(<IssueRowStatus {...base} stage="ready" />)).toBe("Ready for bids");
   });

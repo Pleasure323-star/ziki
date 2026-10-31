@@ -53,7 +53,7 @@ function request(payload: unknown, method = "POST", query = "") {
 const bug = (overrides: Record<string, unknown> = {}) => ({
   id: "bug1",
   projectId: "proj-1",
-  status: "in_progress",
+  status: "in_progress", substatus: "in_progress",
   pullRequestUrl: null,
   project: { repoUrl: "https://github.com/zedu/web" },
   ...overrides,
@@ -106,21 +106,21 @@ describe("POST /api/v1/issues/{id}/delivery (#delivered-step)", () => {
     expect(db.delivery.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ bugId: "bug1", agentId: "c1", beneficiaryUserId: "co", summary: body.summary, pullRequestUrl: PR_URL, testResults: "42 passed" }),
     }));
-    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { pullRequestUrl: PR_URL, pullRequestHeadSha: null, status: "delivered" } });
+    expect(db.bug.update).toHaveBeenCalledWith({ where: { id: "bug1" }, data: { pullRequestUrl: PR_URL, pullRequestHeadSha: null, status: "done", substatus: "requires_review" } });
     expect(db.bugActivity.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ type: "status_changed", metadata: expect.objectContaining({ from: "in_progress", to: "delivered", deliveryId: "dlv1" }) }),
+      data: expect.objectContaining({ type: "status_changed", metadata: expect.objectContaining({ from: "in_progress", to: "requires_review", deliveryId: "dlv1" }) }),
     });
     expect(db.agentEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "issue.delivered" }) }));
   });
 
   it("replaces the agent's own delivery when it delivers again", async () => {
-    db.bug.findFirst.mockResolvedValue(bug({ status: "done", pullRequestUrl: PR_URL }));
+    db.bug.findFirst.mockResolvedValue(bug({ status: "done", substatus: "accepted", pullRequestUrl: PR_URL }));
     db.delivery.findUnique.mockResolvedValue({ id: "dlv1" });
     const response = await POST(request(body), params);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ replaced: true });
     expect(db.delivery.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "dlv1" } }));
-    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "delivered" }) }));
+    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }));
   });
 
   it("needs a summary, a description and evidence", async () => {
@@ -168,7 +168,7 @@ describe("POST /api/v1/issues/{id}/delivery (#delivered-step)", () => {
   });
 
   it("keeps an accepted fix bound to its pull request (#489)", async () => {
-    db.bug.findFirst.mockResolvedValue(bug({ status: "ready_to_merge", pullRequestUrl: "https://github.com/zedu/web/pull/3" }));
+    db.bug.findFirst.mockResolvedValue(bug({ status: "merge", substatus: "ready_to_merge", pullRequestUrl: "https://github.com/zedu/web/pull/3" }));
     mocks.standingAcceptance.mockResolvedValue({ headSha: "abc" });
     const response = await POST(request(body), params);
     expect(response.status).toBe(409);
@@ -216,10 +216,10 @@ describe("GET /api/v1/issues/{id}/delivery", () => {
     mocks.requireAgent.mockResolvedValue(agent);
     mocks.budget.mockResolvedValue({ allowed: true });
     db.project.findFirst.mockResolvedValue({ id: "proj-1" });
-    db.bug.findFirst.mockResolvedValue({ id: "bug1", number: 7, status: "delivered", pullRequestUrl: PR_URL });
+    db.bug.findFirst.mockResolvedValue({ id: "bug1", number: 7, status: "done", substatus: "requires_review", pullRequestUrl: PR_URL });
     db.delivery.findMany.mockResolvedValue([storedDelivery]);
     const response = await GET(request(null, "GET", "?projectId=proj-1"), params);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ issueNumber: 7, status: "delivered", deliveries: [{ id: "dlv1", current: true, agentName: "Ada's Claude", by: "Ada" }] });
+    expect(await response.json()).toMatchObject({ issueNumber: 7, status: "done", substatus: "requires_review", deliveries: [{ id: "dlv1", current: true, agentName: "Ada's Claude", by: "Ada" }] });
   });
 });

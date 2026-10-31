@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { statuses } from "@/lib/validations/issue";
+import { substatuses } from "@/lib/validations/issue";
 import {
   DECISION_STAGES,
   claimDecisionKind,
@@ -86,18 +86,19 @@ describe("tallyStages", () => {
 });
 
 describe("currentDecisionStage", () => {
-  it("is the issue's one status: every status has its own step", () => {
-    expect(currentDecisionStage({ status: "requires_confirmation" })).toBe("confirm");
-    expect(currentDecisionStage({ status: "open" })).toBe("open");
-    expect(currentDecisionStage({ status: "in_progress" })).toBe("progress");
-    expect(currentDecisionStage({ status: "delivered" })).toBe("delivered");
-    expect(currentDecisionStage({ status: "done" })).toBe("done");
-    expect(currentDecisionStage({ status: "ready_to_merge" })).toBe("ready");
-    expect(currentDecisionStage({ status: "resolved" })).toBe("live");
-    expect(currentDecisionStage({ status: "closed" })).toBe("closed");
+  it("follows the substatus: every substatus has its step (#substatus)", () => {
+    expect(currentDecisionStage({ substatus: "requires_confirmation" })).toBe("confirm");
+    expect(currentDecisionStage({ substatus: "open" })).toBe("open");
+    expect(currentDecisionStage({ substatus: "in_progress" })).toBe("progress");
+    expect(currentDecisionStage({ substatus: "requires_review" })).toBe("delivered");
+    expect(currentDecisionStage({ substatus: "accepted" })).toBe("done");
+    expect(currentDecisionStage({ substatus: "ready_to_merge" })).toBe("ready");
+    expect(currentDecisionStage({ substatus: "merge_error" })).toBe("ready");
+    for (const live of ["on_dev", "on_staging", "on_prod"]) expect(currentDecisionStage({ substatus: live })).toBe("live");
+    expect(currentDecisionStage({ substatus: "closed" })).toBe("closed");
   });
   it("puts every status on the pipeline, with Closed in Live's place", () => {
-    for (const status of statuses) expect(pipelineStages(currentDecisionStage({ status }))).toContain(currentDecisionStage({ status }));
+    for (const substatus of substatuses) expect(pipelineStages(currentDecisionStage({ substatus }))).toContain(currentDecisionStage({ substatus }));
     expect(pipelineStages("closed")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done", "ready", "closed"]);
     // Before Done the pipeline ends at Done; from Done on it runs to Live.
     expect(pipelineStages("open")).toEqual(["idea", "confirm", "open", "progress", "delivered", "done"]);

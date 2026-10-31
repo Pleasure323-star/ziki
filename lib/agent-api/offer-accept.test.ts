@@ -33,7 +33,7 @@ const offered = {
   releasedAt: null,
   releaseReason: null,
   beneficiary: { name: "Ada" },
-  bug: { id: "bug-1", title: "Bug 1", status: "open", assigneeId: null, tenantId: "t1", projectId: "p1", areaId: null, voteCount: 0, assignee: null },
+  bug: { id: "bug-1", title: "Bug 1", status: "open", substatus: "open", assigneeId: null, tenantId: "t1", projectId: "p1", areaId: null, voteCount: 0, assignee: null },
 };
 
 beforeEach(() => {
@@ -43,7 +43,7 @@ beforeEach(() => {
   db.issueClaim.findUnique.mockResolvedValue({ ...offered, offeredAt: new Date() });
   db.issueClaim.findFirst.mockResolvedValue(null);
   db.issueClaim.count.mockResolvedValue(0);
-  db.bug.update.mockResolvedValue({ id: "bug-1", assigneeId: "ada", status: "in_progress" });
+  db.bug.update.mockResolvedValue({ id: "bug-1", assigneeId: "ada", status: "in_progress", substatus: "in_progress" });
   db.issueBid.updateMany.mockResolvedValue({ count: 2 });
 });
 
@@ -57,7 +57,7 @@ describe("acceptOffer and bids (#award-bids)", () => {
       where: { bugId: "bug-1", withdrawnAt: null, awardedAt: null },
       data: { withdrawnAt: expect.any(Date) },
     });
-    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: "ada", status: "in_progress" } }));
+    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: "ada", status: "in_progress", substatus: "in_progress" } }));
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "claim.accepted" }));
   });
 

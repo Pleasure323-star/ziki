@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Prisma, PrismaClient, Status } from "@prisma/client";
+import type { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
@@ -25,6 +25,7 @@ import {
   type CloseTally,
   type VotedCloseReason,
 } from "@/lib/close-reasons";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Closing an issue (#close-superseded, #close-reasons). Any agent that
@@ -118,7 +119,7 @@ async function issueInProject(tenantId: string, projectId: string, issueRef: str
 }
 
 const lockedSelect = {
-  status: true, isDeleted: true, isBoosted: true, closeReason: true,
+  status: true, substatus: true, isDeleted: true, isBoosted: true, closeReason: true,
   reporterId: true, beneficiaryUserId: true, assigneeId: true,
   createdByAgent: { select: { ownerUserId: true } },
 } satisfies Prisma.BugSelect;
@@ -249,7 +250,7 @@ async function closeInTransaction(
   actor: Actor,
   projectId: string,
   bug: { id: string; number: number },
-  fresh: { status: Status; isBoosted: boolean },
+  fresh: { status: Status; substatus: Substatus; isBoosted: boolean },
   input: {
     reason: CloseReason;
     evidence: string | null;
@@ -278,7 +279,7 @@ async function closeInTransaction(
   await tx.bug.update({
     where: { id: bug.id },
     data: {
-      status: "closed",
+      ...moveTo("closed"),
       closeReason: reason,
       closeEvidence: evidence,
       closedAt: now,
@@ -291,9 +292,9 @@ async function closeInTransaction(
       bugId: bug.id,
       actorId: actor.userId,
       type: "status_changed",
-      summary: statusChangedSummary(fresh.status, "closed"),
+      summary: statusChangedSummary(fresh.substatus, "closed"),
       metadata: {
-        field: "status", from: fresh.status, to: "closed", via: reason, evidence,
+        field: "status", from: fresh.substatus, to: "closed", via: reason, evidence,
         ...(input.duplicateOfId ? { duplicateOfId: input.duplicateOfId } : {}),
         ...(input.votes !== undefined ? { votes: input.votes } : {}),
         agentId: actor.agentId, agentName: actor.agentName,
@@ -364,7 +365,7 @@ export async function closeIssue(agent: AgentContext, projectId: string, issueRe
     return {
       issueId: bug.id,
       issueNumber: bug.number,
-      status: "closed" as const,
+      ...moveTo("closed"),
       closeReason: reason,
       closeEvidence: input.evidence,
       duplicateOfId,
@@ -404,11 +405,11 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
       const message = "Your owner is connected to this issue, so this agent can't reopen it. A manager agent independent of it can.";
       throw new IssueApiError(403, message, { error: "not_independent", message });
     }
-    const to: Status = (await isConfirmed(bug.id, tx)) ? "open" : "requires_confirmation";
+    const to: Substatus = (await isConfirmed(bug.id, tx)) ? "open" : "requires_confirmation";
     const previousReason = fresh.closeReason;
     await tx.bug.update({
       where: { id: bug.id },
-      data: { status: to, closeReason: null, closeEvidence: null, closedAt: null },
+      data: { ...moveTo(to), closeReason: null, closeEvidence: null, closedAt: null },
     });
     const { count: clearedSuggestions } = await tx.closeSuggestion.deleteMany({ where: { bugId: bug.id, reason: "not_reproducible" } });
     await tx.bugActivity.create({
@@ -431,9 +432,9 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
       projectId,
       payload: { issueId: bug.id, issueNumber: bug.number, from: "closed", to, previousReason, evidence: input.evidence },
     });
-    return { issueId: bug.id, issueNumber: bug.number, status: to, previousReason, evidence: input.evidence, clearedSuggestions };
+    return { issueId: bug.id, issueNumber: bug.number, ...moveTo(to), previousReason, evidence: input.evidence, clearedSuggestions };
   });
-  await audit(agent, "issue.reopened", `issue:${bug.id}`, { from: "closed", to: result.status, previousReason: result.previousReason, evidence: input.evidence }, { bugId: bug.id });
+  await audit(agent, "issue.reopened", `issue:${bug.id}`, { from: "closed", to: result.substatus, previousReason: result.previousReason, evidence: input.evidence }, { bugId: bug.id });
   return result;
 }
 
@@ -464,7 +465,7 @@ export async function withdrawIssue(withdrawer: IssueWithdrawer, projectId: stri
     return {
       issueId: bug.id,
       issueNumber: bug.number,
-      status: "closed" as const,
+      ...moveTo("closed"),
       closeReason: "withdrawn" as const,
       closeEvidence: evidence,
       closedAt: closed.closedAt.toISOString(),

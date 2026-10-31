@@ -1,4 +1,4 @@
-import type { Status } from "@prisma/client";
+import type { Substatus } from "@prisma/client";
 
 /** Shared card shell for the issue detail redesign. */
 export const issueCardClass =
@@ -14,14 +14,17 @@ export const issueAccentLinkClass =
   "font-semibold text-zk-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong focus-visible:ring-offset-2";
 
 /** Status language from the redesign handoff (overrides shared label classes). */
-export const issueStatusChipClass: Record<Status, string> = {
+export const issueStatusChipClass: Record<Substatus, string> = {
   requires_confirmation: "bg-zk-warn-bg text-zk-warn-fg",
   open: "bg-zk-info-bg text-zk-info-fg",
   in_progress: "bg-zk-info-bg text-zk-info-fg",
-  delivered: "bg-zk-info-bg text-zk-info-fg",
-  done: "bg-zk-info-bg text-zk-info-fg",
+  requires_review: "bg-zk-info-bg text-zk-info-fg",
+  accepted: "bg-zk-info-bg text-zk-info-fg",
   ready_to_merge: "bg-zk-ok-bg text-zk-ok-fg",
-  resolved: "bg-zk-ok-bg text-zk-ok-fg",
+  merge_error: "bg-zk-bad-bg text-zk-bad-fg",
+  on_dev: "bg-zk-ok-bg text-zk-ok-fg",
+  on_staging: "bg-zk-ok-bg text-zk-ok-fg",
+  on_prod: "bg-zk-ok-bg text-zk-ok-fg",
   closed: "bg-zk-chip text-zk-text2",
 };
 

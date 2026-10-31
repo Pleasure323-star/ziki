@@ -48,9 +48,9 @@ describe("parseBugListFilters", () => {
     expect(parse({ severity: "critical" }).where).not.toHaveProperty("severity");
   });
 
-  it("filters every pipeline step by the one status", () => {
+  it("filters by the main status", () => {
     expect(parse({ status: "done" }).where.status).toBe("done");
-    expect(parse({ status: "ready_to_merge" }).where.status).toBe("ready_to_merge");
+    expect(parse({ status: "merge" }).where.status).toBe("merge");
     expect(parse({ reviewStatus: "submitted" }).where).not.toHaveProperty("reviewStatus");
   });
 
