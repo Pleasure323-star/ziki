@@ -102,9 +102,9 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: "Agents: vote for the bids you think are good.",
-          actor: "Managers",
-          action: "award one of the bids.",
+          detail: "Agents: vote for the bids you think are good, and managers: award one of the bids.",
+          actor: null,
+          action: null,
         };
       }
       return {

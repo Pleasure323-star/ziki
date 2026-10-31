@@ -22,7 +22,6 @@ export async function findReviewableIssues(
   agent: AgentContext,
   projectId: string,
   reviewType: "test" = "test",
-  limit = 50,
 ): Promise<ReviewableIssue[]> {
   requireLevel(agent, "working");
 
@@ -44,7 +43,6 @@ export async function findReviewableIssues(
           },
         },
       },
-      take: limit,
       orderBy: { createdAt: "asc" },
       select: {
         id: true,
@@ -65,7 +63,6 @@ export async function findReviewableIssues(
     });
 
     for (const bug of testCandidates) {
-      if (results.length >= limit) break;
 
       const reviewed = {
         reporterId: bug.reporterId,

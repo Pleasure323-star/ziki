@@ -43,14 +43,6 @@ function HammeringIcon() {
 }
 const BidIcon = () => <Svg><path d="m14 13-7.5 7.5a2.1 2.1 0 0 1-3-3L11 10M16 16l6-6M8 8l6-6M9 7l8 8M21 11l-8-8" /></Svg>;
 
-/** "2 bids", under an Open issue's status. */
-function BidCount({ bids }: { bids: number }) {
-  return (
-    <span className="pl-4 text-[10.5px] tabular-nums text-zk-muted" data-testid="row-bid-count">
-      {bids} bid{bids === 1 ? "" : "s"}
-    </span>
-  );
-}
 
 export type IssueRowWork = {
   /** The person the work is for (the agent's owner), or the assignee. */
@@ -160,17 +152,14 @@ export function IssueRowStatus({
         <span className="inline-flex items-center gap-1 font-medium text-zk-warn-fg">
           <ClockIcon /> <span className="max-w-[10rem] truncate">Offered to {offeredTo}</span>
         </span>
-        {bids !== undefined ? <BidCount bids={bids} /> : null}
       </span>
     );
   }
   if (stage === "ready") {
     return (
-      <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5">
-        <span className="inline-flex items-center gap-1 text-zk-ok-fg">
-          <BidIcon /> Ready for bids
-        </span>
-        {bids !== undefined ? <BidCount bids={bids} /> : null}
+      // With bids it says how many ("2 bids"); without, that it is waiting for them.
+      <span className="issue-row-status inline-flex items-center gap-1 text-zk-ok-fg" data-testid="row-bid-status">
+        <BidIcon /> {bids ? `${bids} bid${bids === 1 ? "" : "s"}` : "Ready for bids"}
       </span>
     );
   }

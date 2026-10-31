@@ -295,12 +295,20 @@ async function reviewFix(
   }
 
   const claim = deliveredClaim(bug);
-  if (!claim) {
+  // A delivery a manager filed on the holder's behalf (#stranded-delivery) has
+  // no claim: the person it credits stands in for the claim's side.
+  const credited = claim
+    ? []
+    : (await prisma.delivery.findMany({
+        where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl ?? "" },
+        select: { beneficiaryUserId: true },
+      })).map((delivery) => delivery.beneficiaryUserId);
+  if (!claim && credited.length === 0) {
     return {
       status: 409,
       error: "not_ready",
       missing: "claim",
-      message: "This issue needs a claim that delivered its fix before the fix can be accepted.",
+      message: "This issue needs a claim or a delivery of its fix before the fix can be accepted.",
     };
   }
   if (!bug.pullRequestUrl) {
@@ -373,7 +381,11 @@ async function reviewFix(
   // Checked again now, not only when submitted: a claim taken since, or a
   // verdict from the claim holder's own side, no longer counts. #489: the
   // acceptance is bound to the code the reviewers signed off on.
-  const { reviewers, acceptedHeadSha } = countedMergeVerdicts(verdicts, claim, reviewed, bug.pullRequestHeadSha ?? null);
+  // With no claim, nothing from or for the credited person counts, as in tested-status.ts countJudgements.
+  const countable = claim
+    ? verdicts
+    : verdicts.filter((v) => !credited.includes(v.agent.ownerUserId) && !credited.includes(v.onBehalfOfUserId));
+  const { reviewers, acceptedHeadSha } = countedMergeVerdicts(countable, claim, reviewed, bug.pullRequestHeadSha ?? null);
 
   const { verdictsNeeded } = await workflowFor(bug.projectId);
   if (reviewers.length < verdictsNeeded) {
@@ -386,7 +398,7 @@ async function reviewFix(
   }
 
   const rewardedReviewerUserIds = reviewers;
-  const solverUserId = claim?.beneficiaryUserId ?? bug.assigneeId;
+  const solverUserId = claim?.beneficiaryUserId ?? credited[0] ?? bug.assigneeId;
   const isAdminMerge = forceAdminMerge || agent.level === "merger";
 
   if (!isAdminMerge) {
@@ -652,7 +664,7 @@ async function reviewFix(
         sourceKey: pointSourceKey("solver", bug.id, solverUserId),
       });
     }
-    await awardDispatcher(tx, bug, claim.dispatcherUserId);
+    await awardDispatcher(tx, bug, claim?.dispatcherUserId);
     const reviewerPoints = calculateReviewerPoints(rewardConfig);
     for (const [index, userId] of rewardedReviewerUserIds.entries()) {
       await award(tx, {

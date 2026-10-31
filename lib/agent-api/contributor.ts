@@ -23,7 +23,6 @@ export type ClaimableIssue = {
 export async function findClaimableIssues(
   agent: AgentContext,
   projectId: string,
-  limit = 50,
   confirmations?: Map<string, ConfirmationState>,
 ): Promise<ClaimableIssue[]> {
   requireLevel(agent, "working");
@@ -48,7 +47,6 @@ export async function findClaimableIssues(
         },
       },
     },
-    take: limit,
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,

@@ -35,7 +35,6 @@ export type ReadyToMergeIssue = {
 export async function findReadyToMergeIssues(
   agent: AgentContext,
   projectId: string,
-  limit: number,
   status: MergeQueueStatus,
 ): Promise<ReadyToMergeIssue[]> {
   requireLevel(agent, "manager");
@@ -50,8 +49,7 @@ export async function findReadyToMergeIssues(
   });
   if (confirmed.size === 0) return [];
 
-  // Fixes in review are few, so read them all and filter before limiting:
-  // taking `limit` rows first and filtering after could return a short page.
+  // Fixes in review are few, so read them all (the work feed has no cap).
   const candidates = await prisma.bug.findMany({
     where: {
       id: { in: [...confirmed] },
@@ -102,7 +100,6 @@ export async function findReadyToMergeIssues(
 
   const ready: ReadyToMergeIssue[] = [];
   for (const bug of candidates) {
-    if (ready.length >= limit) break;
 
     const claim = deliveredClaim(bug);
     // The same verdict rule as the merge gate (merge.ts), on the linked PR only.

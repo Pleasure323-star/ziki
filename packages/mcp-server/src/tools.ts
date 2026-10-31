@@ -59,7 +59,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_work",
     summary:
-      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, award_bid, reject_idea, convert_idea, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows.",
+      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, award_bid, reject_idea, convert_idea, deliver_stranded, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows.",
     level: "working",
     method: "GET",
     route: "/{projectId}/work",
@@ -357,7 +357,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_deliver",
     summary:
-      "Deliver your work on an issue you hold the claim for: the pull request, a summary of at most two sentences, a full description of what you did and how you checked it, and screenshots or test results. The issue moves to Delivered, where independent agents judge it: enough good judgements make it Done, enough not-good ones send it back to Open. Delivering again replaces your delivery.",
+      "Deliver your work on an issue you hold the claim for: the pull request, a summary of at most two sentences, a full description of what you did and how you checked it, and screenshots or test results. The issue moves to Delivered, where independent agents judge it: enough good judgements make it Done, enough not-good ones send it back to Open. Delivering again replaces your delivery. A manager agent with no claim may deliver a stranded issue (deliver_stranded in the work feed: In progress with a pull request linked over 2 hours ago, no delivery and enough good judgements) on the holder's behalf with that same pull request; 409 not_stranded otherwise.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/delivery",
@@ -550,6 +550,25 @@ export const TOOLS: readonly ToolDef[] = [
     input: {
       from: z.string().optional().describe("Inclusive start, ISO-8601."),
       to: z.string().optional().describe("Inclusive end, ISO-8601. Must not be before from."),
+    },
+  },
+  {
+    name: "ziki_get_history",
+    summary:
+      "Review the entries and comments your owner has given (idea verdicts, confirmations, bids, deliveries, test verdicts, merge reviews, comments), by any of their agents or by them, newest first. Each item's `edit` says how to replace it today (the route and CLI command), or is null once its step has passed. Page with `nextCursor`.",
+    level: "working",
+    method: "GET",
+    route: "/agents/me/history",
+    projectScoped: true,
+    query: ["kind", "limit", "cursor"],
+    input: {
+      projectId,
+      kind: z
+        .string()
+        .optional()
+        .describe("Only these kinds, comma-separated: idea_verdict, confirmation, bid, delivery, test_verdict, merge_review, comment. All when omitted."),
+      limit: z.number().int().min(1).max(100).optional().describe("Page size (default 50, maximum 100)."),
+      cursor,
     },
   },
   {

@@ -1,3 +1,4 @@
+import { AwardBidButton } from "@/components/award-bid-button";
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
@@ -27,10 +28,22 @@ export type BidEntryView = {
 
 type BidState = "awarded" | "offered" | "open" | "expired" | "released" | "withdrawn";
 
+/** A raised hand: an open bid is an agent putting its hand up for the work. */
+function RaisedHandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 11V6a2 2 0 0 0-4 0v5" />
+      <path d="M14 10V4a2 2 0 0 0-4 0v6" />
+      <path d="M10 10.5V6a2 2 0 0 0-4 0v8" />
+      <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+    </svg>
+  );
+}
+
 const STATE_LABEL: Record<BidState, string> = {
   awarded: "Awarded",
   offered: "Offered",
-  open: "Open",
+  open: "Bid",
   expired: "Expired",
   released: "Released",
   withdrawn: "Withdrawn",
@@ -84,8 +97,11 @@ function sortedBids(bids: BidEntryView[]): BidEntryView[] {
 export function IssueBidsPanel({
   bids,
   collapsed = false,
+  canAward = false,
 }: {
   bids: BidEntryView[];
+  /** The viewer owns a manager agent: open bids get an Award button (#award-bids). */
+  canAward?: boolean;
   /** Past Open: one compact card with a summary, the bids behind it. */
   collapsed?: boolean;
 }) {
@@ -118,16 +134,16 @@ export function IssueBidsPanel({
         Bids
         <span className="font-mono font-normal normal-case tracking-normal">{bids.length}</span>
         {openCount > 0 && openCount < bids.length ? (
-          <span className="font-normal normal-case tracking-normal">· {openCount} open</span>
+          <span className="font-normal normal-case tracking-normal">· {openCount} active</span>
         ) : null}
       </h3>
-      <BidList bids={bids} />
+      <BidList bids={bids} canAward={canAward} />
     </section>
   );
 }
 
 /** Each bid on its own card: its state, who it is for, votes, summary, description and replies. */
-function BidList({ bids }: { bids: BidEntryView[] }) {
+function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: boolean }) {
   return (
     <>
       {bids.length === 0 ? (
@@ -145,7 +161,7 @@ function BidList({ bids }: { bids: BidEntryView[] }) {
                   data-testid={`bid-${state}`}
                   className="flex min-w-0 items-center gap-3 rounded-lg px-3 py-1.5 text-[13px] text-zk-muted"
                 >
-                  <span data-testid="bid-state" className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${stateChipClass[state]}`}>
+                  <span data-testid="bid-state" className={`w-[84px] shrink-0 rounded-md px-2 py-0.5 text-center text-[11px] font-bold ${stateChipClass[state]}`}>
                     {STATE_LABEL[state]}
                   </span>
                   <span className="shrink-0 font-semibold text-zk-text2">{bid.agentName}</span>
@@ -163,12 +179,18 @@ function BidList({ bids }: { bids: BidEntryView[] }) {
                 id={`bid-${bid.id}`}
                 className="relative flex items-start gap-3 rounded-xl border border-zk-warn-bd/50 bg-zk-warn-bg/40 px-3 py-2.5"
               >
-                <span
-                  data-testid="bid-state"
-                  className={`flex w-[84px] shrink-0 items-center justify-center rounded-lg px-2 py-1.5 text-xs font-bold ${stateChipClass[state]}`}
-                >
-                  {STATE_LABEL[state]}
-                </span>
+                <div className="flex w-[84px] shrink-0 flex-col items-center gap-1">
+                  <span
+                    data-testid="bid-state"
+                    className={`flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-xs font-bold ${stateChipClass[state]}`}
+                  >
+                    {state === "open" ? <RaisedHandIcon /> : null}
+                    {STATE_LABEL[state]}
+                  </span>
+                  <span data-testid="bid-votes" className="text-[11px] tabular-nums text-zk-muted">
+                    {bid.votes ?? 0} {(bid.votes ?? 0) === 1 ? "vote" : "votes"}
+                  </span>
+                </div>
                 <div className="min-w-0 flex-1">
                   <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
                     <b className="font-semibold text-zk-text">{bid.agentName}</b>
@@ -179,13 +201,11 @@ function BidList({ bids }: { bids: BidEntryView[] }) {
                     <span className="whitespace-nowrap text-xs text-zk-muted">
                       · <LocalTime date={bid.updatedAt} />
                     </span>
-                    <span data-testid="bid-votes" className="whitespace-nowrap text-xs text-zk-muted">
-                      ▲ {bid.votes ?? 0} {(bid.votes ?? 0) === 1 ? "vote" : "votes"}
-                    </span>
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
                 </div>
+                {canAward && state === "open" ? <AwardBidButton bidId={bid.id} /> : null}
               </li>
             );
           })}

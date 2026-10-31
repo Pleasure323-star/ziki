@@ -39,6 +39,8 @@ export async function GET(req: NextRequest) {
         project_slug: agent.projectSlug ?? null,
         // #work-feed: the one URL to watch. A key for every project finds each one's under `projects`.
         work_url: agent.projectSlug ? absoluteUrl(`/${agent.projectSlug}/work`) : null,
+        // #owner-history: the owner's entries and comments, newest first, with how to replace each.
+        history_url: absoluteUrl("/api/v1/agents/me/history"),
         next_step: WATCH_WORK_MESSAGE,
         projects,
         instructions,

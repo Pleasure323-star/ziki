@@ -15,6 +15,7 @@ import { workflowFor } from "@/lib/workflow";
 import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
 import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { abandonTally, senseCheck } from "@/lib/agent-api/abandon";
+import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
 const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
@@ -42,9 +43,6 @@ import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/str
  */
 
 const SNAPSHOT_TTL_MS = 20_000;
-const PER_KIND_LIMIT = 25;
-/** Every idea at the threshold reaches the managers, not just the top of the verdict list. */
-const CONVERT_LIMIT = 100;
 export const WORK_POLL_SECONDS = 30;
 
 export type WorkKind =
@@ -64,6 +62,7 @@ export type WorkKind =
   | "reclaim_issue"
   | "sense_check"
   | "close_issue"
+  | "deliver_stranded"
   | "accept_fix"
   | "merge_fix";
 
@@ -120,6 +119,7 @@ const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
   accept_fix: ["tested fix to accept or reject", "tested fixes to accept or reject"],
   award_bid: ["issue with bids to award", "issues with bids to award"],
   close_issue: ["issue to close as superseded", "issues to close as superseded"],
+  deliver_stranded: ["linked pull request to deliver on its holder's behalf", "linked pull requests to deliver on their holders' behalf"],
   merge_fix: ["accepted fix to merge", "accepted fixes to merge"],
 };
 
@@ -171,6 +171,8 @@ export type ProjectWork = {
   toSenseCheck: (IssueRef & { votes: number; threshold: number; holderOwners: string[]; voters: string[]; since: Date | null })[];
   /** Issues whose superseded suggestions reached the project's closeThreshold, for a manager agent to close (#close-superseded). */
   toClose: (IssueRef & { votes: number; threshold: number; suggestions: number; summaries: string[] })[];
+  /** In-progress issues with a linked pull request, no delivery and enough good judgements, for a manager agent to deliver on the holder's behalf (#stranded-delivery). */
+  toDeliverStranded: StrandedIssue[];
   /** Converted issues still being confirmed. */
   toConfirm: (IssueRef & { confirmations: number; needed: number })[];
   ideaThreshold: number;
@@ -234,10 +236,10 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   const confirmations = await openIssueConfirmations(prisma, { tenantId, projectId: project.id });
   const workflow = await workflowFor(project.id);
   const [tests, ready, toAccept, toMerge, ideas, jobs] = await Promise.all([
-    findReviewableIssues(caller, project.id, "test", PER_KIND_LIMIT),
-    findClaimableIssues(caller, project.id, PER_KIND_LIMIT, confirmations),
-    findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "done"),
-    findReadyToMergeIssues(caller, project.id, PER_KIND_LIMIT, "ready_to_merge"),
+    findReviewableIssues(caller, project.id, "test"),
+    findClaimableIssues(caller, project.id, confirmations),
+    findReadyToMergeIssues(caller, project.id, "done"),
+    findReadyToMergeIssues(caller, project.id, "ready_to_merge"),
     openIdeas(tenantId, project.id, workflow.ideaThreshold),
     openJobs(tenantId, project.id),
   ]);
@@ -248,7 +250,6 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     ? await prisma.bug.findMany({
       where: { id: { in: confirmingIds } },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      take: PER_KIND_LIMIT,
       select: { id: true, number: true, title: true },
     })
     : [];
@@ -257,16 +258,23 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
   });
 
-  const [toConvert, toReject, toReclaim, toSenseCheck, toClose, bids] = await Promise.all([
+  const [toConvert, toReject, toReclaim, toSenseCheck, toClose, toDeliverStranded, bids] = await Promise.all([
     convertibleIdeas(tenantId, project.id, workflow.ideaThreshold),
     rejectableIdeas(tenantId, project.id),
     staleIssues(tenantId, project.id),
     senseChecks(tenantId, project.id),
     closableIssues(tenantId, project.id, workflow.closeThreshold),
+    findStrandedDeliveries(tenantId, project.id),
     openBids(tenantId, project.id),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
-  const ids = new Set([...toConfirm.map((i) => i.id), ...tests.map((t) => t.id), ...toAccept.map((t) => t.id), ...toMerge.map((t) => t.id)]);
+  const ids = new Set([
+    ...toConfirm.map((i) => i.id),
+    ...tests.map((t) => t.id),
+    ...toAccept.map((t) => t.id),
+    ...toMerge.map((t) => t.id),
+    ...toDeliverStranded.map((t) => t.id),
+  ]);
   return {
     tenantId,
     project,
@@ -276,6 +284,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toReclaim,
     toSenseCheck,
     toClose,
+    toDeliverStranded,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -300,7 +309,6 @@ async function openIdeas(tenantId: string, projectId: string, threshold: number)
   return prisma.idea.findMany({
     where: { tenantId, projectId, isDeleted: false, status: "open", score: { lt: threshold } },
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
-    take: PER_KIND_LIMIT,
     select: { id: true, number: true, title: true, score: true },
   });
 }
@@ -310,7 +318,6 @@ async function convertibleIdeas(tenantId: string, projectId: string, threshold: 
   return prisma.idea.findMany({
     where: { tenantId, projectId, isDeleted: false, status: "open", score: { gte: threshold } },
     orderBy: [{ score: "desc" }, { createdAt: "asc" }],
-    take: CONVERT_LIMIT,
     select: { id: true, number: true, title: true, score: true },
   });
 }
@@ -321,13 +328,12 @@ async function staleIssues(tenantId: string, projectId: string): Promise<Project
   const holds = await prisma.issueClaim.findMany({
     where: { releasedAt: null, status: { in: ["offered", "active"] }, bug: { tenantId, projectId, isDeleted: false, status: { in: ["open", "in_progress"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 50,
     select: { bug: { select: { id: true, number: true, title: true } } },
   });
   const seen = new Set<string>();
   const stale: ProjectWork["toReclaim"] = [];
   for (const { bug } of holds) {
-    if (seen.has(bug.id) || stale.length >= PER_KIND_LIMIT) continue;
+    if (seen.has(bug.id)) continue;
     seen.add(bug.id);
     const hold = await staleHold(bug.id);
     if (hold) stale.push({ ...bug, reason: hold.kind });
@@ -340,12 +346,10 @@ async function senseChecks(tenantId: string, projectId: string): Promise<Project
   const held = await prisma.issueClaim.findMany({
     where: { status: "active", releasedAt: null, bug: { tenantId, projectId, isDeleted: false, status: "in_progress" } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 50,
     select: { beneficiaryUserId: true, agent: { select: { ownerUserId: true } }, bug: { select: { id: true, number: true, title: true } } },
   });
   const due: ProjectWork["toSenseCheck"] = [];
   for (const claim of held) {
-    if (due.length >= PER_KIND_LIMIT) break;
     const check = await senseCheck(claim.bug.id);
     if (!check) continue;
     const { voters } = await abandonTally(check.claimId);
@@ -361,15 +365,11 @@ async function senseChecks(tenantId: string, projectId: string): Promise<Project
   return due;
 }
 
-/** Close suggestions read for the feed: enough for every issue at the threshold to reach the managers. */
-const CLOSE_SUGGESTION_LIMIT = 500;
-
 /** Issues not closed or live whose superseded suggestions reach the threshold, oldest suggestion first (#close-superseded). */
 async function closableIssues(tenantId: string, projectId: string, threshold: number): Promise<ProjectWork["toClose"]> {
   const rows = await prisma.closeSuggestion.findMany({
     where: { reason: "superseded", bug: { tenantId, projectId, isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: CLOSE_SUGGESTION_LIMIT,
     select: { votes: true, summary: true, bug: { select: { id: true, number: true, title: true } } },
   });
   const byIssue = new Map<string, ProjectWork["toClose"][number]>();
@@ -380,18 +380,14 @@ async function closableIssues(tenantId: string, projectId: string, threshold: nu
     if (entry.summaries.length < 2) entry.summaries.push(row.summary);
     byIssue.set(row.bug.id, entry);
   }
-  return [...byIssue.values()].filter((entry) => entry.votes >= threshold).slice(0, PER_KIND_LIMIT);
+  return [...byIssue.values()].filter((entry) => entry.votes >= threshold);
 }
-
-/** Bids read for the feed: enough for every Open issue's bids to reach the award list. */
-const BID_LIMIT = 200;
 
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
 async function openBids(tenantId: string, projectId: string): Promise<OpenBid[]> {
   const rows = await prisma.issueBid.findMany({
     where: { withdrawnAt: null, awardedAt: null, agent: { revokedAt: null }, bug: { tenantId, projectId, isDeleted: false, status: "open" } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: BID_LIMIT,
     select: {
       id: true,
       beneficiaryUserId: true,
@@ -439,7 +435,7 @@ async function awardableIssues(bids: OpenBid[], offerWindowSeconds: number): Pro
     select: { bugId: true },
   });
   const heldIds = new Set(held.map((claim) => claim.bugId));
-  return [...byIssue.values()].filter((issue) => !heldIds.has(issue.id)).slice(0, PER_KIND_LIMIT);
+  return [...byIssue.values()].filter((issue) => !heldIds.has(issue.id));
 }
 
 async function rejectableIdeas(tenantId: string, projectId: string): Promise<ProjectWork["toReject"]> {
@@ -458,8 +454,7 @@ async function rejectableIdeas(tenantId: string, projectId: string): Promise<Pro
   const rejectable = [...votesByIdea]
     .map(([id, rows]) => ({ id, votes: ideaVotes(rows) }))
     .filter(({ votes }) => isBadIdea(votes, ideaThreshold))
-    .sort((a, b) => b.votes.total - a.votes.total)
-    .slice(0, CONVERT_LIMIT);
+    .sort((a, b) => b.votes.total - a.votes.total);
   if (!rejectable.length) return [];
   const ideas = await prisma.idea.findMany({
     where: { id: { in: rejectable.map((idea) => idea.id) } },
@@ -501,7 +496,7 @@ async function loadIdeaFacts(ids: string[]): Promise<Map<string, IdeaFacts>> {
 
 /** Jobs that still take submissions. */
 async function openJobs(tenantId: string, projectId: string): Promise<ProjectWork["jobs"]> {
-  const jobs = await listJobs(tenantId, projectId, PER_KIND_LIMIT);
+  const jobs = await listJobs(tenantId, projectId, null);
   if (!jobs.length) return [];
   const counts = await prisma.jobSubmission.groupBy({ by: ["jobId"], where: { jobId: { in: jobs.map((job) => job.id) } }, _count: { _all: true } });
   const used = new Map(counts.map((row) => [row.jobId, row._count._all]));
@@ -732,12 +727,20 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       actions: [{ name: "submit_test_result", minimumRole: "working", method: "POST", path: apiPath(test.id, "test-results", pid), cli: `submit-test-result --id ${test.id} --good-to-merge true|false --summary <your verdict> --description <what you tested and why>` }],
     });
   }
-  for (const issue of work.ready) {
+  // Issues to bid on: not those this owner already bid on, and the ones with
+  // the fewest bids first, then the most important, then the oldest (no cap).
+  const bidsByIssue = new Map<string, OpenBid[]>();
+  for (const bid of work.bids) bidsByIssue.set(bid.issue.id, [...(bidsByIssue.get(bid.issue.id) ?? []), bid]);
+  const toBid = work.ready
+    .filter((issue) => !(bidsByIssue.get(issue.id) ?? []).some((bid) => bid.ownerIds.includes(owner)))
+    .map((issue, order) => ({ issue, order, bids: bidsByIssue.get(issue.id)?.length ?? 0 }))
+    .sort((a, b) => a.bids - b.bids || b.issue.importance - a.issue.importance || a.order - b.order);
+  for (const { issue, bids } of toBid) {
     items.push({
       kind: "ready_issue",
       key: `ready_issue:${issue.id}`,
       title: `Bid on #${issue.number}`,
-      detail: "Confirmed and open, and nobody holds it. Bid to fix it: other agents vote for the bids they think are good, and a manager agent awards one as an offer you then accept.",
+      detail: `Confirmed and open, and nobody holds it; ${bids === 0 ? "no bids yet" : `${bids} ${bids === 1 ? "bid" : "bids"} so far`}. Bid to fix it: other agents vote for the bids they think are good, and a manager agent awards one as an offer you then accept.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -746,12 +749,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       ],
     });
   }
-  let reviewBids = 0;
   for (const bid of work.bids) {
     // Not for the agent's own owner's bid, nor one this owner already voted for.
-    if (reviewBids >= PER_KIND_LIMIT) break;
     if (bid.ownerIds.includes(owner) || bid.voters.includes(owner)) continue;
-    reviewBids++;
     items.push({
       kind: "review_bid",
       key: `review_bid:${bid.id}`,
@@ -843,6 +843,29 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       issue: issueRef(issue),
       actions: [
         { name: "close_issue", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "close", pid), cli: `close-issue --id ${issue.id} --reason superseded --summary <why you close it>` },
+      ],
+    });
+  }
+  for (const issue of work.toDeliverStranded) {
+    const gate = roleGate("manager", issue.id);
+    items.push({
+      kind: "deliver_stranded",
+      key: `deliver_stranded:${issue.id}:${issue.pullRequestUrl}`,
+      title: `Deliver #${issue.number} on the holder's behalf`,
+      detail: `In progress with a linked pull request (${issue.pullRequestUrl}) but no delivery, and ${issue.goodVerdicts} of ${issue.needed} good-to-merge judgements already given on it. File the delivery for ${issue.creditedName} so it can be evaluated: the same pull request, a summary, a description and the evidence. The judgements are counted at once.`,
+      minimumRole: "manager",
+      // The delivery is credited to that person, so neither they nor anyone the independence rule excludes files it.
+      ...(gate.canAct && issue.creditedUserId === owner ? { canAct: false, blockedReason: "Your owner is credited on this issue." } : gate),
+      issue: issueRef(issue),
+      actions: [
+        { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(issue.id, "test-results", pid), cli: `list-test-verdicts --id ${issue.id}` },
+        {
+          name: "deliver",
+          minimumRole: "manager",
+          method: "POST",
+          path: apiPath(issue.id, "delivery", pid),
+          cli: `deliver --id ${issue.id} --pull-request-url ${issue.pullRequestUrl} --summary <what the pull request does> --description <what changed, and the judgements that checked it> --test-results <evidence>`,
+        },
       ],
     });
   }
@@ -965,8 +988,10 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   if (toAward) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting. As a manager agent, read the bids and their votes and award one on each.`);
   const toClose = items.filter((item) => item.kind === "close_issue" && item.canAct).length;
   if (toClose) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions to close as superseded. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up.`);
+  const toDeliver = items.filter((item) => item.kind === "deliver_stranded" && item.canAct).length;
+  if (toDeliver) ask.push(`${toDeliver} issue${toDeliver === 1 ? " is" : "s are"} In progress with a linked pull request, no delivery and enough good judgements. As a manager agent, deliver ${toDeliver === 1 ? "it" : "each"} on the holder's behalf so the work can be evaluated.`);
   if (hasLevel(agent.level, "manager")) {
-    ask.push("Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts 3), award_bid, reject_idea, convert_idea, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Leave no queue to grow.");
+    ask.push("Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts 3), award_bid, reject_idea, convert_idea, deliver_stranded, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Leave no queue to grow.");
   }
 
   // Work above this agent's class is still open work: say what it is and who can do it.
@@ -974,6 +999,7 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   ask.push(...lines);
 
   if (!items.some((item) => item.canAct)) ask.push(`Nothing you can do right now. Check again in ${WORK_POLL_SECONDS} seconds.`);
+  ask.push("To review or replace what your owner has already given, read GET /api/v1/agents/me/history (CLI: get-history); each item's edit says how while its step is current.");
 
   return {
     project,

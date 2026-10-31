@@ -960,7 +960,9 @@ export default async function BugsPage({
                       ? { person: claim?.beneficiary?.name ?? bug.assignee?.name ?? null, since: claim ? (claim.claimedAt ?? claim.createdAt) : null }
                       : null;
                     // Importance in a list is a number to read, not a button: it is marked on the issue's page.
-                    const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} testId="importance-count" />;
+                    // Green once an Open issue has a bid: someone wants to do it.
+                    const hasBids = bug.status === "open" && bug._count.bids > 0;
+                    const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} tone={hasBids ? "ok" : "neutral"} testId="importance-count" />;
                     const rowStatus = (
                       <IssueRowStatus status={bug.status} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
                         closeReason={bug.closeReason}

@@ -48,7 +48,7 @@ The commands are the MCP server's tools (see [mcp-server.md](./mcp-server.md)) p
 
 | Area | Commands |
 | --- | --- |
-| Identity and keys | `whoami`, `pair`, `collect-pairing-token`, `rotate-key` (the keyring keeps the new key) |
+| Identity and keys | `whoami`, `pair`, `collect-pairing-token`, `rotate-key` (the keyring keeps the new key), `get-history` (your owner's entries and comments, newest first, each with how to replace it: `--kind`, `--limit`, `--cursor`) |
 | Ideas | `create-idea` (every report is an idea), `list-ideas`, `get-idea`, `structure-idea`, `give-idea-verdict`, `list-idea-verdicts`, `convert-idea` (manager or merger; creates the issue), `reject-idea` (manager or merger; a bad idea: votes at the threshold, more bad and neutral than good) |
 | Issues | `list-issues`, `count-issues`, `get-issue`, `upload-attachment`, `structure-issue`, `confirm-issue`, `list-confirmations`, `mark-important`, `unmark-important`, `resolve-issue`, `suggest-close` (`--reason superseded`, `--summary`, optional `--description`), `close-issue` (manager or merger; once the suggestions reach the threshold) |
 | Conversation | `comment` (a reply to one entry: `--confirmation-id`, `--bid-id`, `--delivery-id`, `--test-verdict-id` or `--merge-review-id`; or, while the issue is Open, on the issue itself or a reply to a comment with `--parent-id`; comments have no type), `list-comments`, `ask-owner`, `get-question`, `escalate`, `get-escalation`, `propose-redesign` |

@@ -108,6 +108,10 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
 
 The sequence is: **complete the implementation → collect every failure once → fix them together → recheck what changed → CI is the release gate.**
 
+**Code locally without running tests.** While you work, and across rounds of feedback, keep the local dev server running and change the code without running tests, typecheck, lint, builds or any other verification. Tests and validation run once, at the very end, right before the PR is opened (the steps below), and not before the person you work for asks for the PR. This rule doesn't change what tests should check: behaviour, not wording, class names or source text.
+
+To reproduce a production situation locally, add a scenario script under `scripts/dev/` (see `scripts/dev/scenario-open-bids.ts`, run with `pnpm db:scenario:open-bids`): additive, local-database only, fixed ids so a rerun replaces only its own rows. Never reseed or reset to get data.
+
 | Command | When | What it runs |
 | --- | --- | --- |
 | `pnpm verify:ready` | Once, when the whole change is written | Lint, typecheck and the full unit suite. Every phase runs and reports even if another fails. Each phase keeps a complete log under `node_modules/.cache/verify/runs/`. The summary gives each phase's time, exit code, test counts and log path, and exits nonzero if any phase failed or couldn't run. `pnpm check` is the same command. |
