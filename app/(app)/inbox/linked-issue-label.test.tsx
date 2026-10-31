@@ -33,8 +33,8 @@ vi.mock("./escalation-controls", () => ({
   EscalationAnswerForm: () => null,
 }));
 
-import EscalationsPage from "./page";
-import EscalationDetailPage from "./[id]/page";
+import { EscalationsView as EscalationsPage } from "./escalations-view";
+import EscalationDetailPage from "./escalations/[id]/page";
 
 const bug = { id: "bug-1", number: 42, title: "Login button broken", project: { slug: "ziki" } };
 const question = {

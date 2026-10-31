@@ -47,7 +47,7 @@ test.describe("no sideways scroll", () => {
       await fileIssue(page, uniq("Layout target"));
       await expectNoSidewaysScroll(page);
 
-      await page.goto("/escalations");
+      await page.goto("/inbox?tab=escalations");
       await expectNoSidewaysScroll(page);
     });
   }

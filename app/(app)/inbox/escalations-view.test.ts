@@ -19,7 +19,7 @@ vi.mock("./escalation-controls", () => ({
   QuickResolveButtons: () => null,
 }));
 
-import EscalationsPage from "./page";
+import { EscalationsView as EscalationsPage } from "./escalations-view";
 
 const at = (day: number) => new Date(Date.UTC(2026, 9, day, 10));
 

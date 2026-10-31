@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-vi.mock("@/app/(app)/escalations/actions", () => ({
+vi.mock("@/app/(app)/inbox/actions", () => ({
   quickResolveEscalationAction: vi.fn(),
   answerEscalationAction: vi.fn(),
 }));

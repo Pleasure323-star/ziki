@@ -32,7 +32,7 @@ vi.mock("@/components/mark-all-read-button", () => ({
   MarkAllReadButton: ({ allWorkspaces }: { allWorkspaces: boolean }) => <button>{allWorkspaces ? "all" : "active"}</button>,
 }));
 
-import NotificationsPage from "./page";
+import { NotificationsView as NotificationsPage } from "./notifications-view";
 
 describe("NotificationsPage (#520)", () => {
   beforeEach(() => {
@@ -51,7 +51,7 @@ describe("NotificationsPage (#520)", () => {
     const html = renderToStaticMarkup(page);
 
     expect(html).toContain("Acme");
-    expect(html).toContain("notifications?scope=all");
+    expect(html).toContain("inbox?scope=all");
     expect(mocks.findMany.mock.calls[0]?.[0].where).toEqual({ userId: "user-1" });
   });
 
@@ -72,7 +72,7 @@ describe("NotificationsPage (#520)", () => {
 
     expect(mocks.findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 50, take: 50 });
     expect(html).toContain("Previous");
-    expect(html).toContain("notifications?scope=all&amp;page=3");
+    expect(html).toContain("inbox?scope=all&amp;page=3");
   });
 
   it("clamps a page past the end to the last page instead of showing an empty list", async () => {

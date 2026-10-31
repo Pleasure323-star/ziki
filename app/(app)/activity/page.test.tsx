@@ -8,7 +8,7 @@ vi.mock("@/lib/agent-center/queries", () => ({ loadAgentCenter: mocks.load }));
 vi.mock("@/lib/feature-flags", () => ({ isAgentPlatformEnabled: mocks.enabled }));
 vi.mock("@/components/local-time", () => ({ LocalTime: () => <time>Today</time> }));
 vi.mock("@/components/issue-approval-banner", () => ({ IssueApprovalBanner: ({ approval }: { approval: { id: string } }) => <div>Pipeline controls {approval.id}</div> }));
-vi.mock("@/app/(app)/escalations/escalation-controls", () => ({
+vi.mock("@/app/(app)/inbox/escalation-controls", () => ({
   EscalationTypeBadge: ({ type }: { type: string }) => <span>{type}</span>,
   QuickResolveButtons: ({ escalationId }: { escalationId: string }) => <button>Respond {escalationId}</button>,
 }));

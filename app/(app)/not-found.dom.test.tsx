@@ -20,7 +20,7 @@ import PersonNotFound from "./users/[id]/not-found";
 import ProjectNotFound from "./projects/[slug]/not-found";
 import AgentNotFound from "./settings/agent/[name]/not-found";
 import RedesignNotFound from "./redesigns/[id]/not-found";
-import EscalationNotFound from "./escalations/[id]/not-found";
+import EscalationNotFound from "./inbox/escalations/[id]/not-found";
 
 describe("in-app 404 pages", () => {
   beforeEach(() => {
@@ -38,8 +38,8 @@ describe("in-app 404 pages", () => {
     ["a person", PersonNotFound, /person/i, /ranking/i, "/workers"],
     ["a project", ProjectNotFound, /project/i, /projects/i, "/org/projects"],
     ["an agent", AgentNotFound, /agent/i, /agents/i, "/agents"],
-    ["a redesign", RedesignNotFound, /redesign/i, /escalations/i, "/escalations?type=Redesign"],
-    ["an escalation", EscalationNotFound, /escalation/i, /escalations/i, "/escalations"],
+    ["a redesign", RedesignNotFound, /redesign/i, /escalations/i, "/inbox?tab=escalations"],
+    ["an escalation", EscalationNotFound, /escalation/i, /escalations/i, "/inbox?tab=escalations"],
   ])("names %s and links back to its list", (_kind, Page, heading, link, href) => {
     render(<Page />);
     expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();

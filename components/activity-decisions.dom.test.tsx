@@ -3,11 +3,11 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { IssueApprovalBanner } from "./issue-approval-banner";
-import { QuickResolveButtons } from "@/app/(app)/escalations/escalation-controls";
+import { QuickResolveButtons } from "@/app/(app)/inbox/escalation-controls";
 
 const mocks = vi.hoisted(() => ({ refresh: vi.fn(), resolve: vi.fn(), fetch: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: mocks.refresh }) }));
-vi.mock("@/app/(app)/escalations/actions", () => ({ quickResolveEscalationAction: mocks.resolve, answerEscalationAction: vi.fn() }));
+vi.mock("@/app/(app)/inbox/actions", () => ({ quickResolveEscalationAction: mocks.resolve, answerEscalationAction: vi.fn() }));
 
 beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("fetch", mocks.fetch); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
