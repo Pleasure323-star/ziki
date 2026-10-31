@@ -78,11 +78,12 @@ describe("backfill points (#435)", () => {
       ]);
     });
 
-    it("counts closed like resolved, with the same flat solver amount", () => {
-      expect(backfillEntries(bug({ status: "closed" }))[0]).toMatchObject({
-        role: "solver",
-        points: 750,
-      });
+    it("never pays a solver award from a closed status (#656)", () => {
+      // Live pays nothing for closed; backfill must match, since closed can be
+      // invalid, cancelled, won't-fix or duplicate.
+      expect(backfillEntries(bug({ status: "closed" })).map((e) => e.role)).toEqual(["reporter"]);
+      // A duplicate that was also closed earns nothing at all.
+      expect(backfillEntries(bug({ status: "closed", duplicateOfId: "bug-0" }))).toEqual([]);
     });
 
     it("gives a bug with no assignee reporter points only", () => {
@@ -95,8 +96,9 @@ describe("backfill points (#435)", () => {
 
     it("never gives a duplicate reporter points", () => {
       expect(backfillEntries(bug({ duplicateOfId: "bug-0", assigneeId: null }))).toEqual([]);
-      // Still assigned and resolved: the solver did the work, the report wasn't new.
-      expect(backfillEntries(bug({ duplicateOfId: "bug-0" })).map((e) => e.role)).toEqual(["solver"]);
+      // A duplicate must not pay the solver either (#656): the canonical award
+      // lives on the issue it duplicates, so re-paying here would double-pay.
+      expect(backfillEntries(bug({ duplicateOfId: "bug-0" }))).toEqual([]);
     });
 
     it("gives a deleted bug nothing", () => {

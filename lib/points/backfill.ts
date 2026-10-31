@@ -38,7 +38,14 @@ export type HistoricalBug = {
   projectId?: string | null;
 };
 
-const FINISHED: ReadonlySet<Status> = new Set<Status>(["resolved", "closed"]);
+/** Solver points are earned on `resolved` only — the same eligibility the
+ * live award path (app/actions/issues.ts) and the bulk edit path
+ * (lib/points/bulk-award.ts) use. A `closed` issue may still be a duplicate,
+ * cancellation or won't-fix outcome, which must never pay a solver (#656);
+ * a genuinely completed closed ticket can be credited through a missing-award
+ * dispute, which is the audited path for that case.
+ */
+const SOLVER_ELIGIBLE: ReadonlySet<Status> = new Set<Status>(["resolved"]);
 
 export function isModernBug(bug: HistoricalBug, cutoffDate?: Date): boolean {
   if (bug.createdByAgentId) return true;
@@ -46,8 +53,10 @@ export function isModernBug(bug: HistoricalBug, cutoffDate?: Date): boolean {
   return false;
 }
 
-/** The awards a ticket earns: solver for its assignee once finished, reporter unless it's a duplicate.
- * For modern/agent-platform issues (#715), reporter points require independent confirmation.
+/** The awards a ticket earns: solver for its assignee once resolved (never for
+ * a duplicate, and not from a mere `closed` status), reporter unless it's a
+ * duplicate. For modern/agent-platform issues (#715), reporter points require
+ * independent confirmation.
  */
 export function backfillEntries(
   bug: HistoricalBug,
@@ -57,7 +66,7 @@ export function backfillEntries(
   if (bug.isDeleted) return [];
   const rewardConfig = options?.rewardConfig;
   const entries: PointAward[] = [];
-  if (FINISHED.has(bug.status) && bug.assigneeId) {
+  if (SOLVER_ELIGIBLE.has(bug.status) && bug.assigneeId && !bug.duplicateOfId) {
     entries.push({
       tenantId: bug.tenantId,
       userId: bug.assigneeId,
