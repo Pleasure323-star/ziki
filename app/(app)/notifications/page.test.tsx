@@ -63,4 +63,23 @@ describe("NotificationsPage (#520)", () => {
       OR: [{ tenantId: null }, { tenantId: "tenant-1" }],
     });
   });
+
+  it("pages past the latest 50 and keeps the workspace scope (#569)", async () => {
+    mocks.count.mockResolvedValue(120);
+
+    const page = await NotificationsPage({ searchParams: Promise.resolve({ scope: "all", page: "2" }) });
+    const html = renderToStaticMarkup(page);
+
+    expect(mocks.findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 50, take: 50 });
+    expect(html).toContain("Previous");
+    expect(html).toContain("notifications?scope=all&amp;page=3");
+  });
+
+  it("clamps a page past the end to the last page instead of showing an empty list", async () => {
+    mocks.count.mockResolvedValue(60);
+
+    await NotificationsPage({ searchParams: Promise.resolve({ page: "99" }) });
+
+    expect(mocks.findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 50, take: 50 });
+  });
 });
