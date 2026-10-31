@@ -46,6 +46,10 @@ function form(values: Record<string, string | number | boolean> = {}) {
     abandonCheckMinutes: 120,
     abandonThreshold: 3,
     closeThreshold: 3,
+    governance: "manager",
+    managerVoteWeight: 3,
+    awardThreshold: 3,
+    acceptThreshold: 3,
     ...values,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -155,6 +159,33 @@ describe("updateProjectWorkflowAction (#595)", () => {
     await expect(updateProjectWorkflowAction(undefined, form({ closeThreshold: 0 }))).resolves.toMatchObject({
       ok: false,
       fieldErrors: { closeThreshold: expect.any(String) },
+    });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("saves the vote governance settings, and refuses an unknown mode (#vote-governance)", async () => {
+    await expect(
+      updateProjectWorkflowAction(undefined, form({ governance: "threshold", managerVoteWeight: 4, awardThreshold: 5, acceptThreshold: 6 })),
+    ).resolves.toEqual({ ok: true });
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ governance: "threshold", managerVoteWeight: 4, awardThreshold: 5, acceptThreshold: 6 }),
+      }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        changes: expect.objectContaining({
+          governance: { from: "manager", to: "threshold" },
+          managerVoteWeight: { from: 3, to: 4 },
+          awardThreshold: { from: 3, to: 5 },
+          acceptThreshold: { from: 3, to: 6 },
+        }),
+      }),
+    });
+    transaction.mockClear();
+    await expect(updateProjectWorkflowAction(undefined, form({ governance: "anarchy" }))).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { governance: expect.any(String) },
     });
     expect(transaction).not.toHaveBeenCalled();
   });

@@ -12,7 +12,9 @@ import { awardBid } from "@/lib/agent-api/bid";
  * 200 `{ bidId, claimId, bugId, status: "offered" }`.
  * 403 for a bid from the manager's own owner, or below manager level.
  * 409 when the bid is no longer open, the issue is not Open and confirmed, or
- * a live offer or active claim already holds it.
+ * a live offer or active claim already holds it; 409 `at_capacity` when the
+ * bidder's person already holds the project's maxActiveClaims in live offers
+ * and active claims (#bidder-capacity).
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

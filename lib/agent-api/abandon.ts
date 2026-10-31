@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
-import { hasLevel, requireLevel } from "@/lib/agents/levels";
+import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
@@ -10,6 +10,7 @@ import { entrySummary } from "@/lib/agent-api/entry-fields";
 import { statusChangedSummary } from "@/lib/activity-log";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { voteWeight } from "@/lib/governance";
 import { idleInProgress, inProgressWork, isIdle } from "@/lib/agent-api/idle";
 
 /**
@@ -17,20 +18,14 @@ import { idleInProgress, inProgressWork, isIdle } from "@/lib/agent-api/idle";
  * (lib/agent-api/idle.ts: no update for the project's `abandonCheckMinutes`,
  * 2 hours by default), every other agent's work feed asks it to check. Each
  * person, through their agent, may vote that it is abandoned: one vote per person per claim, a manager (or
- * merger) agent's counting 3. Once the claim's votes reach `abandonThreshold`
+ * merger) agent's counting the project's `managerVoteWeight` (lib/governance.ts).
+ * Once the claim's votes reach `abandonThreshold`, in either governance mode,
  * the claim is released, its award no longer stands, and the issue goes back
  * to Open with no assignee.
  */
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export const MANAGER_ABANDON_VOTES = 3;
-
 export const abandonVoteSchema = z.object({ summary: entrySummary }).strict();
-
-/** The weight of one agent's Abandoned vote. */
-export function abandonVoteWeight(level: AgentContext["level"]): number {
-  return hasLevel(level, "manager") ? MANAGER_ABANDON_VOTES : 1;
-}
 
 /** The Abandoned votes on a claim, added up. */
 export async function abandonTally(claimId: string, db: Db = prisma): Promise<{ votes: number; voters: string[] }> {
@@ -43,9 +38,9 @@ export async function senseCheck(bugId: string, now = Date.now()) {
   const idle = await idleInProgress(bugId, prisma, now);
   // Idle work nobody holds is a manager's review_idle, not a vote.
   if (!idle?.claim) return null;
-  const { abandonThreshold } = await workflowFor(idle.bug.projectId);
+  const { abandonThreshold, managerVoteWeight } = await workflowFor(idle.bug.projectId);
   const { votes } = await abandonTally(idle.claim.id);
-  return { claimId: idle.claim.id, lastUpdate: idle.lastUpdate, votes, threshold: abandonThreshold };
+  return { claimId: idle.claim.id, lastUpdate: idle.lastUpdate, votes, threshold: abandonThreshold, managerVoteWeight };
 }
 
 /**
@@ -64,7 +59,7 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
   });
   if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
   const workflow = await workflowFor(projectId);
-  const weight = abandonVoteWeight(agent.level);
+  const weight = voteWeight(agent.level, workflow.managerVoteWeight);
 
   const result = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
@@ -83,9 +78,14 @@ export async function voteAbandoned(agent: AgentContext, projectId: string, issu
       const message = `This work was updated less than ${workflow.abandonCheckMinutes} minutes ago; it is not up for a sense check yet.`;
       throw new IssueApiError(409, message, { error: "not_due", message });
     }
+    // One vote per person, at the highest weight any of their agents cast.
+    const earlier = await tx.abandonVote.findUnique({
+      where: { claimId_onBehalfOfUserId: { claimId: claim.id, onBehalfOfUserId: agent.ownerId } },
+      select: { votes: true },
+    });
     await tx.abandonVote.upsert({
       where: { claimId_onBehalfOfUserId: { claimId: claim.id, onBehalfOfUserId: agent.ownerId } },
-      update: { votes: weight, summary: input.summary, agentId: agent.agentId },
+      update: { votes: Math.max(weight, earlier?.votes ?? 0), summary: input.summary, agentId: agent.agentId },
       create: { claimId: claim.id, bugId: bug.id, onBehalfOfUserId: agent.ownerId, agentId: agent.agentId, votes: weight, summary: input.summary },
     });
     const { votes } = await abandonTally(claim.id, tx);

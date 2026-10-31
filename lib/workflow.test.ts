@@ -21,6 +21,10 @@ const row = {
   abandonCheckMinutes: 90,
   abandonThreshold: 4,
   closeThreshold: 6,
+  governance: "threshold",
+  managerVoteWeight: 4,
+  awardThreshold: 7,
+  acceptThreshold: 8,
 };
 
 describe("workflowFor (#595)", () => {
@@ -36,7 +40,7 @@ describe("workflowFor (#595)", () => {
     await expect(workflowFor("project-a")).resolves.toEqual(row);
     expect(db.projectWorkflow.findUnique).toHaveBeenCalledWith({
       where: { projectId: "project-a" },
-      select: expect.objectContaining({ confirmationsNeeded: true, autoMerge: true, abandonCheckMinutes: true, abandonThreshold: true, closeThreshold: true }),
+      select: expect.objectContaining({ confirmationsNeeded: true, autoMerge: true, abandonCheckMinutes: true, abandonThreshold: true, closeThreshold: true, governance: true, managerVoteWeight: true, awardThreshold: true, acceptThreshold: true }),
     });
   });
 

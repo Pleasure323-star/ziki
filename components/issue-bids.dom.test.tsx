@@ -124,6 +124,16 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: /Award/ })).toBeNull();
   });
 
+  it("marks an open bid whose bidder is at capacity, and offers no Award button for it (#bidder-capacity)", () => {
+    render(<IssueBidsPanel bids={[{ ...bid, id: "full", agentName: "Pixel", atCapacity: true }, { ...bid, id: "free", agentName: "Cara's agent" }]} canAward />);
+    const marks = screen.getAllByTestId("bid-at-capacity");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveTextContent("at capacity");
+    expect(marks[0].closest("li")).toHaveTextContent("Pixel");
+    const buttons = screen.getAllByRole("button", { name: /Award/ });
+    expect(buttons.map((button) => (button.closest("form")?.querySelector("input[name=bidId]") as HTMLInputElement | null)?.value)).toEqual(["free"]);
+  });
+
   it("shows a withdrawn bid without its description", () => {
     render(
       <IssueBidsPanel bids={[bid, { ...bid, id: "bid2", summary: "Withdrawn plan.", description: "Hidden description.", withdrawnAt: new Date("2026-10-29T12:00:00Z") }]} />,

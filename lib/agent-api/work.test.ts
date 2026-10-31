@@ -53,6 +53,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     toClose: [],
     toDeliverStranded: [],
     toReconcile: [],
+    toRepair: [],
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
@@ -67,6 +68,8 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     facts: new Map(),
     ideaFacts: new Map(),
     offerWindowSeconds: 1800,
+    capacity: 2,
+    governance: { thresholdOnly: false, managerVoteWeight: 3, closeThreshold: 3, awardThreshold: 3, acceptThreshold: 3 },
     ...overrides,
   };
 }
@@ -82,7 +85,9 @@ const openBid = (overrides: Partial<ProjectWork["bids"][number]> = {}): ProjectW
   by: "Ada",
   summary: "I will fix the redirect.",
   votes: 0,
+  weightedVotes: 0,
   voters: [],
+  load: 0,
   createdAt: new Date("2026-10-29T10:00:00Z"),
   ...overrides,
 });
@@ -111,9 +116,15 @@ describe("itemsFor", () => {
     expect(items.map((i) => i.key)).toEqual(["idea:b2"]);
   });
 
-  it("tells a manager agent it may give up to 5 votes", () => {
+  it("tells a manager agent it may give up to the project's manager vote weight", () => {
     const items = itemsFor(agent("manager"), work({ ideas: [{ id: "b1", number: 7, title: "x", score: 0 }], ideaFacts: new Map([["b1", ideaFacts()]]) }), nothingMine);
-    expect(items[0].actions[0].cli).toContain("--votes 1-5");
+    expect(items[0].actions[0].cli).toContain("--votes 1-3");
+    const heavier = work({
+      ideas: [{ id: "b1", number: 7, title: "x", score: 0 }],
+      ideaFacts: new Map([["b1", ideaFacts()]]),
+      governance: { thresholdOnly: false, managerVoteWeight: 4, closeThreshold: 3, awardThreshold: 3, acceptThreshold: 3 },
+    });
+    expect(itemsFor(agent("manager"), heavier, nothingMine)[0].actions[0].cli).toContain("--votes 1-4");
   });
 
   it("leaves out the agent's own ideas", () => {
@@ -228,7 +239,7 @@ describe("itemsFor", () => {
     const project = work({
       ready: [{ id: "b1", number: 1, title: "x", importance: 3 }],
       toAward: [{ id: "b4", number: 4, title: "w", bids: [openBid({ issue: { id: "b4", number: 4, title: "w" } })] }],
-      toClose: [{ id: "b5", number: 5, title: "v", votes: 3, threshold: 3, suggestions: 1, summaries: ["#2 covers it."] }],
+      toClose: [{ id: "b5", number: 5, title: "v", votes: 3, threshold: 3, suggestions: 1, summaries: ["#2 covers it."], suggesters: ["owner-cara"] }],
       toAccept: [{ id: "b2", number: 2, title: "y" }],
       toMerge: [{ id: "b3", number: 3, title: "z" }],
       facts: new Map([["b2", facts()], ["b3", facts()]]),
@@ -335,8 +346,53 @@ describe("itemsFor", () => {
     expect(forWorking).toMatchObject({ canAct: false, blockedReason: "Needs a manager agent." });
   });
 
+  it("shows each bidder's load and offers no award for a bid at capacity (#bidder-capacity)", () => {
+    const issue = { id: "b1", number: 1, title: "x" };
+    const bids = [
+      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", votes: 5, load: 2 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", votes: 1, load: 1 }),
+    ];
+    const item = itemsFor(agent("manager", "owner-dana"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    expect(item).toMatchObject({ canAct: true });
+    expect(item!.detail).toContain("Pixel: 2 of 2 — at capacity");
+    expect(item!.detail).toContain("Cara's Claude: 1 of 2");
+    expect(item!.actions.map((a) => a.cli)).toEqual(["award-bid --id bid-cara"]);
+  });
+
+  it("keeps the award item but blocks it when every bidder is at capacity (#bidder-capacity)", () => {
+    const issue = { id: "b1", number: 1, title: "x" };
+    const bids = [
+      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", load: 2 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", load: 3 }),
+    ];
+    const item = itemsFor(agent("manager", "owner-dana"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    expect(item).toMatchObject({
+      canAct: false,
+      blockedReason: "every bidder is at capacity; wait or ask for more bids",
+      actions: [],
+    });
+  });
+
+  it("offers threshold-only votes only on bids under capacity (#bidder-capacity)", () => {
+    const issue = { id: "b1", number: 1, title: "x" };
+    const governance = { thresholdOnly: true, managerVoteWeight: 3, closeThreshold: 3, awardThreshold: 3, acceptThreshold: 3 };
+    const bids = [
+      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", weightedVotes: 2, load: 2 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", weightedVotes: 0, load: 0 }),
+    ];
+    const item = itemsFor(agent("working", "owner-eli"), work({ governance, toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    expect(item).toMatchObject({ canAct: true });
+    expect(item!.actions.map((a) => a.cli)).toEqual(["vote-bid --id bid-cara"]);
+
+    const allFull = work({ governance, toAward: [{ ...issue, bids: bids.map((bid) => ({ ...bid, load: 2 })) }] });
+    expect(itemsFor(agent("working", "owner-eli"), allFull, nothingMine).find((i) => i.kind === "award_bid")).toMatchObject({
+      canAct: false,
+      blockedReason: "every bidder is at capacity; wait or ask for more bids",
+    });
+  });
+
   it("asks a manager to close an issue whose suggestions reached the threshold (#close-superseded)", () => {
-    const project = work({ toClose: [{ id: "b5", number: 5, title: "v", votes: 5, threshold: 3, suggestions: 3, summaries: ["#2 covers it.", "Same as #2."] }] });
+    const project = work({ toClose: [{ id: "b5", number: 5, title: "v", votes: 5, threshold: 3, suggestions: 3, summaries: ["#2 covers it.", "Same as #2."], suggesters: ["owner-cara", "owner-dan", "owner-eli"] }] });
     const item = itemsFor(agent("manager"), project, nothingMine).find((i) => i.kind === "close_issue");
     expect(item).toMatchObject({ key: "close_issue:b5", minimumRole: "manager", canAct: true, title: "Close #5 as superseded?" });
     expect(item!.detail).toContain("3 suggestions say another issue or change covers it (5 of 3 votes)");
@@ -410,6 +466,56 @@ describe("itemsFor", () => {
     // A working agent sees it but can't act; a manager whose owner filed it can't either.
     expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
     expect(itemsFor(agent("manager", "owner-ada"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
+  });
+
+  it("says a link under the old repository name needs repairing, on the issue's items and as a manager item (#triage)", () => {
+    const old = "https://github.com/Zedu-Endor/issue-tracker/pull/552";
+    const project = work({
+      toAccept: [{ id: "b2", number: 552, title: "Old fix" }],
+      toRepair: [{ id: "b2", number: 552, title: "Old fix", status: "done", pullRequestUrl: old, linkState: "old_repository" }],
+      facts: new Map([["b2", facts({ pullRequestUrl: old })]]),
+    });
+    const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
+    const accept = items.find((i) => i.kind === "accept_fix");
+    expect(accept!.detail).toContain("PR belongs to the old repository: repair it first.");
+    const repair = items.find((i) => i.kind === "repair_pull_request");
+    expect(repair).toMatchObject({ key: `repair_pull_request:b2:${old}`, minimumRole: "manager", canAct: true, issue: { id: "b2", number: 552 } });
+    expect(repair!.actions.map((a) => [a.name, a.path])).toEqual([["repair_pull_request", "/api/v1/issues/b2/pull-request?projectId=p1"]]);
+    // A working agent sees it but can't act; a manager whose owner filed it can't either.
+    expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "repair_pull_request")).toMatchObject({ canAct: false });
+    expect(itemsFor(agent("manager", "owner-ada"), project, nothingMine).find((i) => i.kind === "repair_pull_request")).toMatchObject({ canAct: false });
+  });
+
+  it("doesn't add a second repair item when the reconcile item already offers the repair", () => {
+    const old = "https://github.com/zeduchat/bug-tracker/pull/9";
+    const project = work({
+      toReconcile: [{ id: "b5", number: 9, title: "Fix", status: "ready_to_merge", pullRequestUrl: old }],
+      toRepair: [{ id: "b5", number: 9, title: "Fix", status: "ready_to_merge", pullRequestUrl: old, linkState: "old_repository" }],
+      facts: new Map([["b5", facts({ pullRequestUrl: old })]]),
+    });
+    const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
+    expect(items.filter((i) => i.kind === "repair_pull_request")).toHaveLength(0);
+    expect(items.find((i) => i.kind === "reconcile_merged")!.detail).toContain("PR belongs to the old repository: repair it first.");
+  });
+
+  it("names a link in another repository as one to repair or replace", () => {
+    const elsewhere = "https://github.com/someone/fork/pull/3";
+    const project = work({
+      toRepair: [{ id: "b6", number: 3, title: "Fix", status: "in_progress", pullRequestUrl: elsewhere, linkState: "other_repository" }],
+      facts: new Map([["b6", facts({ pullRequestUrl: elsewhere })]]),
+    });
+    const repair = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "repair_pull_request");
+    expect(repair!.detail).toContain("PR is not in the project's repository");
+  });
+
+  it("lists repair_pull_request as waiting for a manager when a working agent can't do it", () => {
+    const old = "https://github.com/Zedu-Endor/issue-tracker/pull/552";
+    const project = work({
+      toRepair: [{ id: "b2", number: 552, title: "Old fix", status: "delivered", pullRequestUrl: old, linkState: "old_repository" }],
+      facts: new Map([["b2", facts({ pullRequestUrl: old })]]),
+    });
+    const { waiting } = waitingForOthers("working", itemsFor(agent("working", "owner-eli"), project, nothingMine));
+    expect(waiting).toContainEqual(expect.objectContaining({ kind: "repair_pull_request", count: 1, minimumRole: "manager" }));
   });
 
   it("puts offers addressed to the agent first, with their deadline", () => {

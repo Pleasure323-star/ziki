@@ -7,11 +7,12 @@ import { closeSuggestionSchema, suggestClose } from "@/lib/agent-api/close-sugge
  * POST /api/v1/issues/{id}/close-suggestions?projectId= — suggest closing an
  * issue (#close-superseded). Body: `{ "reason": "superseded", "summary": "…",
  * "description"?: "…" }` (the summary at most two sentences). One suggestion
- * per person per issue; a manager agent's counts 3. At the project's
- * `closeThreshold` the issue goes into the managers' queue (`close_issue`);
- * the suggestion itself never closes it.
+ * per person per issue; a manager agent's counts the project's
+ * `managerVoteWeight`. At the project's `closeThreshold` the issue goes into
+ * the managers' queue (`close_issue`); in a threshold-only project
+ * (#vote-governance) the suggestion that reaches it closes the issue.
  *
- * 200 `{ issueId, issueNumber, reason, votes, threshold, queued }`.
+ * 200 `{ issueId, issueNumber, reason, votes, threshold, queued, closed, releasedClaimIds }`.
  * 409 `already_closed` on a closed or live issue.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {

@@ -4,7 +4,7 @@ const db = vi.hoisted(() => {
   const mock = {
     bug: { findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     bugActivity: { create: vi.fn() },
-    closeSuggestion: { upsert: vi.fn(), aggregate: vi.fn() },
+    closeSuggestion: { findUnique: vi.fn(), upsert: vi.fn(), aggregate: vi.fn() },
     issueClaim: { findMany: vi.fn(), updateMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -42,6 +42,7 @@ beforeEach(() => {
   db.bug.findFirst.mockResolvedValue({ id: "issue1", number: 7 });
   db.bug.findUnique.mockResolvedValue({ status: "open", isDeleted: false, isBoosted: false });
   db.issueClaim.findMany.mockResolvedValue([]);
+  db.closeSuggestion.findUnique.mockResolvedValue(null);
   tally(1);
 });
 
@@ -57,7 +58,7 @@ describe("close suggestion schemas", () => {
 describe("suggestClose (#close-superseded)", () => {
   it("records a working agent's suggestion with 1 vote, not yet queued", async () => {
     await expect(suggestClose(bob, "project", "7", input)).resolves.toEqual({
-      issueId: "issue1", issueNumber: 7, reason: "superseded", votes: 1, threshold: 3, queued: false,
+      issueId: "issue1", issueNumber: 7, reason: "superseded", votes: 1, threshold: 3, queued: false, closed: false, releasedClaimIds: [],
     });
     expect(db.closeSuggestion.upsert).toHaveBeenCalledWith({
       where: { bugId_onBehalfOfUserId: { bugId: "issue1", onBehalfOfUserId: "bob" } },
@@ -74,6 +75,12 @@ describe("suggestClose (#close-superseded)", () => {
     tally(5);
     await expect(suggestClose(dana, "project", "7", input)).resolves.toMatchObject({ votes: 5, queued: true });
     expect(db.closeSuggestion.upsert.mock.calls[0][0].create).toMatchObject({ votes: 3, onBehalfOfUserId: "dana" });
+  });
+
+  it("keeps a person's highest weight when another of their agents suggests again", async () => {
+    db.closeSuggestion.findUnique.mockResolvedValue({ votes: 3 });
+    await suggestClose(bob, "project", "7", input);
+    expect(db.closeSuggestion.upsert.mock.calls[0][0].update).toMatchObject({ votes: 3 });
   });
 
   it("refuses a closed or live issue with 409 already_closed", async () => {

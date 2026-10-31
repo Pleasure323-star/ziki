@@ -1,6 +1,19 @@
 import { z } from "zod";
 
 /**
+ * How a project's voted steps are decided (#vote-governance). `manager` (the
+ * default): when a step's votes reach its threshold, a manager agent acts.
+ * `threshold`: the vote that crosses the threshold does the step itself.
+ */
+export const PROJECT_GOVERNANCE = ["manager", "threshold"] as const;
+export type ProjectGovernanceValue = (typeof PROJECT_GOVERNANCE)[number];
+
+export const GOVERNANCE_LABELS: Record<ProjectGovernanceValue, string> = {
+  manager: "Threshold + manager",
+  threshold: "Threshold only",
+};
+
+/**
  * Project workflow dials (#595). These are the values the agent gates enforce.
  * The defaults reproduce the behaviour that used to live in module constants.
  */
@@ -17,6 +30,10 @@ export type ProjectWorkflowValues = {
   abandonCheckMinutes: number;
   abandonThreshold: number;
   closeThreshold: number;
+  governance: ProjectGovernanceValue;
+  managerVoteWeight: number;
+  awardThreshold: number;
+  acceptThreshold: number;
 };
 
 export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.freeze({
@@ -45,6 +62,14 @@ export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.
   abandonThreshold: 3,
   // Three close-suggestion votes (one manager agent's) put an issue in the managers' queue to close (#close-superseded).
   closeThreshold: 3,
+  // A manager agent acts once a step's votes reach its threshold (#vote-governance).
+  governance: "manager",
+  // A manager or merger agent's vote counts 3; a person's or a working agent's counts 1.
+  managerVoteWeight: 3,
+  // Threshold-only projects: three weighted bid votes award a bid.
+  awardThreshold: 3,
+  // Threshold-only projects: three weighted accepts (or rejects) decide a Done issue.
+  acceptThreshold: 3,
 });
 
 /**
@@ -65,6 +90,9 @@ export const WORKFLOW_LIMITS = {
   abandonCheckMinutes: { min: 0, max: 10080 },
   abandonThreshold: { min: 1, max: 100 },
   closeThreshold: { min: 1, max: 100 },
+  managerVoteWeight: { min: 1, max: 10 },
+  awardThreshold: { min: 1, max: 100 },
+  acceptThreshold: { min: 1, max: 100 },
 } as const;
 
 const boundedInt = (field: keyof typeof WORKFLOW_LIMITS, label: string) => {
@@ -89,6 +117,10 @@ export const workflowSettingsSchema = z.object({
   abandonCheckMinutes: boundedInt("abandonCheckMinutes", "Sense check after"),
   abandonThreshold: boundedInt("abandonThreshold", "Abandoned threshold"),
   closeThreshold: boundedInt("closeThreshold", "Close threshold"),
+  governance: z.enum(PROJECT_GOVERNANCE, { error: "Pick a governance mode." }),
+  managerVoteWeight: boundedInt("managerVoteWeight", "Manager vote weight"),
+  awardThreshold: boundedInt("awardThreshold", "Award threshold"),
+  acceptThreshold: boundedInt("acceptThreshold", "Accept threshold"),
 });
 
 /** A stored row, with defaults for a missing row or a test double. */
@@ -109,5 +141,9 @@ export function workflowValues(
     abandonCheckMinutes: row?.abandonCheckMinutes ?? DEFAULT_PROJECT_WORKFLOW.abandonCheckMinutes,
     abandonThreshold: row?.abandonThreshold ?? DEFAULT_PROJECT_WORKFLOW.abandonThreshold,
     closeThreshold: row?.closeThreshold ?? DEFAULT_PROJECT_WORKFLOW.closeThreshold,
+    governance: row?.governance ?? DEFAULT_PROJECT_WORKFLOW.governance,
+    managerVoteWeight: row?.managerVoteWeight ?? DEFAULT_PROJECT_WORKFLOW.managerVoteWeight,
+    awardThreshold: row?.awardThreshold ?? DEFAULT_PROJECT_WORKFLOW.awardThreshold,
+    acceptThreshold: row?.acceptThreshold ?? DEFAULT_PROJECT_WORKFLOW.acceptThreshold,
   };
 }

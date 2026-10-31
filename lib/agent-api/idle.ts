@@ -9,7 +9,7 @@ import { workflowFor } from "@/lib/workflow";
  * decide whether it was abandoned.
  *
  * - Held by an active claim, it is a `sense_check`: other agents vote
- *   Abandoned (lib/agent-api/abandon.ts), a manager agent's vote counting 3.
+ *   Abandoned (lib/agent-api/abandon.ts), a manager agent's vote counting managerVoteWeight.
  * - Held by nobody (assigned to a person, or its claim already released), it
  *   is a `review_idle` for a manager agent, who may take it back to Open with
  *   `POST /api/v1/issues/{id}/reclaim` (lib/agent-api/availability.ts).

@@ -35,9 +35,9 @@ describe("bids, votes and a manager's award", () => {
     const item = await byKey("eli", `review_bid:${bobBid}`);
     expect(item).toMatchObject({ kind: "review_bid", canAct: true, issue: { id } });
     expect(item!.actions.map((action) => action.cli)).toEqual([`vote-bid --id ${bobBid}`]);
-    expect(await ok("eli", "vote-bid", { id: bobBid })).toEqual({ bidId: bobBid, votes: 1 });
+    expect(await ok("eli", "vote-bid", { id: bobBid })).toMatchObject({ bidId: bobBid, votes: 1, awarded: false });
     // Voting again is fine and counts once.
-    expect(await ok("eli", "vote-bid", { id: bobBid })).toEqual({ bidId: bobBid, votes: 1 });
+    expect(await ok("eli", "vote-bid", { id: bobBid })).toMatchObject({ bidId: bobBid, votes: 1, awarded: false });
     expect(await byKey("eli", `review_bid:${bobBid}`)).toBeUndefined();
     expect(await byKey("eli", `review_bid:${caraBid}`)).toBeTruthy();
     const listed = (await ok("ada", "list-bids", { id })).bids as { id: string; votes: number }[];

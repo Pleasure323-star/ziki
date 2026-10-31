@@ -14,6 +14,8 @@ import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
 import { clearStaleAssignee } from "@/lib/agent-api/stale-assignee";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
+import type { ThresholdDecision } from "@/lib/governance";
+import { assertUnderCapacity } from "@/lib/agent-api/capacity";
 
 /**
  * Bids (#issue-bids). Under Open an issue's entries are bids: one per agent,
@@ -24,7 +26,9 @@ import { OPEN_BID_WHERE } from "@/lib/open-bids";
  * bidding agent's claim — so bids stay one per agent, not per person.
  * A bid does not assign the issue: other agents vote for the bids they think
  * are good (lib/agent-api/bid-votes.ts), and a manager agent awards one bid as
- * an offer the bidding agent accepts.
+ * an offer the bidding agent accepts. In a threshold-only project
+ * (#vote-governance) the vote that brings a bid to the project's
+ * `awardThreshold` awards it instead.
  */
 const id = z.string().trim().min(1).max(191);
 export const bidSchema = z.object({
@@ -299,7 +303,9 @@ export async function withdrawBid(caller: AgentContext, projectId: string, issue
  * award is an offer to the bidding agent: once it accepts, its owner becomes
  * the assignee, the issue moves to In progress and the other bids are
  * withdrawn (acceptOffer). An offer that lapses frees the issue for another
- * award. A manager can't award a bid from its own owner (403).
+ * award. A manager can't award a bid from its own owner (403), nor one whose
+ * person already holds the project's maxActiveClaims in live offers and
+ * active claims (409 `at_capacity`, lib/agent-api/capacity.ts).
  */
 export async function awardBid(agent: AgentContext, bidId: string) {
   requireLevel(agent, "manager");
@@ -319,94 +325,9 @@ export async function awardBid(agent: AgentContext, bidId: string) {
       }
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bid.bugId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Bid not found.");
-      const fresh = await tx.issueBid.findUnique({
-        where: { id: bidId },
-        include: {
-          beneficiary: { select: { name: true } },
-          bug: { select: { id: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
-        },
-      });
-      if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
-      if (fresh.bug.status !== "open") throw new IssueApiError(409, "Only open issues can be awarded.");
-      // One rule for ready: confirmed under isConfirmed(), no second check (#714).
-      const isReady = await isConfirmed(fresh.bugId, tx);
-      if (!isReady) {
-        throw new IssueApiError(409, "This is not ready yet. Reviewers confirm an issue before it can be passed on.");
-      }
-      // An assignee with no active claim and no live offer is stale: clear it
-      // and award, as the work feed lists the issue (#stale-assignee). One that
-      // still holds the issue keeps it.
-      const cleared = await clearStaleAssignee(tx, fresh.bug, { userId: agent.ownerId, agentId: agent.agentId });
-      if (!cleared && fresh.bug.assigneeId && fresh.bug.assigneeId !== fresh.beneficiaryUserId) {
-        throw new IssueApiError(409, "This issue is already assigned to someone else.");
-      }
-      const existingActive = await tx.issueClaim.findFirst({
-        where: { bugId: fresh.bugId, status: "active", releasedAt: null },
-      });
-      if (existingActive) {
-        throw new IssueApiError(409, "This issue already has an active claim.");
-      }
-      const now = new Date();
-      const competing = await competingClaim(tx, fresh.bugId);
-      if (competing?.expired) {
-        await tx.issueClaim.update({
-          where: { id: competing.expired.id },
-          data: { status: "released", releasedAt: now, releaseReason: "expired" },
-        });
-        await publish(tx, {
-          tenantId: competing.expired.bug.tenantId,
-          type: "claim.released",
-          actorAgentId: competing.expired.agentId,
-          bugId: fresh.bugId,
-          payload: { claimId: competing.expired.id, issueId: fresh.bugId, beneficiaryUserId: competing.expired.beneficiaryUserId, reason: "expired" },
-        });
-      }
-
-      // The award is an offer: the agent accepts it (POST /api/v1/offers/{id}/accept)
-      // before it has the task. Until then the issue stays Open, the other bids
-      // stay open, and no second award or offer is possible (competingClaim).
-      const { offerWindowSeconds } = await workflowFor(fresh.bug.projectId, tx);
-      const claim = await tx.issueClaim.create({
-        data: {
-          bugId: fresh.bugId,
-          beneficiaryUserId: fresh.beneficiaryUserId,
-          agentId: fresh.agentId,
-          // Picking a bid is not dispatching: the manager stays independent to review the fix.
-          status: "offered",
-          offeredAt: now,
-        },
-      });
-      const marked = await tx.issueBid.updateMany({
-        where: { id: fresh.id, awardedAt: null, withdrawnAt: null },
-        data: { awardedAt: now, claimId: claim.id },
-      });
-      if (marked.count !== 1) throw new IssueApiError(409, "This bid is no longer open.");
-      await publish(tx, {
-        tenantId: fresh.bug.tenantId,
-        type: "claim.offered",
-        actorAgentId: fresh.agentId,
-        bugId: fresh.bugId,
-        payload: {
-          claimId: claim.id,
-          issueId: fresh.bugId,
-          projectId: fresh.bug.projectId,
-          beneficiaryUserId: fresh.beneficiaryUserId,
-          bidId: fresh.id,
-          expiresAt: new Date(now.getTime() + offerWindowSeconds * 1000).toISOString(),
-        },
-      });
-      await publish(tx, {
-        tenantId: fresh.bug.tenantId,
-        type: "issue.bid_awarded",
-        actorAgentId: fresh.agentId,
-        bugId: fresh.bugId,
-        payload: { bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId, awardedByAgentId: agent.agentId, offered: true },
-      });
-      return { bidId: fresh.id, claimId: claim.id, bugId: fresh.bugId, bugTitle: bid.bug.title, beneficiaryUserId: fresh.beneficiaryUserId };
+      return awardInTransaction(tx, bidId, { userId: agent.ownerId, agentId: agent.agentId });
     });
-    // Tell the agent's owner, and lapse the offer if nobody accepts it in time.
-    notifyClaimOffered({ id: result.claimId, bugId: result.bugId, bugTitle: result.bugTitle, beneficiaryUserId: result.beneficiaryUserId });
-    scheduleOfferExpiry(result.claimId);
+    afterAward(result);
     return result;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -414,4 +335,126 @@ export async function awardBid(agent: AgentContext, bidId: string) {
     }
     throw error;
   }
+}
+
+export type AwardResult = { bidId: string; claimId: string; bugId: string; bugTitle: string; beneficiaryUserId: string };
+
+/**
+ * Awards an open bid as an offer, in the caller's transaction, with its issue
+ * row already locked FOR UPDATE. The issue must be Open and confirmed, held by
+ * nobody (a stale assignee is cleared, an expired offer released). A
+ * manager's award and, in a threshold-only project, the bid vote that reaches
+ * the project's `awardThreshold` (`decision`, lib/agent-api/bid-votes.ts) both
+ * end here; `by` is who awarded it, or who cast the deciding vote. Throws a
+ * 409 `IssueApiError` before writing anything when a rule stops the award.
+ * The caller runs `afterAward` once the transaction commits.
+ */
+export async function awardInTransaction(
+  tx: Tx,
+  bidId: string,
+  by: { userId: string; agentId: string | null },
+  decision?: ThresholdDecision,
+): Promise<AwardResult> {
+  const fresh = await tx.issueBid.findUnique({
+    where: { id: bidId },
+    include: {
+      beneficiary: { select: { name: true } },
+      bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, reporterId: true, voteCount: true, assignee: { select: { name: true } } } },
+    },
+  });
+  if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
+  if (fresh.bug.status !== "open") throw new IssueApiError(409, "Only open issues can be awarded.");
+  // One rule for ready: confirmed under isConfirmed(), no second check (#714).
+  const isReady = await isConfirmed(fresh.bugId, tx);
+  if (!isReady) {
+    throw new IssueApiError(409, "This is not ready yet. Reviewers confirm an issue before it can be passed on.");
+  }
+  // Bidder capacity (#bidder-capacity): no award to a person whose agents
+  // already hold the project's maxActiveClaims in live offers and active
+  // claims. Their row is locked as acceptOffer locks it, so two awards can't
+  // both slip under the limit.
+  const workflow = await workflowFor(fresh.bug.projectId, tx);
+  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${fresh.beneficiaryUserId} FOR UPDATE`;
+  await assertUnderCapacity(tx, { tenantId: fresh.bug.tenantId, projectId: fresh.bug.projectId, userId: fresh.beneficiaryUserId }, workflow);
+  // An assignee with no active claim and no live offer is stale: clear it
+  // and award, as the work feed lists the issue (#stale-assignee). One that
+  // still holds the issue keeps it. Clearing happens only when nothing holds
+  // the issue, so none of the refusals below can follow a write.
+  const cleared = await clearStaleAssignee(tx, fresh.bug, by);
+  if (!cleared && fresh.bug.assigneeId && fresh.bug.assigneeId !== fresh.beneficiaryUserId) {
+    throw new IssueApiError(409, "This issue is already assigned to someone else.");
+  }
+  const existingActive = await tx.issueClaim.findFirst({
+    where: { bugId: fresh.bugId, status: "active", releasedAt: null },
+  });
+  if (existingActive) {
+    throw new IssueApiError(409, "This issue already has an active claim.");
+  }
+  const now = new Date();
+  const competing = await competingClaim(tx, fresh.bugId);
+  if (competing?.expired) {
+    await tx.issueClaim.update({
+      where: { id: competing.expired.id },
+      data: { status: "released", releasedAt: now, releaseReason: "expired" },
+    });
+    await publish(tx, {
+      tenantId: competing.expired.bug.tenantId,
+      type: "claim.released",
+      actorAgentId: competing.expired.agentId,
+      bugId: fresh.bugId,
+      payload: { claimId: competing.expired.id, issueId: fresh.bugId, beneficiaryUserId: competing.expired.beneficiaryUserId, reason: "expired" },
+    });
+  }
+
+  // The award is an offer: the agent accepts it (POST /api/v1/offers/{id}/accept)
+  // before it has the task. Until then the issue stays Open, the other bids
+  // stay open, and no second award or offer is possible (competingClaim).
+  const { offerWindowSeconds } = workflow;
+  const claim = await tx.issueClaim.create({
+    data: {
+      bugId: fresh.bugId,
+      beneficiaryUserId: fresh.beneficiaryUserId,
+      agentId: fresh.agentId,
+      // Picking a bid is not dispatching: the manager stays independent to review the fix.
+      status: "offered",
+      offeredAt: now,
+    },
+  });
+  const marked = await tx.issueBid.updateMany({
+    where: { id: fresh.id, awardedAt: null, withdrawnAt: null },
+    data: { awardedAt: now, claimId: claim.id },
+  });
+  if (marked.count !== 1) throw new IssueApiError(409, "This bid is no longer open.");
+  await publish(tx, {
+    tenantId: fresh.bug.tenantId,
+    type: "claim.offered",
+    actorAgentId: fresh.agentId,
+    bugId: fresh.bugId,
+    payload: {
+      claimId: claim.id,
+      issueId: fresh.bugId,
+      projectId: fresh.bug.projectId,
+      beneficiaryUserId: fresh.beneficiaryUserId,
+      bidId: fresh.id,
+      expiresAt: new Date(now.getTime() + offerWindowSeconds * 1000).toISOString(),
+    },
+  });
+  await publish(tx, {
+    tenantId: fresh.bug.tenantId,
+    type: "issue.bid_awarded",
+    actorAgentId: fresh.agentId,
+    bugId: fresh.bugId,
+    payload: {
+      bidId: fresh.id, claimId: claim.id, issueId: fresh.bugId, projectId: fresh.bug.projectId, beneficiaryUserId: fresh.beneficiaryUserId,
+      awardedByAgentId: by.agentId, offered: true,
+      ...(decision ?? {}),
+    },
+  });
+  return { bidId: fresh.id, claimId: claim.id, bugId: fresh.bugId, bugTitle: fresh.bug.title, beneficiaryUserId: fresh.beneficiaryUserId };
+}
+
+/** After an award commits: tell the agent's owner, and lapse the offer if nobody accepts it in time. */
+export function afterAward(result: AwardResult): void {
+  notifyClaimOffered({ id: result.claimId, bugId: result.bugId, bugTitle: result.bugTitle, beneficiaryUserId: result.beneficiaryUserId });
+  scheduleOfferExpiry(result.claimId);
 }

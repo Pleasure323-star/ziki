@@ -21,6 +21,8 @@ import { statusChangedSummary } from "@/lib/activity-log";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { isThresholdOnly, thresholdDecision, type ThresholdDecision } from "@/lib/governance";
+import { mergeReviewTally } from "@/lib/agent-api/merge-review-tally";
 import {
   clientForInstallation,
   isPullRequestClosedUnmerged,
@@ -50,7 +52,10 @@ import { MERGE_BLOCKED, MERGE_FAILED, recordMergeOutcome, type MergeOutcomeStatu
  * and a full description (a reject's description is the feedback the fix's
  * author acts on). One per agent per issue; reviewing again replaces it.
  * The issue's status follows it: an accept makes it `ready_to_merge`, a reject
- * sends it back to `in_progress`. Nothing is
+ * sends it back to `in_progress`. In a threshold-only project
+ * (#vote-governance) any independent agent gives a merge review, and the
+ * status follows only once the weighted accepts (or rejects) reach the
+ * project's `acceptThreshold` (`mergeReviewTally`). Nothing is
  * narrated in comments: the review, the activity log, the audit log and the
  * events are the record.
  *
@@ -120,6 +125,16 @@ export type AcceptFixResult =
       review?: StoredMergeReview;
       /** The agent had a review on this issue already, and it was replaced. */
       replaced?: boolean;
+      /**
+       * Threshold-only projects (#vote-governance): the weighted reviews with
+       * this verdict on the pull request linked now, and the project's
+       * acceptThreshold. At the threshold an accept makes the issue Ready to
+       * merge and a reject sends it back to In progress.
+       */
+      votes?: number;
+      threshold?: number;
+      /** Threshold-only: true when this reject's votes reached the threshold and sent the issue back. */
+      rejected?: boolean;
     }
   | { status: 400; error: "invalid_request"; message: string; field?: string }
   | { status: 403; error: "insufficient_level" | "not_independent"; message: string }
@@ -247,9 +262,13 @@ export async function executeAdminMerge(
 }
 
 /**
- * `POST /issues/{id}/merge`: a manager agent's merge review, accept or
- * reject. The body must carry a summary and a description (400 otherwise).
- * A merger agent's accept here merges straight away.
+ * `POST /issues/{id}/merge`: a merge review, accept or reject. The body must
+ * carry a summary and a description (400 otherwise). In a manager-governed
+ * project only manager and merger agents review, one accept makes the issue
+ * Ready to merge and a merger agent's accept merges straight away. In a
+ * threshold-only project (#vote-governance) any independent agent reviews, and
+ * the review whose weighted verdicts reach the project's `acceptThreshold`
+ * decides it (accepts: Ready to merge; rejects: back to In progress).
  */
 export async function acceptFix(
   agent: AgentContext,
@@ -257,9 +276,6 @@ export async function acceptFix(
   deps: AcceptFixDeps = {},
   rawBody: unknown = {},
 ): Promise<AcceptFixResult> {
-  if (!hasLevel(agent.level, "manager")) {
-    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents can accept a fix." };
-  }
   const parsed = parseMergeReview(rawBody);
   if (!parsed.ok) return parsed.error;
   return reviewFix(agent, bugId, deps, parsed.review, false);
@@ -281,6 +297,16 @@ async function reviewFix(
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
 
+  // #vote-governance: a merge review is a manager's decision, or in a
+  // threshold-only project one weighted vote among any independent agents'.
+  const workflow = await workflowFor(bug.projectId);
+  const voting: Voting | null = review && isThresholdOnly(workflow)
+    ? { threshold: workflow.acceptThreshold, managerVoteWeight: workflow.managerVoteWeight }
+    : null;
+  if (review && !voting && !hasLevel(agent.level, "manager")) {
+    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents can accept a fix." };
+  }
+
   // #493: the merger is an independent reviewer too. The same rule that keeps
   // a claim holder's side out of the verdicts keeps it out of the review —
   // otherwise an owner could accept their own fix and collect the solver
@@ -290,7 +316,7 @@ async function reviewFix(
     return { status: 403, error: "not_independent", message: new ReviewerNotIndependentError(conflict).message };
   }
 
-  if (review?.verdict === "reject") return rejectFix(agent, bug, review);
+  if (review?.verdict === "reject") return rejectFix(agent, bug, review, voting);
 
   if (bug.status === "resolved") {
     return {
@@ -371,7 +397,7 @@ async function reviewFix(
 
   const { reviewers, acceptedHeadSha } = await countedReviewers(bug, claim, credited);
 
-  const { verdictsNeeded } = await workflowFor(bug.projectId);
+  const { verdictsNeeded } = workflow;
   if (reviewers.length < verdictsNeeded) {
     return {
       status: 409 as const,
@@ -383,7 +409,8 @@ async function reviewFix(
 
   const rewardedReviewerUserIds = reviewers;
   const solverUserId = claim?.beneficiaryUserId ?? credited[0] ?? bug.assigneeId;
-  const isAdminMerge = forceAdminMerge || agent.level === "merger";
+  // In a threshold-only project a merger agent's review is a vote like any other; it merges with admin-merge.
+  const isAdminMerge = forceAdminMerge || (!voting && agent.level === "merger");
 
   if (!isAdminMerge) {
     // Before a manager says yes, GitHub has to say the fix won't break the
@@ -403,6 +430,17 @@ async function reviewFix(
     return prisma.$transaction(async (tx) => {
       // The manager's accept: ready to merge, without resolving or awarding points.
       const saved = await saveMergeReview(tx, agent, bug, review ?? DEFAULT_ACCEPT, pullRequestUrl, acceptedHeadSha);
+      // Threshold-only: the accept is a vote; only the one that reaches acceptThreshold moves the issue.
+      let decision: ThresholdDecision | null = null;
+      if (voting) {
+        await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+        const votes = await mergeReviewTally(tx, bug, "accept", voting.managerVoteWeight);
+        // Short of the threshold, or already accepted by earlier votes: the review is recorded and nothing moves.
+        if (votes < voting.threshold || bug.status === "ready_to_merge") {
+          return recordReviewVote(tx, agent, bug, saved, votes, voting.threshold);
+        }
+        decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, voting.threshold);
+      }
       await tx.bug.update({
         where: { id: bug.id },
         data: { status: "ready_to_merge" },
@@ -412,8 +450,8 @@ async function reviewFix(
           bugId: bug.id,
           actorId: agent.ownerId,
           type: "status_changed",
-          summary: "Fix accepted by merger agent and marked ready to merge",
-          metadata: { field: "status", readyToMerge: true, headSha: acceptedHeadSha, mergeReviewId: saved.review.id },
+          summary: decision ? "Fix accepted by agents' merge reviews and marked ready to merge" : "Fix accepted by merger agent and marked ready to merge",
+          metadata: { field: "status", readyToMerge: true, headSha: acceptedHeadSha, mergeReviewId: saved.review.id, ...(decision ?? {}) },
         },
       });
       await audit(
@@ -429,6 +467,7 @@ async function reviewFix(
           status: "ready_to_merge",
           mergeReviewId: saved.review.id,
           summary: saved.review.summary,
+          ...(decision ?? {}),
         },
         { bugId: bug.id, db: tx },
       );
@@ -445,6 +484,7 @@ async function reviewFix(
           status: "ready_to_merge",
           mergeReviewId: saved.review.id,
           summary: saved.review.summary,
+          ...(decision ?? {}),
         },
         actorAgentId: agent.agentId,
         bugId: bug.id,
@@ -458,6 +498,7 @@ async function reviewFix(
         rewardedReviewerUserIds,
         review: saved.review,
         replaced: saved.replaced,
+        ...(decision ? { votes: decision.votes, threshold: decision.threshold } : {}),
       };
     });
   }
@@ -797,12 +838,45 @@ const DEFAULT_ACCEPT: MergeReviewInput = {
   description: "Accepted without a written review.",
 };
 
+/** A threshold-only project's merge-review vote (#vote-governance): the threshold and the manager weight. */
+type Voting = { threshold: number; managerVoteWeight: number };
+
+/**
+ * A threshold-only merge review short of the threshold: the review is
+ * recorded (by the caller) and announced; the issue stays where it is.
+ */
+async function recordReviewVote(
+  tx: Prisma.TransactionClient,
+  agent: AgentContext,
+  bug: Pick<LoadedBug, "id" | "tenantId" | "status">,
+  saved: { review: StoredMergeReview; replaced: boolean },
+  votes: number,
+  threshold: number,
+): Promise<AcceptFixResult> {
+  const facts = { mergeReviewId: saved.review.id, verdict: saved.review.verdict, votes, threshold, summary: saved.review.summary };
+  await audit(agent, "issue.merge_reviewed", `bug:${bug.id}`, facts, { bugId: bug.id, db: tx });
+  await publish(tx, {
+    tenantId: bug.tenantId,
+    type: "issue.updated",
+    payload: { issueId: bug.id, status: bug.status, ...facts },
+    actorAgentId: agent.agentId,
+    bugId: bug.id,
+  });
+  return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced, votes, threshold, ...(saved.review.verdict === "reject" ? { rejected: false } : {}) };
+}
+
 /**
  * A manager's reject (#review-entries): the merge review carries the
- * feedback, the issue goes back to `rejected`, and an anti-pattern may go in
- * the mistake registry. It needs the pull request it rejects.
+ * feedback, the issue goes back to `in_progress`, and an anti-pattern may go
+ * in the mistake registry. It needs the pull request it rejects. In a
+ * threshold-only project (`voting`) the reject is a vote: the issue goes back
+ * only once the weighted rejects reach the threshold.
  */
-async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeReviewInput): Promise<AcceptFixResult> {
+async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeReviewInput, voting: Voting | null): Promise<AcceptFixResult> {
+  // The mistake registry is a manager's (lib/agent-api/mistakes.ts), in either governance mode.
+  if (review.mistake && !hasLevel(agent.level, "manager")) {
+    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents record mistakes. Send the reject without mistake." };
+  }
   if (bug.status === "resolved") {
     return {
       status: 409,
@@ -820,8 +894,19 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       message: "This issue has no linked pull request to review.",
     };
   }
-  const saved = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx): Promise<AcceptFixResult> => {
     const saved = await saveMergeReview(tx, agent, bug, review, pullRequestUrl, bug.pullRequestHeadSha ?? null);
+    if (review.mistake) {
+      await recordMistake(agent, bug.projectId, { ...review.mistake, bugId: bug.id }, tx);
+    }
+    // Threshold-only: only the reject that reaches acceptThreshold sends the issue back.
+    let decision: ThresholdDecision | null = null;
+    if (voting) {
+      await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+      const votes = await mergeReviewTally(tx, bug, "reject", voting.managerVoteWeight);
+      if (votes < voting.threshold) return recordReviewVote(tx, agent, bug, saved, votes, voting.threshold);
+      decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, voting.threshold);
+    }
     await tx.bug.update({ where: { id: bug.id }, data: { status: "in_progress" } });
     await tx.bugActivity.create({
       data: {
@@ -829,7 +914,7 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
         actorId: agent.ownerId,
         type: "status_changed",
         summary: `Fix rejected for merging: ${review.summary}`,
-        metadata: { field: "status", from: bug.status, to: "in_progress", rejected: true, mergeReviewId: saved.review.id },
+        metadata: { field: "status", from: bug.status, to: "in_progress", rejected: true, mergeReviewId: saved.review.id, ...(decision ?? {}) },
       },
     });
     // #1429: the audit log keeps every merge decision, the review only the latest.
@@ -845,6 +930,7 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
         notes: review.description,
         pullRequestUrl,
         headSha: saved.review.headSha,
+        ...(decision ?? {}),
       },
       { bugId: bug.id, db: tx },
     );
@@ -858,16 +944,13 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
         mergeReviewId: saved.review.id,
         summary: review.summary,
         notes: review.description,
+        ...(decision ?? {}),
       },
       actorAgentId: agent.agentId,
       bugId: bug.id,
     });
-    if (review.mistake) {
-      await recordMistake(agent, bug.projectId, { ...review.mistake, bugId: bug.id }, tx);
-    }
-    return saved;
+    return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced, ...(decision ? { votes: decision.votes, threshold: decision.threshold, rejected: true } : {}) };
   });
-  return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced };
 }
 
 /** One merge review as the API and the issue page show it, with its replies. */

@@ -16,7 +16,11 @@ import { BackToList } from "@/components/back-to-list";
 import { ideaNextStep } from "@/lib/next-step";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
 import { isBadIdea } from "@/lib/idea-rejection";
-import { archiveReasonLabel } from "@/lib/idea-archive";
+import { archiveReasonLabel, IDEA_WITHDRAWN_REASON } from "@/lib/idea-archive";
+import { workflowFor } from "@/lib/workflow";
+import { isThresholdOnly } from "@/lib/governance";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { withdrawIdeaAction } from "@/app/actions/idea-verdicts";
 
 export const metadata: Metadata = { title: "Idea" };
 
@@ -90,7 +94,10 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   });
   if (!idea) notFound();
 
-  const verdicts = await listIdeaVerdicts({ tenantId, projectId: idea.projectId }, idea.id);
+  const [verdicts, workflow] = await Promise.all([
+    listIdeaVerdicts({ tenantId, projectId: idea.projectId }, idea.id),
+    workflowFor(idea.projectId),
+  ]);
   const own = idea.reporterId === user.id || idea.beneficiaryUserId === user.id || idea.createdByAgent?.ownerUserId === user.id;
   const block: IdeaVerdictBlock = idea.status !== "open" ? "closed" : own ? "own" : null;
   const votes = { total: verdicts.votes.good + verdicts.votes.bad + verdicts.votes.neutral, good: verdicts.votes.good };
@@ -108,6 +115,10 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
     convertible: idea.status === "open" && verdicts.convertible,
     issueNumber: idea.issue?.number ?? null,
     archiveLabel: idea.status === "archived" ? archiveReasonLabel(idea.archiveReason, idea.archiveDuplicateOf) : null,
+    withdrawn: idea.status === "archived" && idea.archiveReason === IDEA_WITHDRAWN_REASON,
+    // One verdict per person, so the verdicts are the people who judged it.
+    people: verdicts.verdicts.length,
+    governance: { thresholdOnly: isThresholdOnly(workflow), managerVoteWeight: workflow.managerVoteWeight },
   });
   const earlier = legacyComments(idea.legacyComments);
   const authors = earlier.length
@@ -214,6 +225,21 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
                 </>
               ) : null}
             </p>
+            {/* The owner withdraws their own open idea once it is obsolete (#idea-withdraw). */}
+            {own && idea.status === "open" ? (
+              <form action={withdrawIdeaAction} data-testid="idea-withdraw">
+                <input type="hidden" name="ideaId" value={idea.id} />
+                <ConfirmSubmitButton
+                  confirm={{
+                    title: `Withdraw idea #${idea.number}?`,
+                    body: "It is archived as withdrawn by its owner, moves to Rejected ideas and takes no more verdicts. Points already given for verdicts on it stay.",
+                    confirmLabel: "Withdraw idea",
+                  }}
+                >
+                  Withdraw idea
+                </ConfirmSubmitButton>
+              </form>
+            ) : null}
           </section>
 
           <section aria-label="Score" className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">

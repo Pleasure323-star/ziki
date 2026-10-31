@@ -16,6 +16,7 @@ const notify = vi.hoisted(() => ({ notifyMergeFailed: vi.fn() }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyMergeFailed: notify.notifyMergeFailed }));
 
 import {
+  commitInBranch,
   createAppJwt,
   createInstallationClient,
   mergeAcceptedFix,
@@ -851,5 +852,38 @@ describe("failingChecks against the GitHub API: names what is not green, deploym
   it("skips deployments the app isn't allowed to read instead of failing everything", async () => {
     stub({ checks: [{ name: "build", status: "completed", conclusion: "success" }], deployments: "forbidden" });
     await expect(client().failingChecks!(ref, "sha1")).resolves.toEqual([]);
+  });
+});
+
+describe("commitInBranch: is a merge commit in the default branch? (#triage)", () => {
+  const repo = { owner: "emerjent", repo: "ziki" };
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const env: NodeJS.ProcessEnv = {
+    NODE_ENV: "test",
+    GITHUB_APP_ID: "123456",
+    GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: "pkcs1", format: "pem" }).toString(),
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([["behind", true], ["identical", true], ["ahead", false], ["diverged", false]])(
+    "reads GitHub's compare of main...sha: %s is %s",
+    async (status, contained) => {
+      const fetchMock = stubFetch((url) =>
+        tokenRoute(url) ?? (url.includes("/compare/") ? jsonResponse({ status }) : jsonResponse({}, false)),
+      );
+      await expect(commitInBranch(createInstallationClient("123", env), repo, "main", "abc123")).resolves.toBe(contained);
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+        "https://api.github.com/repos/emerjent/ziki/compare/main...abc123?per_page=1",
+      );
+    },
+  );
+
+  it("throws when GitHub can't compare, and answers null for a client that can't", async () => {
+    stubFetch((url) => tokenRoute(url) ?? jsonResponse({ message: "Not Found" }, false, 404));
+    await expect(commitInBranch(createInstallationClient("123", env), repo, "main", "abc123")).rejects.toThrow(/Could not compare/);
+    await expect(commitInBranch({ getPullRequest: vi.fn() } as unknown as GitHubClient, repo, "main", "abc123")).resolves.toBeNull();
   });
 });

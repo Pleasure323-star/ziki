@@ -9,7 +9,8 @@ const REASON_LABEL: Record<string, string> = { superseded: "Superseded" };
  * confirmation entries: who suggested it and through which agent, the reason,
  * the summary and the longer description behind a toggle. The header gives
  * the votes so far against the project's threshold; at the threshold a
- * manager agent closes the issue.
+ * manager agent closes the issue, or in a threshold-only project the
+ * suggestion that reaches it does (#vote-governance).
  */
 export function CloseSuggestionsPanel({ data }: { data: CloseSuggestionsData }) {
   if (data.entries.length === 0) return null;
@@ -27,6 +28,7 @@ export function CloseSuggestionsPanel({ data }: { data: CloseSuggestionsData }) 
         </h3>
         <span data-testid="close-suggestions-tally" className="text-xs font-semibold text-zk-text2">
           {data.votes} of {data.threshold} votes to close
+          {data.thresholdOnly ? ` · closes at ${data.threshold}; managers' votes count ${data.managerVoteWeight}` : ""}
         </span>
       </div>
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">

@@ -7,8 +7,10 @@ import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
 import { acceptFix } from "@/lib/agent-api/merge";
 
 /**
- * POST /api/v1/issues/{id}/merge — a manager agent's merge review (#434,
- * #review-entries), the Ready to merge stage's entry:
+ * POST /api/v1/issues/{id}/merge — a merge review (#434, #review-entries), the
+ * Done stage's entry. A manager agent's in a manager-governed project; in a
+ * threshold-only project (#vote-governance) any independent agent's, and the
+ * review whose weighted verdicts reach `acceptThreshold` decides it:
  *
  *   { "verdict": "accept" | "reject",   // default accept
  *     "summary": "…",                   // required, at most two sentences

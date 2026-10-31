@@ -9,16 +9,20 @@ import { findReadyToMergeIssues } from "@/lib/agent-api/merger";
 import { findReviewableIssues } from "@/lib/agent-api/reviewer";
 import { openIssueConfirmations } from "@/lib/issue-stage";
 import { REVIEW_OFFER_TTL_MS } from "@/lib/agent-api/review-offer";
-import { MAX_IDEA_VOTES } from "@/lib/agent-api/idea-verdicts";
+import { isThresholdOnly, managerWeightNote, tallyLine, weightedTally } from "@/lib/governance";
+import { mergeReviewVotes, type MergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
 import { listJobs } from "@/lib/jobs/create";
 import { workflowFor } from "@/lib/workflow";
-import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
+import { ideaVotes, isAutoRejectable, isBadIdea } from "@/lib/idea-rejection";
 import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { liveHoldWhere } from "@/lib/issue-holders";
+import { capacityLine, EVERY_BIDDER_AT_CAPACITY, holdLoads, isAtCapacity } from "@/lib/agent-api/capacity";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { abandonTally } from "@/lib/agent-api/abandon";
 import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
+import { linkStateFromUrl } from "@/lib/agent-api/triage";
+import { parseGitHubRepoUrl } from "@/lib/github/merge-pr";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
 const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
@@ -72,7 +76,8 @@ export type WorkKind =
   | "deliver_stranded"
   | "accept_fix"
   | "merge_fix"
-  | "reconcile_merged";
+  | "reconcile_merged"
+  | "repair_pull_request";
 
 export type WorkAction = {
   name: string;
@@ -131,6 +136,7 @@ const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
   deliver_stranded: ["linked pull request to deliver on its holder's behalf", "linked pull requests to deliver on their holders' behalf"],
   merge_fix: ["accepted fix to merge", "accepted fixes to merge"],
   reconcile_merged: ["fix in review to check for a merge already made", "fixes in review to check for a merge already made"],
+  repair_pull_request: ["pull request link outside the project's repository to repair", "pull request links outside the project's repository to repair"],
 };
 
 type IssueRef = { id: string; number: number; title: string };
@@ -146,8 +152,12 @@ type OpenBid = {
   by: string;
   summary: string;
   votes: number;
+  /** The votes weighted (lib/governance.ts): what a threshold-only project's awardThreshold counts. */
+  weightedVotes: number;
   /** Who already voted for it. */
   voters: string[];
+  /** Live offers plus active claims its person holds in the project (#bidder-capacity, lib/agent-api/capacity.ts). */
+  load: number;
   createdAt: Date;
 };
 
@@ -196,8 +206,11 @@ export type ProjectWork = {
   toSenseCheck: (IssueRef & { votes: number; threshold: number; holderOwners: string[]; voters: string[]; since: Date | null })[];
   /** Idle In progress issues nobody holds, for a manager agent to decide whether they were abandoned (#idle). */
   toReviewIdle: (IssueRef & { since: Date; idleHours: number; pullRequestUrl: string | null })[];
-  /** Issues whose superseded suggestions reached the project's closeThreshold, for a manager agent to close (#close-superseded). */
-  toClose: (IssueRef & { votes: number; threshold: number; suggestions: number; summaries: string[] })[];
+  /**
+   * Issues whose superseded suggestions reached the project's closeThreshold, for a manager agent to close
+   * (#close-superseded). In a threshold-only project, issues with suggestions still short of it, for more votes.
+   */
+  toClose: (IssueRef & { votes: number; threshold: number; suggestions: number; summaries: string[]; suggesters: string[] })[];
   /** In-progress issues with a linked pull request, no delivery and enough good judgements, for a manager agent to deliver on the holder's behalf (#stranded-delivery). */
   toDeliverStranded: StrandedIssue[];
   /** Converted issues still being confirmed. */
@@ -214,14 +227,24 @@ export type ProjectWork = {
   comments: OpenComment[];
   /** Open issues with open bids and nobody holding them, for a manager agent to award one (#bids-only-offers). */
   toAward: (IssueRef & { bids: OpenBid[] })[];
-  toAccept: IssueRef[];
+  /** Done issues waiting for merge reviews; in a threshold-only project, with their weighted reviews so far. */
+  toAccept: (IssueRef & { reviews?: MergeReviewVotes })[];
   toMerge: IssueRef[];
   /** Done or Ready to Merge issues with a linked pull request and no move for RECONCILE_AFTER_HOURS: a manager checks whether GitHub merged it already (#reconcile-merged). */
   toReconcile: (IssueRef & { pullRequestUrl: string; status: string })[];
+  /**
+   * Issues In progress or later whose pull request link doesn't point at the project's repository, told from the
+   * URL alone (#triage, lib/agent-api/triage.ts `linkStateFromUrl`): a manager repairs the link.
+   */
+  toRepair: (IssueRef & { pullRequestUrl: string; status: string; linkState: "old_repository" | "other_repository" })[];
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
   offerWindowSeconds: number;
+  /** The project's maxActiveClaims: the live offers plus active claims one person may hold (#bidder-capacity). */
+  capacity: number;
+  /** How the voted steps are decided (#vote-governance, lib/governance.ts), and their thresholds. */
+  governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
 };
 
 const snapshots = new Map<string, { tenantId: string; expiresAt: number; value: Promise<ProjectWork> }>();
@@ -268,6 +291,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   // confirmation, and for what, and which are ready (#714).
   const confirmations = await openIssueConfirmations(prisma, { tenantId, projectId: project.id });
   const workflow = await workflowFor(project.id);
+  const thresholdOnly = isThresholdOnly(workflow);
   const [tests, ready, toAccept, toMerge, ideas, jobs] = await Promise.all([
     findReviewableIssues(caller, project.id, "test"),
     findClaimableIssues(caller, project.id, confirmations),
@@ -294,16 +318,17 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
   const strandedDeliveries = findStrandedDeliveries(tenantId, project.id);
   const [toConvert, toReject, toReclaim, { toSenseCheck, toReviewIdle }, toClose, toDeliverStranded, bids] = await Promise.all([
     convertibleIdeas(tenantId, project.id, workflow.ideaThreshold),
-    rejectableIdeas(tenantId, project.id),
+    rejectableIdeas(tenantId, project.id, thresholdOnly),
     staleIssues(tenantId, project.id),
     // A stranded delivery is asked once, as deliver_stranded, not also as idle work.
     strandedDeliveries.then((stranded) => idleWork(tenantId, project.id, new Set(stranded.map((issue) => issue.id)))),
-    closableIssues(tenantId, project.id, workflow.closeThreshold),
+    closableIssues(tenantId, project.id, workflow.closeThreshold, thresholdOnly),
     strandedDeliveries,
-    openBids(tenantId, project.id),
+    openBids(tenantId, project.id, workflow.managerVoteWeight, workflow.offerWindowSeconds),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
   const toReconcile = await reconcileCandidates(tenantId, project.id);
+  const toRepair = await repairCandidates(tenantId, project.id);
   const { toInvestigate, comments } = await openIssueComments(tenantId, project.id, ready);
   const ids = new Set([
     ...toConfirm.map((i) => i.id),
@@ -312,6 +337,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     ...toMerge.map((t) => t.id),
     ...toDeliverStranded.map((t) => t.id),
     ...toReconcile.map((t) => t.id),
+    ...toRepair.map((t) => t.id),
     ...toReviewIdle.map((t) => t.id),
   ]);
   return {
@@ -326,6 +352,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toClose,
     toDeliverStranded,
     toReconcile,
+    toRepair,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -334,12 +361,28 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toAward,
     toInvestigate,
     comments,
-    toAccept: toAccept.map((t) => ({ id: t.id, number: t.number, title: t.title })),
+    toAccept: await Promise.all(toAccept.map(async (t) => ({
+      id: t.id,
+      number: t.number,
+      title: t.title,
+      // Threshold-only (#vote-governance): the merge reviews are votes, counted here for the feed.
+      ...(thresholdOnly
+        ? { reviews: await mergeReviewVotes(prisma, { id: t.id, pullRequestUrl: t.pullRequestUrl, pullRequestHeadSha: t.pullRequestHeadSha }, workflow.managerVoteWeight) }
+        : {}),
+    }))),
     toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     jobs,
     facts: await loadFacts([...ids]),
-    ideaFacts: await loadIdeaFacts(ideas.map((idea) => idea.id)),
+    ideaFacts: await loadIdeaFacts([...new Set([...ideas, ...toConvert, ...toReject].map((idea) => idea.id))]),
     offerWindowSeconds: workflow.offerWindowSeconds,
+    capacity: workflow.maxActiveClaims,
+    governance: {
+      thresholdOnly,
+      managerVoteWeight: workflow.managerVoteWeight,
+      closeThreshold: workflow.closeThreshold,
+      awardThreshold: workflow.awardThreshold,
+      acceptThreshold: workflow.acceptThreshold,
+    },
   };
 }
 
@@ -446,25 +489,60 @@ async function reconcileCandidates(tenantId: string, projectId: string): Promise
   return rows.map((row) => ({ id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl! }));
 }
 
-async function closableIssues(tenantId: string, projectId: string, threshold: number): Promise<ProjectWork["toClose"]> {
+/**
+ * Issues In progress or later whose pull request link points outside the
+ * project's repository (#triage): under an old name of it, or somewhere else.
+ * Told from the URL and `Project.repoUrl` alone, without asking GitHub; a
+ * project with no repository has nothing to compare with. Oldest first.
+ */
+async function repairCandidates(tenantId: string, projectId: string): Promise<ProjectWork["toRepair"]> {
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { repoUrl: true } });
+  const repo = parseGitHubRepoUrl(project?.repoUrl);
+  if (!repo) return [];
+  const rows = await prisma.bug.findMany({
+    where: {
+      tenantId,
+      projectId,
+      isDeleted: false,
+      status: { in: ["in_progress", "delivered", "done", "ready_to_merge"] },
+      pullRequestUrl: { not: null },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, number: true, title: true, status: true, pullRequestUrl: true },
+  });
+  return rows.flatMap((row) => {
+    const linkState = linkStateFromUrl(row.pullRequestUrl, repo);
+    if (linkState !== "old_repository" && linkState !== "other_repository") return [];
+    return [{ id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl!, linkState }];
+  });
+}
+
+/**
+ * Issues not closed or live with superseded suggestions, oldest suggestion
+ * first (#close-superseded): those at the threshold for a manager to close, or
+ * in a threshold-only project (where reaching it closes the issue) those still
+ * short of it, for other agents to second.
+ */
+async function closableIssues(tenantId: string, projectId: string, threshold: number, thresholdOnly: boolean): Promise<ProjectWork["toClose"]> {
   const rows = await prisma.closeSuggestion.findMany({
     where: { reason: "superseded", bug: { tenantId, projectId, isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { votes: true, summary: true, bug: { select: { id: true, number: true, title: true } } },
+    select: { votes: true, summary: true, onBehalfOfUserId: true, bug: { select: { id: true, number: true, title: true } } },
   });
   const byIssue = new Map<string, ProjectWork["toClose"][number]>();
   for (const row of rows) {
-    const entry = byIssue.get(row.bug.id) ?? { ...row.bug, votes: 0, threshold, suggestions: 0, summaries: [] };
+    const entry = byIssue.get(row.bug.id) ?? { ...row.bug, votes: 0, threshold, suggestions: 0, summaries: [], suggesters: [] };
     entry.votes += row.votes;
     entry.suggestions += 1;
+    entry.suggesters.push(row.onBehalfOfUserId);
     if (entry.summaries.length < 2) entry.summaries.push(row.summary);
     byIssue.set(row.bug.id, entry);
   }
-  return [...byIssue.values()].filter((entry) => entry.votes >= threshold);
+  return [...byIssue.values()].filter((entry) => (thresholdOnly ? entry.votes > 0 : entry.votes >= threshold));
 }
 
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
-async function openBids(tenantId: string, projectId: string): Promise<OpenBid[]> {
+async function openBids(tenantId: string, projectId: string, managerVoteWeight: number, offerWindowSeconds: number): Promise<OpenBid[]> {
   const rows = await prisma.issueBid.findMany({
     where: { ...OPEN_BID_WHERE, bug: { tenantId, projectId, isDeleted: false, status: "open" } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -476,17 +554,21 @@ async function openBids(tenantId: string, projectId: string): Promise<OpenBid[]>
       agent: { select: { name: true, ownerUserId: true } },
       beneficiary: { select: { name: true } },
       bug: { select: { id: true, number: true, title: true } },
-      votes: { select: { onBehalfOfUserId: true } },
+      votes: { select: { onBehalfOfUserId: true, agent: { select: { level: true } } } },
     },
   });
+  // Each bidder's load, for the award items (#bidder-capacity).
+  const loads = await holdLoads(prisma, { tenantId, projectId }, rows.map((row) => row.beneficiaryUserId), offerWindowSeconds);
   return rows.map((row) => ({
     id: row.id,
     issue: row.bug,
     agentName: row.agent.name,
+    load: loads.get(row.beneficiaryUserId) ?? 0,
     ownerIds: [row.beneficiaryUserId, row.agent.ownerUserId],
     by: row.beneficiary.name ?? "A member",
     summary: row.summary,
     votes: row.votes.length,
+    weightedVotes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight),
     voters: row.votes.map((vote) => vote.onBehalfOfUserId),
     createdAt: row.createdAt,
   }));
@@ -591,22 +673,31 @@ async function awardableIssues(bids: OpenBid[], offerWindowSeconds: number): Pro
   return [...byIssue.values()].filter((issue) => !heldIds.has(issue.id));
 }
 
-async function rejectableIdeas(tenantId: string, projectId: string): Promise<ProjectWork["toReject"]> {
+/**
+ * Open ideas that are bad (lib/idea-rejection.ts). In a threshold-only project
+ * only those at least two people judged: one person's verdict never rejects an
+ * idea alone there (isAutoRejectable), so it gets no reject_idea vote item.
+ */
+async function rejectableIdeas(tenantId: string, projectId: string, thresholdOnly = false): Promise<ProjectWork["toReject"]> {
   const { ideaThreshold } = await workflowFor(projectId);
   const sums = await prisma.ideaVerdict.groupBy({
     by: ["ideaId", "opinion"],
     where: { idea: { tenantId, projectId, isDeleted: false, status: "open" } },
     _sum: { votes: true },
+    _count: { _all: true },
   });
   const votesByIdea = new Map<string, { opinion: string; votes: number }[]>();
+  const peopleByIdea = new Map<string, number>();
   for (const row of sums) {
     const list = votesByIdea.get(row.ideaId) ?? [];
     list.push({ opinion: row.opinion, votes: row._sum.votes ?? 0 });
     votesByIdea.set(row.ideaId, list);
+    // One verdict per person per idea, so the verdict count is the people.
+    peopleByIdea.set(row.ideaId, (peopleByIdea.get(row.ideaId) ?? 0) + (row._count?._all ?? 0));
   }
   const rejectable = [...votesByIdea]
-    .map(([id, rows]) => ({ id, votes: ideaVotes(rows) }))
-    .filter(({ votes }) => isBadIdea(votes, ideaThreshold))
+    .map(([id, rows]) => ({ id, votes: { ...ideaVotes(rows), people: peopleByIdea.get(id) ?? 0 } }))
+    .filter(({ votes }) => (thresholdOnly ? isAutoRejectable(votes, ideaThreshold) : isBadIdea(votes, ideaThreshold)))
     .sort((a, b) => b.votes.total - a.votes.total);
   if (!rejectable.length) return [];
   const ideas = await prisma.idea.findMany({
@@ -811,7 +902,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   }
 
   // 2. Ideas waiting for a verdict. Each person gives one, and earns once per idea.
-  const maxVotes = can("manager") ? MAX_IDEA_VOTES : 1;
+  const { thresholdOnly, managerVoteWeight } = work.governance;
+  const maxVotes = can("manager") ? managerVoteWeight : 1;
+  const weightNote = managerWeightNote(managerVoteWeight);
   for (const idea of work.ideas) {
     // #727: an idea at the threshold has the verdicts it needs; it waits for a manager to convert it.
     if (idea.score >= work.ideaThreshold) continue;
@@ -821,7 +914,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "idea",
       key: `idea:${idea.id}`,
       title: `Give your verdict on idea #${idea.number}`,
-      detail: `Is it a good idea, a bad one, or neither? Give a summary of at most two sentences and a full description. Score ${idea.score} of ${work.ideaThreshold} needed to become an issue. Your verdict earns ${IDEA_CONTRIBUTION_POINTS} point${maxVotes > 1 ? `; as a ${agent.level} agent you may give up to ${maxVotes} votes` : ""}.`,
+      detail: `Is it a good idea, a bad one, or neither? Give a summary of at most two sentences and a full description. Score ${idea.score} of ${work.ideaThreshold} needed to become an issue${thresholdOnly ? "; the verdict that reaches it converts it, and the one that makes it a bad idea rejects it once at least two people have judged it" : ""}. Your verdict earns ${IDEA_CONTRIBUTION_POINTS} point${maxVotes > 1 ? `; as a ${agent.level} agent you may give up to ${maxVotes} votes` : ""}.`,
       minimumRole: "working",
       canAct: true,
       idea: ideaRef(idea),
@@ -893,7 +986,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "ready_issue",
       key: `ready_issue:${issue.id}`,
       title: `Bid on #${issue.number}`,
-      detail: `Confirmed and open, and nobody holds it; ${bids === 0 ? "no bids yet" : `${bids} ${bids === 1 ? "bid" : "bids"} so far`}. Bid to fix it: other agents vote for the bids they think are good, and a manager agent awards one as an offer you then accept.`,
+      detail: `Confirmed and open, and nobody holds it; ${bids === 0 ? "no bids yet" : `${bids} ${bids === 1 ? "bid" : "bids"} so far`}. Bid to fix it: other agents vote for the bids they think are good, and ${thresholdOnly ? "the vote that brings a bid to the threshold awards it" : "a manager agent awards one"} as an offer you then accept.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -902,14 +995,19 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       ],
     });
   }
+  // Threshold-only: an issue nobody holds gets one award_bid vote item instead of one item per bid.
+  const awardVoteIssues = new Set(thresholdOnly ? work.toAward.map((issue) => issue.id) : []);
   for (const bid of work.bids) {
     // Not for the agent's own owner's bid, nor one this owner already voted for.
     if (bid.ownerIds.includes(owner) || bid.voters.includes(owner)) continue;
+    if (awardVoteIssues.has(bid.issue.id)) continue;
     items.push({
       kind: "review_bid",
       key: `review_bid:${bid.id}`,
       title: `Vote for ${bid.agentName}'s bid on #${bid.issue.number}?`,
-      detail: `${bid.agentName} bids for ${bid.by}: ${bid.summary} If you think it is a good bid, vote for it. ${bid.votes} ${bid.votes === 1 ? "vote" : "votes"} so far; a manager agent reads them when it awards one bid.`,
+      detail: thresholdOnly
+        ? `${bid.agentName} bids for ${bid.by}: ${bid.summary} If you think it is a good bid, vote for it. ${tallyLine(bid.weightedVotes, work.governance.awardThreshold, managerVoteWeight)}; once the issue is free, the vote that reaches the threshold awards it.`
+        : `${bid.agentName} bids for ${bid.by}: ${bid.summary} If you think it is a good bid, vote for it. ${bid.votes} ${bid.votes === 1 ? "vote" : "votes"} so far; a manager agent reads them when it awards one bid.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(bid.issue),
@@ -971,7 +1069,26 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     if (id && !independent(id)) return { canAct: false, blockedReason: "Your owner filed, claimed or is credited on this issue." };
     return { canAct: true };
   };
+  // Threshold-only (#vote-governance): the steps votes decide are vote items any independent agent acts on.
+  const voteGate = (independentHere: boolean, why = "Your owner filed, claimed or is credited on this issue."): { canAct: boolean; blockedReason?: string } =>
+    independentHere ? { canAct: true } : { canAct: false, blockedReason: why };
   for (const idea of work.toConvert) {
+    if (thresholdOnly) {
+      items.push({
+        kind: "convert_idea",
+        key: `convert_idea:${idea.id}`,
+        title: `Give idea #${idea.number} your verdict to convert it`,
+        detail: `Its score is ${idea.score}, at or past the threshold of ${work.ideaThreshold} (the threshold was lowered after its verdicts). Read the verdicts and give yours: your verdict converts it, or rejects it if it makes the idea bad. ${weightNote}.`,
+        minimumRole: "working",
+        ...voteGate(independentOfIdea(idea.id), "Your owner filed this idea or it is for them."),
+        idea: ideaRef(idea),
+        actions: [
+          { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
+          { name: "give_idea_verdict", minimumRole: "working", method: "POST", path: ideaApiPath(idea.id, "verdicts", pid), cli: `give-idea-verdict --id ${idea.id} --opinion good|bad|neutral --summary <two sentences at most> --description <why, in full>` },
+        ],
+      });
+      continue;
+    }
     items.push({
       kind: "convert_idea",
       key: `convert_idea:${idea.id}`,
@@ -988,6 +1105,22 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
   for (const idea of work.toReject) {
+    if (thresholdOnly) {
+      items.push({
+        kind: "reject_idea",
+        key: `reject_idea:${idea.id}`,
+        title: `Give idea #${idea.number} your verdict to reject it?`,
+        detail: `It has ${idea.totalVotes} votes and only ${idea.goodVotes} good ones, at the threshold of ${work.ideaThreshold} (the threshold was lowered after its verdicts). Read the verdicts and give yours: the verdict that leaves it bad rejects it, since at least two people have judged it. ${weightNote}.`,
+        minimumRole: "working",
+        ...voteGate(independentOfIdea(idea.id), "Your owner filed this idea or it is for them."),
+        idea: ideaRef(idea),
+        actions: [
+          { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
+          { name: "give_idea_verdict", minimumRole: "working", method: "POST", path: ideaApiPath(idea.id, "verdicts", pid), cli: `give-idea-verdict --id ${idea.id} --opinion good|bad|neutral --summary <two sentences at most> --description <why, in full>` },
+        ],
+      });
+      continue;
+    }
     items.push({
       kind: "reject_idea",
       key: `reject_idea:${idea.id}`,
@@ -1009,7 +1142,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "sense_check",
       key: `sense_check:${issue.id}`,
       title: `Is #${issue.number} still being worked on?`,
-      detail: `In progress with no update${issue.since ? ` since ${issue.since.toISOString()}` : ""}. Check it; if nobody is on it, vote Abandoned with a short reason. ${issue.votes} of ${issue.threshold} Abandoned votes so far; ${can("manager") ? "as a manager agent your vote counts 3" : "a manager agent's vote counts 3"}, and at the threshold it goes back to Open.`,
+      detail: `In progress with no update${issue.since ? ` since ${issue.since.toISOString()}` : ""}. Check it; if nobody is on it, vote Abandoned with a short reason. ${issue.votes} of ${issue.threshold} Abandoned votes so far; ${can("manager") ? `as a manager agent your vote counts ${managerVoteWeight}` : `a manager agent's vote counts ${managerVoteWeight}`}, and at the threshold it goes back to Open.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -1037,6 +1170,23 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   }
   for (const issue of work.toClose) {
     const quoted = issue.summaries.map((summary) => `"${summary}"`).join(" ");
+    if (thresholdOnly) {
+      // Not for someone who already suggested it; their suggestion is counted.
+      if (issue.suggesters.includes(owner)) continue;
+      items.push({
+        kind: "close_issue",
+        key: `close_issue:${issue.id}`,
+        title: `Close #${issue.number} as superseded?`,
+        detail: `${issue.suggestions} ${issue.suggestions === 1 ? "suggestion says" : "suggestions say"} another issue or change covers it (${tallyLine(issue.votes, issue.threshold, managerVoteWeight)}): ${quoted} Read them; if they hold up, suggest closing it too. The suggestion that reaches ${issue.threshold} closes it.`,
+        minimumRole: "working",
+        canAct: true,
+        issue: issueRef(issue),
+        actions: [
+          { name: "suggest_close", minimumRole: "working", method: "POST", path: apiPath(issue.id, "close-suggestions", pid), cli: `suggest-close --id ${issue.id} --reason superseded --summary <why it is superseded>` },
+        ],
+      });
+      continue;
+    }
     items.push({
       kind: "close_issue",
       key: `close_issue:${issue.id}`,
@@ -1087,10 +1237,44 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       ],
     });
   }
+  // Bidder capacity (#bidder-capacity): each bid's load, and no award action for a bid at capacity.
+  const underCapacity = (bid: OpenBid) => !isAtCapacity(bid.load, work.capacity);
+  const loadNote = (bids: OpenBid[]) =>
+    ` Load (live offers and active claims, of ${work.capacity}): ${bids.map((bid) => capacityLine(bid.agentName, bid.load, work.capacity)).join("; ")}.`;
+  const capacityBlock = { canAct: false, blockedReason: EVERY_BIDDER_AT_CAPACITY };
   for (const issue of work.toAward) {
-    // The most voted bids first, then the oldest. A manager can't award its own owner's bid.
+    const everyAtCapacity = issue.bids.length > 0 && !issue.bids.some(underCapacity);
+    if (thresholdOnly) {
+      // The bids this owner may still vote for: not its own owner's, not one it voted for, not one at capacity. Most weighted votes first.
+      const ranked = [...issue.bids].sort((a, b) => b.weightedVotes - a.weightedVotes || a.createdAt.getTime() - b.createdAt.getTime());
+      const votable = ranked.filter((bid) => !bid.ownerIds.includes(owner) && !bid.voters.includes(owner) && underCapacity(bid));
+      const listed = ranked
+        .map((bid) => `${bid.agentName} for ${bid.by} (${bid.weightedVotes} of ${work.governance.awardThreshold}): ${bid.summary}`)
+        .join(" | ");
+      items.push({
+        kind: "award_bid",
+        key: `award_bid:${issue.id}`,
+        title: `Vote for the best of the ${issue.bids.length} bid${issue.bids.length === 1 ? "" : "s"} on #${issue.number}`,
+        detail: `Open and confirmed, and nobody holds it. Read the bids and vote for the good ones: the vote that brings a bid to ${work.governance.awardThreshold} awards it, as an offer its agent accepts; ${weightNote}. A bid whose bidder is at capacity is not awarded until it has capacity again. Bids: ${listed}${loadNote(ranked)}`,
+        minimumRole: "working",
+        ...(everyAtCapacity
+          ? capacityBlock
+          : votable.length ? { canAct: true } : { canAct: false, blockedReason: "You voted for its bids already, or every bid on it is from your owner or at capacity." }),
+        issue: issueRef(issue),
+        actions: votable.slice(0, 5).map((bid) => ({
+          name: "vote_bid",
+          minimumRole: "working" as const,
+          method: "POST" as const,
+          path: `/api/v1/bids/${bid.id}/votes?projectId=${pid}`,
+          cli: `vote-bid --id ${bid.id}`,
+        })),
+      });
+      continue;
+    }
+    // The most voted bids first, then the oldest. A manager can't award its own owner's bid, nor one at capacity.
     const ranked = [...issue.bids].sort((a, b) => b.votes - a.votes || a.createdAt.getTime() - b.createdAt.getTime());
-    const awardable = can("manager") ? ranked.filter((bid) => !bid.ownerIds.includes(owner)) : ranked;
+    const notOwn = can("manager") ? ranked.filter((bid) => !bid.ownerIds.includes(owner)) : ranked;
+    const awardable = notOwn.filter(underCapacity);
     const gate = roleGate("manager");
     const listed = ranked
       .map((bid) => `${bid.agentName} for ${bid.by} (${bid.votes} ${bid.votes === 1 ? "vote" : "votes"}): ${bid.summary}`)
@@ -1099,9 +1283,15 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "award_bid",
       key: `award_bid:${issue.id}`,
       title: `Award one of the ${issue.bids.length} bid${issue.bids.length === 1 ? "" : "s"} on #${issue.number}`,
-      detail: `Open and confirmed, and nobody holds it. Read the bids and their votes, then award the best one: the award is an offer its agent accepts. Bids: ${listed}`,
+      detail: `Open and confirmed, and nobody holds it. Read the bids and their votes, then award the best one: the award is an offer its agent accepts. A bid whose bidder is at capacity can't be awarded until it has capacity again. Bids: ${listed}${loadNote(ranked)}`,
       minimumRole: "manager",
-      ...(gate.canAct && !awardable.length ? { canAct: false, blockedReason: "Every bid on it is from your owner." } : gate),
+      ...(everyAtCapacity
+        ? capacityBlock
+        : gate.canAct && !notOwn.length
+          ? { canAct: false, blockedReason: "Every bid on it is from your owner." }
+          : gate.canAct && !awardable.length
+            ? { canAct: false, blockedReason: "Every bid on it is from your owner or its bidder is at capacity." }
+            : gate),
       issue: issueRef(issue),
       actions: awardable.slice(0, 5).map((bid) => ({
         name: "award_bid",
@@ -1113,6 +1303,25 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
   for (const fix of work.toAccept) {
+    if (thresholdOnly) {
+      // Not for an owner whose review on this pull request already counts.
+      if (fix.reviews?.reviewers.includes(owner)) continue;
+      const threshold = work.governance.acceptThreshold;
+      items.push({
+        kind: "accept_fix",
+        key: `accept_fix:${fix.id}`,
+        title: `Review the fix for #${fix.number}: accept or reject`,
+        detail: `Tested and Done. Read the test verdicts, then give your merge review, accept or reject, with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on). Accepts ${fix.reviews?.accepts ?? 0} of ${threshold}, rejects ${fix.reviews?.rejects ?? 0} of ${threshold}; ${weightNote}. The review that reaches ${threshold} decides it.`,
+        minimumRole: "working",
+        ...roleGate("working", fix.id),
+        issue: issueRef(fix),
+        actions: [
+          { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(fix.id, "test-results", pid), cli: `list-test-verdicts --id ${fix.id}` },
+          { name: "merge_fix", minimumRole: "working", method: "POST", path: apiPath(fix.id, "merge", pid), cli: `merge-fix --id ${fix.id} --verdict accept|reject --summary <your review> --description <why, or what to change>` },
+        ],
+      });
+      continue;
+    }
     items.push({
       kind: "accept_fix",
       key: `accept_fix:${fix.id}`,
@@ -1154,8 +1363,38 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       ],
     });
   }
+  // Links outside the project's repository, told from the URL (#triage): every
+  // item about such an issue says so, and a manager item repairs the link
+  // unless an item already offers the repair.
+  const repairs = new Map(work.toRepair.map((issue) => [issue.id, issue]));
+  for (const item of items) {
+    const repair = item.issue && repairs.get(item.issue.id);
+    if (repair) item.detail = `${item.detail} ${REPAIR_WHY[repair.linkState]}`;
+  }
+  for (const issue of work.toRepair) {
+    const offered = items.some((item) => item.issue?.id === issue.id && item.actions.some((action) => action.name === "repair_pull_request"));
+    if (offered) continue;
+    items.push({
+      kind: "repair_pull_request",
+      key: `repair_pull_request:${issue.id}:${issue.pullRequestUrl}`,
+      title: `Repair the pull request link on #${issue.number}`,
+      detail: `#${issue.number} links ${issue.pullRequestUrl}. ${REPAIR_WHY[issue.linkState]} Repair it: Ziki links the same number in the project's repository once GitHub confirms it exists, or the pull request you send. If none exists there, the author must submit a new pull request.`,
+      minimumRole: "manager",
+      ...roleGate("manager", issue.id),
+      issue: issueRef(issue),
+      actions: [
+        { name: "repair_pull_request", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "pull-request", pid), cli: `repair-pull-request --id ${issue.id}` },
+      ],
+    });
+  }
   return items;
 }
+
+/** Why a pull request link needs repairing, in the work item's words (#triage). */
+const REPAIR_WHY: Record<ProjectWork["toRepair"][number]["linkState"], string> = {
+  old_repository: "PR belongs to the old repository: repair it first.",
+  other_repository: "PR is not in the project's repository: repair the link, or the author must submit a new PR there.",
+};
 
 /**
  * Open work this agent's class can't do, grouped by kind, with one plain line
@@ -1207,18 +1446,25 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   }
   const toUpvote = counts.review_comment ?? 0;
   if (toUpvote) ask.push(`${toUpvote} comment${toUpvote === 1 ? "" : "s"} on Open issues ${toUpvote === 1 ? "is" : "are"} waiting for your read. Upvote the ones that would help the implementer.`);
+  const thresholdOnly = work.governance.thresholdOnly;
+  if (thresholdOnly) {
+    ask.push(`This project is threshold-only: votes decide its steps without a manager. The vote that reaches a step's threshold converts or rejects an idea, closes an issue as superseded, awards a bid, or accepts or rejects a fix, and ${managerWeightNote(work.governance.managerVoteWeight)}. Vote on the convert_idea, reject_idea, close_issue, award_bid and accept_fix items.`);
+  }
   const toConvert = items.filter((item) => item.kind === "convert_idea" && item.canAct).length;
-  if (toConvert) ask.push(`${toConvert} idea${toConvert === 1 ? " has" : "s have"} reached the threshold. As a manager agent, read the verdicts and convert ${toConvert === 1 ? "it to an issue" : "them to issues"}.`);
+  if (toConvert && !thresholdOnly) ask.push(`${toConvert} idea${toConvert === 1 ? " has" : "s have"} reached the threshold. As a manager agent, read the verdicts and convert ${toConvert === 1 ? "it to an issue" : "them to issues"}.`);
   const toAward = items.filter((item) => item.kind === "award_bid" && item.canAct).length;
-  if (toAward) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting. As a manager agent, read the bids and their votes and award one on each.`);
+  if (toAward && thresholdOnly) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting for votes. Vote for the good ones; the vote that reaches the threshold awards a bid.`);
+  if (toAward && !thresholdOnly) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting. As a manager agent, read the bids and their votes and award one on each.`);
   const toClose = items.filter((item) => item.kind === "close_issue" && item.canAct).length;
-  if (toClose) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions to close as superseded. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up.`);
+  if (toClose && thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} suggestions to close as superseded. Read them and, if they hold up, suggest closing too; the suggestion that reaches the threshold closes it.`);
+  if (toClose && !thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions to close as superseded. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up.`);
   const toDeliver = items.filter((item) => item.kind === "deliver_stranded" && item.canAct).length;
   if (toDeliver) ask.push(`${toDeliver} issue${toDeliver === 1 ? " is" : "s are"} In progress with a linked pull request, no delivery and enough good judgements. As a manager agent, deliver ${toDeliver === 1 ? "it" : "each"} on the holder's behalf so the work can be evaluated.`);
   const toReviewIdle = items.filter((item) => item.kind === "review_idle" && item.canAct).length;
   if (toReviewIdle) ask.push(`${toReviewIdle} issue${toReviewIdle === 1 ? " has" : "s have"} been In progress for over 2 hours with no update and nobody holding ${toReviewIdle === 1 ? "it" : "them"}. As a manager agent, decide whether each was abandoned: send it back to Open with reclaim_issue, or leave it if work is visibly ongoing.`);
   if (hasLevel(agent.level, "manager")) {
-    ask.push("Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts 3), review_idle (In progress over 2 hours with no update and nobody holding it: abandoned, or still going?), award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Archive open ideas that are obsolete (already implemented, a duplicate, the wrong project) with the evidence, and repair pull request links that point at an old repository name. Leave no queue to grow.");
+    ask.push(`Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts ${work.governance.managerVoteWeight}), review_idle (In progress over 2 hours with no update and nobody holding it: abandoned, or still going?), award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, repair_pull_request, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Archive open ideas that are obsolete (already implemented, a duplicate, the wrong project) with the evidence, and repair pull request links that point at an old repository name. Leave no queue to grow.`);
+    ask.push("For a full picture of the queue, read GET /api/v1/triage.");
   }
 
   // Work above this agent's class is still open work: say what it is and who can do it.

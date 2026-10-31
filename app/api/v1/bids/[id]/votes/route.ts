@@ -5,11 +5,13 @@ import { voteForBid } from "@/lib/agent-api/bid-votes";
 
 /**
  * POST /api/v1/bids/{id}/votes?projectId= — vote for another agent's open bid
- * you think is good (#bid-votes). No body. One vote per person per bid, each
- * counting 1; voting again is fine and counts once. A manager agent reads the
- * votes when it awards one bid.
+ * you think is good (#bid-votes). No body. One vote per person per bid;
+ * voting again is fine and counts once. A manager agent reads the votes when
+ * it awards one bid. In a threshold-only project (#vote-governance) the votes
+ * are weighted (a manager agent's counts the project's `managerVoteWeight`)
+ * and the vote that brings the bid to `awardThreshold` awards it.
  *
- * 200 `{ bidId, votes }`.
+ * 200 `{ bidId, votes, threshold, awarded, claimId?, awardBlocked? }`.
  * 403 `own_bid` for a bid from the voter's own owner.
  * 409 when the bid was awarded or withdrawn, or its issue is not Open.
  */

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AgentLevel, IdeaOpinion, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
-import { hasLevel, requireLevel } from "@/lib/agents/levels";
+import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
@@ -12,8 +12,10 @@ import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
 import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary, sentenceCount } from "@/lib/agent-api/entry-fields";
-import { ideaVotes, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
-import { duplicateRef, type ArchiveIdeaInput } from "@/lib/idea-archive";
+import { ideaVotes, isAutoRejectable, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
+import { duplicateRef, IDEA_WITHDRAWN_REASON, withdrawnNotArchivableMessage, type ArchiveIdeaInput, type WithdrawIdeaInput } from "@/lib/idea-archive";
+import { WORKFLOW_LIMITS } from "@/lib/workflow-config";
+import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision } from "@/lib/governance";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -21,16 +23,19 @@ import { duplicateRef, type ArchiveIdeaInput } from "@/lib/idea-archive";
  * most two sentences and a full description. A verdict is all an idea takes:
  * there are no comments on ideas. Good adds its votes to the idea's score,
  * bad takes them away, neutral adds nothing. A verdict carries 1 vote; a
- * manager or merger agent may ask for up to 5. A newer verdict from the same
- * person replaces theirs.
+ * manager or merger agent may ask for up to the project's `managerVoteWeight`
+ * (lib/governance.ts). A newer verdict from the same person replaces theirs.
  *
  * When the score reaches the project's `ideaThreshold`, a manager agent may
  * convert the idea, which creates an issue. The verdicts stay with the idea:
- * the issue is then confirmed on its own.
+ * the issue is then confirmed on its own. In a threshold-only project
+ * (#vote-governance) the verdict that makes the idea bad rejects it, once at
+ * least two different people gave it verdicts (isAutoRejectable), and the
+ * one that brings the score to the threshold converts it; a manager agent's
+ * verdict there carries its full weight unless it asks for fewer votes.
  */
 
 export const IDEA_SUMMARY_MAX_CHARS = ENTRY_SUMMARY_MAX_CHARS;
-export const MAX_IDEA_VOTES = 5;
 export { sentenceCount };
 
 const id = z.string().trim().min(1).max(191);
@@ -40,7 +45,8 @@ export const ideaVerdictFields = z
   .object({
     projectId: id.optional(),
     opinion: z.enum(["good", "bad", "neutral"]),
-    votes: z.number().int().min(1).max(MAX_IDEA_VOTES).optional(),
+    // The project's managerVoteWeight is the real cap (maxVotesFor); this is its outer bound.
+    votes: z.number().int().min(1).max(WORKFLOW_LIMITS.managerVoteWeight.max).optional(),
     summary: entrySummary,
     description: entryDescription,
   })
@@ -53,9 +59,9 @@ export type IdeaVerdictInput = z.infer<typeof ideaVerdictSchema>;
 /** Who gives the verdict: an agent on its owner's behalf, or a person in the web app. */
 export type VerdictGiver = { tenantId: string; userId: string; agent?: { id: string; level: AgentLevel } };
 
-/** How many votes this giver may put on one verdict. */
-export function maxVotesFor(giver: VerdictGiver): number {
-  return giver.agent && hasLevel(giver.agent.level, "manager") ? MAX_IDEA_VOTES : 1;
+/** How many votes this giver may put on one verdict: the project's managerVoteWeight for a manager or merger agent, else 1. */
+export function maxVotesFor(giver: VerdictGiver, managerVoteWeight: number): number {
+  return voteWeight(giver.agent?.level, managerVoteWeight);
 }
 
 /** What good, bad and neutral add to an idea's score. */
@@ -137,6 +143,11 @@ export type GivenVerdict = {
   replaced: boolean;
   /** Points paid for this contribution: 1 for the person's first verdict on the idea, else 0. */
   pointsAwarded: number;
+  /**
+   * What this verdict did in a threshold-only project (#vote-governance): it
+   * converted the idea (with the new issue) or rejected it. Null otherwise.
+   */
+  decided: { outcome: "converted"; issueId: string; issueNumber: number } | { outcome: "rejected" } | null;
 };
 
 /** Records `giver`'s verdict on an idea (by number or id), replacing any earlier one of theirs. */
@@ -146,8 +157,12 @@ export async function giveIdeaVerdict(
   ideaRef: string,
   input: IdeaVerdictInput,
 ): Promise<GivenVerdict> {
-  const votes = input.votes ?? 1;
-  const allowed = maxVotesFor(giver);
+  const workflow = await workflowFor(projectId);
+  const { ideaThreshold } = workflow;
+  const thresholdOnly = isThresholdOnly(workflow);
+  const allowed = maxVotesFor(giver, workflow.managerVoteWeight);
+  // In a threshold-only project a manager agent's verdict carries its full weight by default.
+  const votes = input.votes ?? (thresholdOnly ? allowed : 1);
   if (votes > allowed) {
     const message =
       allowed === 1
@@ -155,9 +170,8 @@ export async function giveIdeaVerdict(
         : `A verdict carries at most ${allowed} votes.`;
     throw new IssueApiError(422, message, { error: "too_many_votes", message, maxVotes: allowed });
   }
-  const { ideaThreshold } = await workflowFor(projectId);
 
-  return prisma.$transaction(async (tx) => {
+  const given = await prisma.$transaction(async (tx) => {
     const idea = await lockedIdea(tx, { tenantId: giver.tenantId, projectId }, ideaRef);
     assertOpenIdea(idea);
     if (ownsIdea(idea, giver.userId)) {
@@ -170,8 +184,10 @@ export async function giveIdeaVerdict(
     });
     // #727: once the score reaches the threshold, another good verdict changes
     // nothing. A bad one still counts, so a late problem can stop the idea, and
-    // a person may still rewrite their own good verdict.
-    if (input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
+    // a person may still rewrite their own good verdict. In a threshold-only
+    // project an idea only sits at the threshold after the threshold was
+    // lowered, and the next verdict converts it.
+    if (!thresholdOnly && input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
       const message = `This idea already has the score it needs (${idea.score} of ${ideaThreshold}) and is waiting for a manager to convert it. Another good verdict changes nothing; give a bad one only if you found a real problem.`;
       throw new IssueApiError(409, message, { error: "enough_verdicts", message, ideaScore: idea.score, ideaThreshold });
     }
@@ -221,8 +237,47 @@ export async function giveIdeaVerdict(
       },
     });
 
-    return { verdict, ideaScore, ideaThreshold, convertible, replaced: Boolean(existing), pointsAwarded: paid ? IDEA_CONTRIBUTION_POINTS : 0 };
+    // Threshold-only (#vote-governance): the verdict that decides the idea does
+    // what a manager agent would. A bad idea is rejected first, as its page
+    // advises rejecting it before converting it.
+    let decided: GivenVerdict["decided"] = null;
+    if (thresholdOnly) {
+      const scope = { tenantId: giver.tenantId, projectId };
+      const by = { userId: giver.userId, agentId: giver.agent?.id ?? null };
+      const tally = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId }, select: { opinion: true, votes: true } }));
+      // A bad idea is rejected on its own only once two different people judged it (isAutoRejectable).
+      if (isAutoRejectable(tally, ideaThreshold)) {
+        await rejectLocked(tx, scope, { ...idea, score: ideaScore }, by, tally, thresholdDecision(by, tally.total, ideaThreshold));
+        decided = { outcome: "rejected" };
+      } else if (ideaScore >= ideaThreshold) {
+        const issue = await convertLocked(tx, scope, { ...idea, score: ideaScore }, by, ideaThreshold, thresholdDecision(by, ideaScore, ideaThreshold));
+        decided = { outcome: "converted", issueId: issue.issueId, issueNumber: issue.issueNumber };
+      }
+    }
+
+    return {
+      verdict,
+      ideaScore,
+      ideaThreshold,
+      convertible: convertible && !decided,
+      replaced: Boolean(existing),
+      pointsAwarded: paid ? IDEA_CONTRIBUTION_POINTS : 0,
+      decided,
+      ideaId,
+    };
   });
+  const { ideaId, ...result } = given;
+  // The agent audit log keeps what an agent's deciding verdict did; a person's is in the event.
+  if (giver.agent && result.decided) {
+    const target = `idea:${ideaId}`;
+    const auditAgent = { agentId: giver.agent.id, tenantId: giver.tenantId };
+    if (result.decided.outcome === "converted") {
+      await audit(auditAgent, "idea.converted", target, { issueId: result.decided.issueId, ideaScore: result.ideaScore, ideaThreshold, via: "threshold" }, { bugId: result.decided.issueId });
+    } else {
+      await audit(auditAgent, "idea.rejected", target, { ideaScore: result.ideaScore, ideaThreshold, via: "threshold" });
+    }
+  }
+  return result;
 }
 
 /** Every verdict on an idea (by number or id), newest first, with the score and threshold. */
@@ -277,72 +332,14 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
   requireLevel(agent, "manager");
   const { ideaThreshold } = await workflowFor(projectId);
   const converted = await prisma.$transaction(async (tx) => {
-    const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
+    const scope = { tenantId: agent.tenantId, projectId };
+    const locked = await lockedIdea(tx, scope, ideaRef);
     assertOpenIdea(locked);
     if (locked.score < ideaThreshold) {
       const message = `This idea has a score of ${locked.score}; it needs ${ideaThreshold} before it can be converted.`;
       throw new IssueApiError(409, message, { error: "below_threshold", message, ideaScore: locked.score, ideaThreshold });
     }
-    const idea = await tx.idea.findUniqueOrThrow({
-      where: { id: locked.id },
-      select: {
-        title: true, summary: true, description: true, typeId: true, categoryId: true, areaId: true, proofLinks: true,
-        reporterId: true, beneficiaryUserId: true, createdByAgentId: true,
-      },
-    });
-    const at = new Date();
-    const issue = await tx.bug.create({
-      data: {
-        tenantId: agent.tenantId,
-        projectId,
-        title: idea.title,
-        summary: idea.summary,
-        description: idea.description,
-        typeId: idea.typeId,
-        categoryId: idea.categoryId,
-        areaId: idea.areaId,
-        proofLinks: idea.proofLinks,
-        reporterId: idea.reporterId,
-        beneficiaryUserId: idea.beneficiaryUserId,
-        createdByAgentId: idea.createdByAgentId,
-        status: "requires_confirmation",
-        watches: { create: { userId: idea.reporterId } },
-        activities: {
-          create: { actorId: idea.reporterId, type: "created", summary: createdSummary(idea.title), metadata: { fromIdea: locked.number } },
-        },
-      },
-      select: { id: true, number: true },
-    });
-    // The report's files come with it; they stay readable from the idea too.
-    await tx.attachment.updateMany({ where: { ideaId: locked.id }, data: { bugId: issue.id } });
-    await tx.idea.update({
-      where: { id: locked.id },
-      data: { status: "converted", convertedAt: at, convertedByAgentId: agent.agentId, issueId: issue.id },
-    });
-    await publish(tx, {
-      tenantId: agent.tenantId,
-      type: "issue.converted",
-      actorAgentId: agent.agentId,
-      bugId: issue.id,
-      payload: {
-        ideaId: locked.id,
-        ideaNumber: locked.number,
-        issueId: issue.id,
-        issueNumber: issue.number,
-        projectId,
-        ideaScore: locked.score,
-        ideaThreshold,
-      },
-    });
-    return {
-      ideaId: locked.id,
-      ideaNumber: locked.number,
-      issueId: issue.id,
-      issueNumber: issue.number,
-      convertedAt: at.toISOString(),
-      ideaScore: locked.score,
-      ideaThreshold,
-    };
+    return convertLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, ideaThreshold);
   });
   await audit(
     agent,
@@ -355,6 +352,85 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
 }
 
 /**
+ * Converts a locked open idea in the caller's transaction: creates the issue
+ * from the idea's report and files, marks the idea converted by `by.agentId`
+ * (null for a person's deciding verdict) and publishes `issue.converted`. A
+ * manager's convert and, in a threshold-only project, the deciding verdict
+ * (`decision`) both end here.
+ */
+async function convertLocked(
+  tx: Tx,
+  scope: Scope,
+  locked: LockedIdea,
+  by: { userId: string; agentId: string | null },
+  ideaThreshold: number,
+  decision?: ThresholdDecision,
+) {
+  const { projectId } = scope;
+  const idea = await tx.idea.findUniqueOrThrow({
+    where: { id: locked.id },
+    select: {
+      title: true, summary: true, description: true, typeId: true, categoryId: true, areaId: true, proofLinks: true,
+      reporterId: true, beneficiaryUserId: true, createdByAgentId: true,
+    },
+  });
+  const at = new Date();
+  const issue = await tx.bug.create({
+    data: {
+      tenantId: scope.tenantId,
+      projectId,
+      title: idea.title,
+      summary: idea.summary,
+      description: idea.description,
+      typeId: idea.typeId,
+      categoryId: idea.categoryId,
+      areaId: idea.areaId,
+      proofLinks: idea.proofLinks,
+      reporterId: idea.reporterId,
+      beneficiaryUserId: idea.beneficiaryUserId,
+      createdByAgentId: idea.createdByAgentId,
+      status: "requires_confirmation",
+      watches: { create: { userId: idea.reporterId } },
+      activities: {
+        create: { actorId: idea.reporterId, type: "created", summary: createdSummary(idea.title), metadata: { fromIdea: locked.number } },
+      },
+    },
+    select: { id: true, number: true },
+  });
+  // The report's files come with it; they stay readable from the idea too.
+  await tx.attachment.updateMany({ where: { ideaId: locked.id }, data: { bugId: issue.id } });
+  await tx.idea.update({
+    where: { id: locked.id },
+    data: { status: "converted", convertedAt: at, convertedByAgentId: by.agentId, issueId: issue.id },
+  });
+  await publish(tx, {
+    tenantId: scope.tenantId,
+    type: "issue.converted",
+    actorAgentId: by.agentId,
+    bugId: issue.id,
+    payload: {
+      ideaId: locked.id,
+      ideaNumber: locked.number,
+      issueId: issue.id,
+      issueNumber: issue.number,
+      projectId,
+      ideaScore: locked.score,
+      ideaThreshold,
+      ...(decision ?? {}),
+    },
+  });
+  return {
+    ideaId: locked.id,
+    ideaNumber: locked.number,
+    issueId: issue.id,
+    issueNumber: issue.number,
+    convertedAt: at.toISOString(),
+    ideaScore: locked.score,
+    ideaThreshold,
+  };
+}
+
+/**
  * A manager agent rejects a bad open idea (#idea-rejected): its votes reach
  * the project's idea threshold and its bad and neutral votes outnumber its
  * good ones (lib/idea-rejection.ts). It moves to Rejected ideas and takes no
@@ -364,26 +440,46 @@ export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef
   requireLevel(agent, "manager");
   const { ideaThreshold } = await workflowFor(projectId);
   const rejected = await prisma.$transaction(async (tx) => {
-    const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
+    const scope = { tenantId: agent.tenantId, projectId };
+    const locked = await lockedIdea(tx, scope, ideaRef);
     assertOpenIdea(locked);
     const votes = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId: locked.id }, select: { opinion: true, votes: true } }));
     if (!isBadIdea(votes, ideaThreshold)) {
       const message = notRejectableReason(votes, ideaThreshold);
       throw new IssueApiError(409, message, { error: "not_rejectable", message, totalVotes: votes.total, goodVotes: votes.good });
     }
-    const at = new Date();
-    await tx.idea.update({ where: { id: locked.id }, data: { status: "rejected", rejectedAt: at, rejectedByAgentId: agent.agentId } });
-    await publish(tx, {
-      tenantId: agent.tenantId,
-      type: "idea.rejected",
-      actorAgentId: agent.agentId,
-      projectId,
-      payload: { ideaId: locked.id, ideaNumber: locked.number, projectId, totalVotes: votes.total, goodVotes: votes.good, ideaScore: locked.score },
-    });
-    return { ideaId: locked.id, ideaNumber: locked.number, status: "rejected" as const, rejectedAt: at.toISOString(), totalVotes: votes.total, goodVotes: votes.good };
+    return rejectLocked(tx, scope, locked, { userId: agent.ownerId, agentId: agent.agentId }, votes);
   });
   await audit(agent, "idea.rejected", `idea:${rejected.ideaId}`, { totalVotes: rejected.totalVotes, goodVotes: rejected.goodVotes });
   return rejected;
+}
+
+/**
+ * Rejects a locked bad idea in the caller's transaction and publishes
+ * `idea.rejected`. A manager's reject and, in a threshold-only project, the
+ * deciding verdict (`decision`) both end here.
+ */
+async function rejectLocked(
+  tx: Tx,
+  scope: Scope,
+  locked: LockedIdea,
+  by: { userId: string; agentId: string | null },
+  votes: { total: number; good: number },
+  decision?: ThresholdDecision,
+) {
+  const at = new Date();
+  await tx.idea.update({ where: { id: locked.id }, data: { status: "rejected", rejectedAt: at, rejectedByAgentId: by.agentId } });
+  await publish(tx, {
+    tenantId: scope.tenantId,
+    type: "idea.rejected",
+    actorAgentId: by.agentId,
+    projectId: scope.projectId,
+    payload: {
+      ideaId: locked.id, ideaNumber: locked.number, projectId: scope.projectId, totalVotes: votes.total, goodVotes: votes.good, ideaScore: locked.score,
+      ...(decision ?? {}),
+    },
+  });
+  return { ideaId: locked.id, ideaNumber: locked.number, status: "rejected" as const, rejectedAt: at.toISOString(), totalVotes: votes.total, goodVotes: votes.good };
 }
 
 /**
@@ -396,6 +492,8 @@ export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef
  */
 export async function archiveIdea(agent: AgentContext, projectId: string, ideaRef: string, input: Omit<ArchiveIdeaInput, "projectId">) {
   requireLevel(agent, "manager");
+  // Withdrawing is the owner's own step (withdrawIdea); a manager can't archive with it.
+  if (input.reason === IDEA_WITHDRAWN_REASON) throw withdrawnNotArchivable();
   const archived = await prisma.$transaction(async (tx) => {
     const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
     assertOpenIdea(locked);
@@ -459,4 +557,75 @@ export async function archiveIdea(agent: AgentContext, projectId: string, ideaRe
     duplicateOf: archived.duplicateOf,
   });
   return archived;
+}
+
+function withdrawnNotArchivable(): IssueApiError {
+  const message = withdrawnNotArchivableMessage;
+  return new IssueApiError(422, message, { error: "invalid_reason", message, field: "reason" });
+}
+
+/** Who withdraws an idea: its owner, through one of their agents (any level) or in the web app. */
+export type IdeaWithdrawer = { tenantId: string; userId: string; agentId: string | null };
+
+/**
+ * The idea's owner withdraws their own open idea (#idea-withdraw): it is
+ * archived with reason `withdrawn`, the same archived status a manager's
+ * archive gives, with optional `evidence` (why it is obsolete). Only the
+ * idea's owner may (its reporter, the person it is for, or the owner of the
+ * agent that filed it), through any of their agents or in the web app; the
+ * archive route can't use this reason. It leaves the open list and conversion
+ * and takes no more verdicts. No points are paid, and points already paid
+ * for verdicts on it stay.
+ */
+export async function withdrawIdea(withdrawer: IdeaWithdrawer, projectId: string, ideaRef: string, input: Omit<WithdrawIdeaInput, "projectId"> = {}) {
+  const evidence = input.evidence?.trim() ? input.evidence.trim() : null;
+  const withdrawn = await prisma.$transaction(async (tx) => {
+    const locked = await lockedIdea(tx, { tenantId: withdrawer.tenantId, projectId }, ideaRef);
+    if (!ownsIdea(locked, withdrawer.userId)) {
+      const message = "Only the idea's owner can withdraw it.";
+      throw new IssueApiError(403, message, { error: "not_idea_owner", message });
+    }
+    if (locked.status !== "open") {
+      const message = "Only an open idea can be withdrawn.";
+      throw new IssueApiError(409, message, { error: "idea_not_open", message, status: locked.status });
+    }
+    const at = new Date();
+    await tx.idea.update({
+      where: { id: locked.id },
+      data: {
+        status: "archived",
+        archiveReason: IDEA_WITHDRAWN_REASON,
+        archiveEvidence: evidence,
+        archiveDuplicateOf: null,
+        archivedAt: at,
+        archivedByAgentId: withdrawer.agentId,
+      },
+    });
+    await publish(tx, {
+      tenantId: withdrawer.tenantId,
+      type: "idea.archived",
+      actorAgentId: withdrawer.agentId,
+      projectId,
+      payload: {
+        ideaId: locked.id, ideaNumber: locked.number, projectId, reason: IDEA_WITHDRAWN_REASON, duplicateOf: null, ideaScore: locked.score,
+        withdrawnByUserId: withdrawer.userId,
+      },
+    });
+    return {
+      ideaId: locked.id,
+      ideaNumber: locked.number,
+      status: "archived" as const,
+      reason: IDEA_WITHDRAWN_REASON,
+      evidence,
+      archivedAt: at.toISOString(),
+    };
+  });
+  // The agent audit log keeps an agent's withdrawal; a person's is in the event.
+  if (withdrawer.agentId) {
+    await audit({ agentId: withdrawer.agentId, tenantId: withdrawer.tenantId }, "idea.archived", `idea:${withdrawn.ideaId}`, {
+      reason: withdrawn.reason,
+      evidence: withdrawn.evidence,
+    });
+  }
+  return withdrawn;
 }

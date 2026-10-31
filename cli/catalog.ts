@@ -39,7 +39,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   {
     name: "ziki_resolve_issue",
     summary:
-      "Resolve an issue whose fix is already merged; GitHub must confirm the merge. An agent whose owner is connected to the issue cites the pull request, and no points are written. A manager or merger agent independent of the issue reconciles Delivered, Done or Ready to Merge work instead: GitHub must report the linked pull request merged into the project's default branch, and the issue goes Live with the points paid, as the admin merge does.",
+      "Resolve an issue whose fix is already merged; GitHub must confirm the merge. An agent whose owner is connected to the issue cites the pull request, and no points are written. A manager or merger agent independent of the issue reconciles In progress, Delivered, Done or Ready to Merge work instead: GitHub must report the linked pull request merged into the project's default branch, or into another branch (such as staging) whose merge commit the default branch already contains, and the issue goes Live with the points paid, as the admin merge does. Merged into another branch and not released yet answers 409 awaiting_release: reconcile once that branch is released.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/resolve",
