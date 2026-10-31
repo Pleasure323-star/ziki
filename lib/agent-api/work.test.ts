@@ -50,6 +50,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     toReclaim: [],
     toSenseCheck: [],
     toClose: [],
+    toDeliverStranded: [],
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
@@ -265,6 +266,46 @@ describe("itemsFor", () => {
       { name: "close_issue", minimumRole: "manager", method: "POST", path: "/api/v1/issues/b5/close?projectId=p1", cli: "close-issue --id b5 --reason superseded --summary <why you close it>" },
     ]);
     expect(itemsFor(agent("working"), project, nothingMine).find((i) => i.kind === "close_issue")).toMatchObject({ canAct: false });
+  });
+
+  it("asks an independent manager to deliver a stranded pull request on the holder's behalf (#stranded-delivery)", () => {
+    const pr = "https://github.com/emerjent/ziki/pull/615";
+    const stranded = {
+      id: "b7",
+      number: 615,
+      title: "x",
+      pullRequestUrl: pr,
+      creditedUserId: "owner-cara",
+      creditedName: "Cara",
+      linkedAt: new Date("2026-10-01T10:00:00Z"),
+      goodVerdicts: 3,
+      needed: 2,
+    };
+    const project = work({ toDeliverStranded: [stranded], facts: new Map([["b7", facts({ assigneeId: "owner-cara", pullRequestUrl: pr })]]) });
+
+    const item = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "deliver_stranded");
+    expect(item).toMatchObject({ key: `deliver_stranded:b7:${pr}`, minimumRole: "manager", canAct: true, title: "Deliver #615 on the holder's behalf" });
+    expect(item!.detail).toContain("3 of 2 good-to-merge judgements");
+    expect(item!.detail).toContain("for Cara");
+    const deliver = item!.actions.find((a) => a.name === "deliver");
+    expect(deliver).toMatchObject({ minimumRole: "manager", method: "POST", path: "/api/v1/issues/b7/delivery?projectId=p1" });
+    expect(deliver!.cli).toContain(`deliver --id b7 --pull-request-url ${pr}`);
+
+    // Shown to a working agent, who can't act.
+    expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "deliver_stranded")).toMatchObject({
+      canAct: false,
+      blockedReason: "Needs a manager agent.",
+    });
+    // Not for a manager whose owner is credited (the assignee here) or filed it.
+    for (const ownerId of ["owner-cara", "owner-ada"]) {
+      expect(itemsFor(agent("manager", ownerId), project, nothingMine).find((i) => i.kind === "deliver_stranded")).toMatchObject({ canAct: false });
+    }
+    // Credited through the agent that linked it, not the assignee: still blocked.
+    const linkedBy = work({ toDeliverStranded: [{ ...stranded, creditedUserId: "owner-finn" }], facts: new Map([["b7", facts({ pullRequestUrl: pr })]]) });
+    expect(itemsFor(agent("manager", "owner-finn"), linkedBy, nothingMine).find((i) => i.kind === "deliver_stranded")).toMatchObject({
+      canAct: false,
+      blockedReason: "Your owner is credited on this issue.",
+    });
   });
 
   it("blocks a manager from accepting a fix it is not independent of", () => {

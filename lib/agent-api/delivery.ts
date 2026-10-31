@@ -5,6 +5,10 @@ import { audit } from "@/lib/agents/audit";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { publish } from "@/lib/agent-api/events";
 import { createReviewOffers } from "@/lib/agent-api/review-offer";
+import { hasLevel } from "@/lib/agents/levels";
+import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
+import { STRANDED_AFTER_MS, strandedDelivery } from "@/lib/agent-api/stranded-delivery";
+import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
@@ -73,6 +77,15 @@ export type DeliveryEntry = {
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
+/** What the independence rule reads about an issue (lib/agents/independence.ts). */
+const reviewedSelect = {
+  beneficiaryUserId: true,
+  reporterId: true,
+  assigneeId: true,
+  createdByAgent: { select: { ownerUserId: true } },
+  claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+} satisfies Prisma.BugSelect;
+
 /** Every delivery on one issue, newest first, each with its replies. */
 export async function deliveryEntries(bug: { id: string; pullRequestUrl: string | null }, db: Db = prisma): Promise<DeliveryEntry[]> {
   const rows = await db.delivery.findMany({
@@ -125,7 +138,12 @@ export type DeliverResult =
   | { status: 201 | 200; delivery: DeliveryEntry; replaced: boolean }
   | { status: 400 | 403 | 404 | 409 | 422; error: string; message: string; field?: string };
 
-/** POST /issues/{id}/delivery: the agent holding the claim delivers its work. */
+/**
+ * POST /issues/{id}/delivery: the agent holding the claim delivers its work.
+ * With no claim, an independent manager agent may file a stranded delivery on
+ * the holder's behalf (lib/agent-api/stranded-delivery.ts): the delivery is
+ * credited to that person, and the judgements already given are evaluated at once.
+ */
 export async function deliverWork(
   agent: AgentContext,
   issueRef: string,
@@ -167,6 +185,8 @@ export async function deliverWork(
     select: { id: true, beneficiaryUserId: true },
   });
   let beneficiaryUserId = claim?.beneficiaryUserId ?? null;
+  /** Set when a manager agent files the delivery on the holder's behalf (#stranded-delivery). */
+  let onBehalfOf = false;
   if (!claim) {
     // #539: a reviewer who accepted this issue's review offer may deliver when
     // nothing is delivered yet, so a missing solver doesn't strand the work.
@@ -174,10 +194,41 @@ export async function deliverWork(
       where: { bugId: bug.id, agentId: agent.agentId, status: "accepted" },
       select: { id: true },
     });
-    if (!reviewOffer || bug.pullRequestUrl) {
+    if (reviewOffer && !bug.pullRequestUrl) {
+      beneficiaryUserId = agent.ownerId;
+    } else if (hasLevel(agent.level, "manager")) {
+      const stranded = await strandedDelivery(bug.id);
+      if (!stranded) {
+        return {
+          status: 409,
+          error: "not_stranded",
+          message: `You hold no claim on this issue. A manager agent delivers on the holder's behalf only when the issue is In progress, has a linked pull request and no delivery, the pull request was linked more than ${STRANDED_AFTER_MS / 3_600_000} hours ago, someone is credited (the claim's beneficiary, the assignee or the owner of the agent that linked it), and enough independent judgements on that pull request say it is good to merge.`,
+        };
+      }
+      const reviewed = await prisma.bug.findUnique({ where: { id: bug.id }, select: reviewedSelect });
+      const conflict = reviewed ? reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, reviewed) : null;
+      if (conflict || agent.ownerId === stranded.creditedUserId) {
+        return {
+          status: 403,
+          error: "not_independent",
+          message: conflict
+            ? new ReviewerNotIndependentError(conflict).message
+            : "This delivery would be credited to this agent's owner, so a manager agent of another owner files it.",
+        };
+      }
+      if (body.pullRequestUrl !== stranded.pullRequestUrl) {
+        return {
+          status: 409,
+          error: "wrong_pull_request",
+          message: `Deliver the pull request linked to this issue on the holder's behalf: ${stranded.pullRequestUrl}.`,
+          field: "pullRequestUrl",
+        };
+      }
+      beneficiaryUserId = stranded.creditedUserId;
+      onBehalfOf = true;
+    } else {
       return { status: 409, error: "no_claim", message: "Only the agent holding the claim delivers the work. Win a bid or accept an offer first." };
     }
-    beneficiaryUserId = agent.ownerId;
   }
 
   const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
@@ -250,7 +301,15 @@ export async function deliverWork(
         actorId: agent.ownerId,
         type: "status_changed",
         summary: `delivered the work in ${body.pullRequestUrl}`,
-        metadata: { field: "status", from, to: "delivered", deliveryId: saved.id, pullRequestUrl: body.pullRequestUrl, replaced: Boolean(existing) },
+        metadata: {
+          field: "status",
+          from,
+          to: "delivered",
+          deliveryId: saved.id,
+          pullRequestUrl: body.pullRequestUrl,
+          replaced: Boolean(existing),
+          ...(onBehalfOf ? { onBehalfOf: true, creditedUserId: beneficiaryUserId! } : {}),
+        },
       },
     });
     const payload: Prisma.InputJsonObject = {
@@ -261,13 +320,20 @@ export async function deliverWork(
       headSha,
       summary: body.summary,
       agentId: agent.agentId,
+      // #stranded-delivery: a manager agent filed it for the person credited.
+      ...(onBehalfOf ? { onBehalfOf: true, filedBy: agent.agentId, creditedUserId: beneficiaryUserId! } : {}),
     };
     await publish(tx, { tenantId: agent.tenantId, type: "issue.delivered", payload, actorAgentId: agent.agentId, bugId: bug.id });
     await audit({ agentId: agent.agentId, tenantId: agent.tenantId }, "issue.delivered", `bug:${bug.id}`, payload, { db: tx, bugId: bug.id });
     return { delivery: saved, replaced: Boolean(existing) };
   });
 
-  await createReviewOffers(prisma, { agentId: agent.agentId, tenantId: agent.tenantId }, bug.id, { pullRequestUrl: body.pullRequestUrl, headSha }).catch(() => null);
+  // #stranded-delivery: the judgements already given on this pull request are
+  // evaluated at once, as a new judgement would be, so enough of them make it Done.
+  const judged = onBehalfOf ? await refreshJudgedStatus(prisma, bug.id, agent.ownerId) : null;
+  if (judged !== "done") {
+    await createReviewOffers(prisma, { agentId: agent.agentId, tenantId: agent.tenantId }, bug.id, { pullRequestUrl: body.pullRequestUrl, headSha }).catch(() => null);
+  }
 
   const entries = await deliveryEntries({ id: bug.id, pullRequestUrl: body.pullRequestUrl });
   const entry = entries.find((row) => row.id === delivery.id)!;

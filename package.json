@@ -17,6 +17,7 @@
     "verify:recheck": "node scripts/verify.mjs recheck",
     "verify:status": "node scripts/verify.mjs status",
     "db:migrate": "prisma migrate dev",
+    "db:scenario:open-bids": "tsx --env-file=.env scripts/dev/scenario-open-bids.ts",
     "db:seed": "prisma db seed",
     "db:reset": "prisma migrate reset",
     "postinstall": "prisma generate",

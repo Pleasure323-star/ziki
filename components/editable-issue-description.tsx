@@ -16,6 +16,8 @@ export type EditableIssueDescriptionProps = {
   bugId: string;
   initialTitle: string;
   initialDescription: string;
+  /** The report's short summary (#report-summary): shown first, the full description opens under it. */
+  summary?: string | null;
   canEdit: boolean;
   users: { id: string; name: string }[];
   children?: ReactNode;
@@ -28,6 +30,7 @@ export function EditableIssueDescription({
   bugId,
   initialTitle,
   initialDescription,
+  summary = null,
   canEdit,
   users,
   children,
@@ -36,6 +39,7 @@ export function EditableIssueDescription({
 }: EditableIssueDescriptionProps) {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
+  const [showFull, setShowFull] = useState(false);
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState(initialDescription);
   const [editorUploading, setEditorUploading] = useState(false);
@@ -83,7 +87,7 @@ export function EditableIssueDescription({
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">
-            {isEditing ? "Edit issue" : "Description"}
+            {isEditing ? "Edit issue" : summary ? "Summary" : "Description"}
           </h2>
           {!isEditing && lastEditedAt && historyHref ? (
             <p className="text-xs text-zk-muted">
@@ -187,6 +191,32 @@ export function EditableIssueDescription({
             </Button>
           </div>
         </form>
+      ) : summary ? (
+        // One card: the summary, and the full description opened beneath it.
+        <div className="max-w-3xl">
+          <RichText className="mt-0! text-[15px] font-medium leading-relaxed text-zk-text" content={summary} />
+          <button
+            type="button"
+            aria-expanded={showFull}
+            aria-controls={`${bugId}-full-description`}
+            onClick={() => setShowFull((open) => !open)}
+            className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-zk-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"
+          >
+            {showFull ? "Hide full description" : "Show full description"}
+            <svg aria-hidden="true" viewBox="0 0 16 16" className={`h-3.5 w-3.5 transition-transform ${showFull ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </button>
+          {showFull ? (
+            <div id={`${bugId}-full-description`} className="mt-3 border-t border-zk-divider pt-3 text-[15px] leading-relaxed text-zk-text2">
+              <RichText
+                className="mt-0!"
+                content={initialDescription}
+                renderMentions={(text) => <MentionText text={text} users={users} />}
+              />
+            </div>
+          ) : null}
+        </div>
       ) : (
         <div className="max-w-3xl text-[15px] leading-relaxed text-zk-text2">
           <ExpandableText maxLines={6} expandText="View more" collapseText="View less">

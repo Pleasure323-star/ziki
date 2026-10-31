@@ -2,7 +2,10 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The Award button posts to a server action; the panel only decides where it shows.
+vi.mock("@/app/actions/issue-bids", () => ({ awardIssueBidAction: vi.fn() }));
 
 import { IssueBidsPanel, type BidEntryView } from "./issue-bids";
 
@@ -23,7 +26,9 @@ describe("IssueBidsPanel (#issue-bids)", () => {
   it("shows each bid like a confirmation, without expanding: its state, agent, owner, summary, description and replies", () => {
     render(<IssueBidsPanel bids={[bid]} />);
     expect(screen.getByRole("heading", { name: /Bids/ })).toBeVisible();
-    expect(screen.getByTestId("bid-state")).toHaveTextContent("Open");
+    // An open bid: one state chip, with its vote count under it.
+    expect(screen.getAllByTestId("bid-state")).toHaveLength(1);
+    expect(screen.getByTestId("bid-votes").textContent?.match(/\d+/)?.[0]).toBe("0");
     expect(screen.getByText("Ada's Claude")).toBeInTheDocument();
     expect(screen.getByText("for Ada")).toBeInTheDocument();
     expect(screen.getByText(/area match/i)).toBeInTheDocument();
@@ -65,7 +70,8 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     );
     expect(screen.getByText("Awarded")).toBeInTheDocument();
     expect(screen.getByText("Withdrawn")).toBeInTheDocument();
-    expect(screen.getByText(/1 open/)).toBeInTheDocument();
+    // The heading counts the one bid still open.
+    expect(screen.getByRole("heading", { name: /Bids/ })).toHaveTextContent(/·\s*1\s/);
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
   });
 
@@ -86,7 +92,7 @@ describe("IssueBidsPanel (#issue-bids)", () => {
         ]}
       />,
     );
-    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Offered", "Open", "Expired", "Released"]);
+    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Offered", "Bid", "Expired", "Released"]);
     const released = screen.getByTestId("bid-released");
     expect(released).toHaveTextContent("Released agent");
     expect(released.querySelector("[data-testid=bid-votes]")).toBeNull();
@@ -94,7 +100,28 @@ describe("IssueBidsPanel (#issue-bids)", () => {
 
   it("reads Awarded once the offer is accepted", () => {
     render(<IssueBidsPanel bids={[bid, { ...bid, id: "bid2", awardedAt: new Date("2026-10-29T12:00:00Z") }]} />);
-    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Awarded", "Open"]);
+    expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Awarded", "Bid"]);
+  });
+
+  it("offers Award on open bids only, and only to a viewer who can award", () => {
+    const at = new Date("2026-10-29T12:00:00Z");
+    const bids: BidEntryView[] = [
+      { ...bid, id: "open1", agentName: "Open agent" },
+      { ...bid, id: "open2", agentName: "Second agent" },
+      { ...bid, id: "withdrawn1", agentName: "Withdrawn agent", withdrawnAt: at },
+      { ...bid, id: "released1", agentName: "Released agent", awardedAt: at, awardReleasedAt: at },
+    ];
+    const { unmount } = render(<IssueBidsPanel bids={bids} canAward />);
+    const buttons = screen.getAllByRole("button", { name: /Award/ });
+    expect(buttons).toHaveLength(2);
+    const awardedIds = buttons.map((button) => (button.closest("form")?.querySelector("input[name=bidId]") as HTMLInputElement | null)?.value);
+    expect(awardedIds).toEqual(["open1", "open2"]);
+    expect(screen.getByTestId("bid-withdrawn").querySelector("button")).toBeNull();
+    expect(screen.getByTestId("bid-released").querySelector("button")).toBeNull();
+    unmount();
+
+    render(<IssueBidsPanel bids={bids} />);
+    expect(screen.queryByRole("button", { name: /Award/ })).toBeNull();
   });
 
   it("shows a withdrawn bid without its description", () => {

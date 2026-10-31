@@ -22,7 +22,8 @@ import { workflowFor } from "@/lib/workflow";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
-const bugSelect = {
+/** What the Delivered step's count reads about an issue. */
+export const judgedBugSelect = {
   id: true,
   tenantId: true,
   projectId: true,
@@ -47,22 +48,60 @@ const bugSelect = {
   },
 } satisfies Prisma.BugSelect;
 
+export type JudgedBug = Prisma.BugGetPayload<{ select: typeof judgedBugSelect }>;
+
+/** The judgements on the delivered pull request, oldest first, as the count reads them. */
+export const judgementSelect = {
+  goodToMerge: true,
+  headSha: true,
+  onBehalfOfUserId: true,
+  agent: { select: { id: true, ownerUserId: true } },
+} satisfies Prisma.TestVerdictSelect;
+
+export type Judgement = Prisma.TestVerdictGetPayload<{ select: typeof judgementSelect }>;
+
+/**
+ * Count judgements as the Delivered step does. Work delivered with no claim
+ * behind it (a manager agent filed it on the holder's behalf,
+ * lib/agent-api/stranded-delivery.ts) has no claim holder to leave out, so the
+ * people the delivery credits stand in that place: nothing from their agents,
+ * and nothing given on their behalf, counts.
+ */
+export function countJudgements(
+  verdicts: readonly Judgement[],
+  bug: JudgedBug,
+  creditedUserIds: readonly string[],
+): { good: number; notGood: number } {
+  const claim = deliveredClaim(bug);
+  const counted = claim
+    ? verdicts
+    : verdicts.filter((v) => !creditedUserIds.includes(v.agent.ownerUserId) && !creditedUserIds.includes(v.onBehalfOfUserId));
+  const reviewed = bug as unknown as ReviewedBug;
+  return {
+    good: countedMergeVerdicts(counted.filter((v) => v.goodToMerge), claim, reviewed).reviewers.length,
+    notGood: countedMergeVerdicts(counted.filter((v) => !v.goodToMerge), claim, reviewed).reviewers.length,
+  };
+}
+
 /** The judgements that count on the delivered pull request, good and not good, and how many are needed. */
 export async function countedJudgements(
   db: Db,
   bugId: string,
 ): Promise<{ good: number; notGood: number; needed: number } | null> {
-  const bug = await db.bug.findUnique({ where: { id: bugId }, select: bugSelect });
+  const bug = await db.bug.findUnique({ where: { id: bugId }, select: judgedBugSelect });
   if (!bug?.pullRequestUrl) return null;
   const verdicts = await db.testVerdict.findMany({
     where: { bugId, pullRequestUrl: bug.pullRequestUrl },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { goodToMerge: true, headSha: true, onBehalfOfUserId: true, agent: { select: { id: true, ownerUserId: true } } },
+    select: judgementSelect,
   });
-  const claim = deliveredClaim(bug);
-  const reviewed = bug as unknown as ReviewedBug;
-  const good = countedMergeVerdicts(verdicts.filter((v) => v.goodToMerge), claim, reviewed).reviewers.length;
-  const notGood = countedMergeVerdicts(verdicts.filter((v) => !v.goodToMerge), claim, reviewed).reviewers.length;
+  // With no claim, whoever the deliveries on this pull request credit can't judge it.
+  const credited = deliveredClaim(bug)
+    ? []
+    : (await db.delivery.findMany({ where: { bugId, pullRequestUrl: bug.pullRequestUrl }, select: { beneficiaryUserId: true } })).map(
+        (delivery) => delivery.beneficiaryUserId,
+      );
+  const { good, notGood } = countJudgements(verdicts, bug, credited);
   const { verdictsNeeded } = await workflowFor(bug.projectId, db);
   return { good, notGood, needed: verdictsNeeded };
 }
@@ -77,7 +116,7 @@ export async function refreshJudgedStatus(
   bugId: string,
   actorUserId: string,
 ): Promise<"delivered" | "done" | "open" | null> {
-  const bug = await db.bug.findUnique({ where: { id: bugId }, select: bugSelect });
+  const bug = await db.bug.findUnique({ where: { id: bugId }, select: judgedBugSelect });
   if (!bug?.pullRequestUrl) return null;
   if (bug.status !== "delivered" && bug.status !== "done") return null;
 

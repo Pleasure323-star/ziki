@@ -171,6 +171,9 @@ function fakeDb() {
         return row;
       }),
     },
+    pointEntry: {
+      createMany: vi.fn(async () => ({ count: 1 })),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
       const snap = {
         links: structuredClone(links),
@@ -302,12 +305,25 @@ describe("acceptShareLink", () => {
     expect(owner).toMatchObject({ ok: true, alreadyMember: true });
     expect(db.links[0]?.useCount).toBe(0);
     expect(db.memberships.find((row) => row.userId === "ada")?.role).toBe("owner");
+    // Already a member: no signup bonus.
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
 
     await acceptShareLink(db as never, token, { id: "bob" }, NOW);
+    // Bob joins for the first time: the signup bonus is paid to him in this organisation.
+    expect(db.pointEntry.createMany).toHaveBeenCalledTimes(1);
+    expect(db.pointEntry.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ tenantId: "acme", userId: "bob", role: "signup" })],
+        skipDuplicates: true,
+      }),
+    );
+
     const second = await acceptShareLink(db as never, token, { id: "bob" }, NOW);
     expect(second).toMatchObject({ ok: true, alreadyMember: true });
     expect(db.links[0]?.useCount).toBe(1);
     expect(db.redemptions).toHaveLength(1);
+    // Opening it again as a member writes no second bonus.
+    expect(db.pointEntry.createMany).toHaveBeenCalledTimes(1);
   });
 
   it("lets anyone join until an unlimited link expires, and refuses a revoked one", async () => {

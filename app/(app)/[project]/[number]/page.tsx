@@ -51,6 +51,7 @@ import {
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
+import { managerAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { deliveryEntries } from "@/lib/agent-api/delivery";
@@ -87,7 +88,6 @@ import { SelfAssignButton } from "@/components/self-assign-button";
 import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { EditableIssueDescription } from "@/components/editable-issue-description";
 import { IssueLinks } from "@/components/issue-links";
-import { ReportSummary } from "@/components/report-summary";
 import { NextStepBar } from "@/components/next-step-bar";
 import { BackToList } from "@/components/back-to-list";
 import { issueNextStep } from "@/lib/next-step";
@@ -655,6 +655,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           : Promise.resolve(null)),
       ),
     ]);
+  // Owners of a manager agent can award an open issue's bids from here (#award-bids).
+  const canAwardBids =
+    bug.status === "open" && !bug.isDeleted
+      ? await loadOptional("award permission", false, async () => Boolean(await managerAgentOf(user.id, bug.tenantId)))
+      : false;
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
   const mentionAgents = canTriage
@@ -821,9 +826,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   });
 
   // The flags agents raised, under the status chip in the side rail (#close-superseded).
-  const openBidVotes = bug.status === "open"
-    ? bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).reduce((sum, bid) => sum + (bid.votes ?? 0), 0)
-    : 0;
   const statusFlags: { label: string; tone: StatusFlagTone }[] = bug.isDeleted
     ? []
     : [
@@ -834,7 +836,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             : []),
         ...(abandonCheck ? [{ label: `Abandon votes: ${abandonCheck.votes} of ${abandonCheck.threshold}`, tone: "warn" as const }] : []),
         ...(stale ? [{ label: STALE_FLAG[stale], tone: "bad" as const }] : []),
-        ...(openBidVotes > 0 ? [{ label: `${openBidVotes} bid ${openBidVotes === 1 ? "vote" : "votes"}`, tone: "info" as const }] : []),
       ];
 
   // The Conversation card shows only when it has entries in it: no empty boxes.
@@ -1046,11 +1047,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-5">
           {/* #1446: the progress report's stage filters the Conversation (#186). */}
           <IssueStageProvider initialStage={currentStage}>
-          <ReportSummary summary={bug.summary} />
           <EditableIssueDescription
             bugId={bug.id}
             initialTitle={bug.title}
             initialDescription={bug.description}
+            summary={bug.summary}
             canEdit={canEdit}
             users={users}
             lastEditedAt={lastRevision?.editedAt ?? null}
@@ -1131,6 +1132,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     <IssueBidsPanel
                       bids={bidList}
                       collapsed={bug.status !== "open"}
+                      canAward={canAwardBids}
                       />
                   ) : null}
                 </section>

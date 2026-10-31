@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { after } from "next/server";
+import { awardSignupBonus } from "@/lib/points/signup-bonus";
 import type { MembershipRole, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { notifyTenantInvite } from "@/lib/agent-notifications";
@@ -396,6 +397,7 @@ export async function acceptInvite(
       create: { tenantId: invite.tenantId, userId: account.id, role: "member" },
       update: {},
     });
+    if (!existing) await awardSignupBonus(tx, account.id, invite.tenantId);
     return { ok: true as const, tenant: invite.tenant, alreadyMember: Boolean(existing) };
   });
 }

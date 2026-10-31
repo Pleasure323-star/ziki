@@ -28,6 +28,15 @@ export const DUPLICATE_MARKER_POINTS = 150;
 /** Ledger awards keep this many decimal places. */
 export const POINT_DECIMALS = 2;
 
+/** Points shown as money in the header: this many points make a dollar. */
+export const POINTS_PER_DOLLAR = 100;
+
+/** A points balance as dollars, e.g. 2121 points → "$21.21". */
+export function formatPointsAsDollars(points: number): string {
+  const dollars = points / POINTS_PER_DOLLAR;
+  return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /**
  * Each later reviewer receives this share of the previous award.
  * A small step keeps the amounts close instead of falling off a cliff.
@@ -112,7 +121,7 @@ export const POINT_AWARD_MAX = 1_000_000;
 /** Largest points goal a super admin can store. */
 export const POINT_TARGET_MAX = 100_000_000;
 
-export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea";
+export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup";
 
 /** Paid once per person per idea for their first opinion on it: a validation or a comment (#work-feed). */
 export const IDEA_CONTRIBUTION_POINTS = 1;

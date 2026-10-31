@@ -135,6 +135,8 @@ enum PointRole {
   dispatcher
   /// 1 pt for a person's first opinion on an idea: a validation or a comment.
   idea
+  /// The signup bonus, paid once per account in the first organisation it joins or creates.
+  signup
 }
 
 enum DisputeStatus {
