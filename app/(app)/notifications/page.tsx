@@ -4,28 +4,33 @@ import { currentTenantIdFor, notificationInTenant } from "@/lib/tenant-context";
 import { requireUser } from "@/lib/auth-helpers";
 import { LocalTime } from "@/components/local-time";
 import { MarkAllReadButton } from "@/components/mark-all-read-button";
+import { PaginationControls } from "@/components/pagination-controls";
+import { calculatePagination } from "@/lib/pagination";
 import { BASE_PATH } from "@/lib/base-path";
 
 export const metadata = { title: "Notifications" };
 
 const PAGE_SIZE = 50;
 
-/** In-app notification feed (#216). */
+/** In-app notification feed (#216); older pages are reachable with ?page= (#569). */
 export default async function NotificationsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ scope?: string | string[] }>;
+  searchParams?: Promise<{ scope?: string | string[]; page?: string | string[] }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
   const allWorkspaces = params?.scope === "all";
   const tenantId = await currentTenantIdFor(user.id);
   const scope = notificationInTenant(tenantId, allWorkspaces);
+  const totalCount = await prisma.notification.count({ where: { userId: user.id, ...scope } });
+  const pagination = calculatePagination({ page: params?.page, pageSize: PAGE_SIZE, totalCount });
   const [notifications, unread, workspaceCount] = await Promise.all([
     prisma.notification.findMany({
       where: { userId: user.id, ...scope },
-      orderBy: { createdAt: "desc" },
-      take: PAGE_SIZE,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: pagination.skip,
+      take: pagination.take,
       select: { id: true, title: true, tenant: { select: { name: true } }, readAt: true, createdAt: true },
     }),
     prisma.notification.count({ where: { userId: user.id, readAt: null, ...scope } }),
@@ -116,8 +121,17 @@ export default async function NotificationsPage({
           })}
         </ul>
       )}
-      {notifications.length === PAGE_SIZE ? (
-        <p className="text-xs text-zk-muted">Showing your {PAGE_SIZE} most recent notifications.</p>
+      {pagination.totalCount > 0 ? (
+        <PaginationControls
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          from={pagination.from}
+          to={pagination.to}
+          queryParams={{ scope: allWorkspaces ? "all" : undefined }}
+          basePath="/notifications"
+          itemLabel="notification"
+        />
       ) : null}
     </div>
   );
