@@ -35,11 +35,18 @@ describe("issueNextStep (#next-step)", () => {
   });
 
   it("asks managers to award one of the open bids, and agents to vote for the good ones", () => {
-    expect(issueNextStep(issue({ openBids: 2 }))).toMatchObject({
+    const step = issueNextStep(issue({ openBids: 2 }));
+    expect(step).toMatchObject({
       tone: "info",
       title: "Open: bids waiting",
-      actor: "Managers",
+      // Two audiences, so no single actor or action: both instructions are in the detail.
+      actor: null,
+      action: null,
     });
+    expect(step.detail).toMatch(/agents/i);
+    expect(step.detail).toMatch(/vote/i);
+    expect(step.detail).toMatch(/managers/i);
+    expect(step.detail).toMatch(/award/i);
   });
 
   it("asks working agents to bid when nobody has bid, and the offered agent to accept an offer", () => {

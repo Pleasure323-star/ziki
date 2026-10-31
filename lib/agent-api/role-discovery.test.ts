@@ -40,7 +40,7 @@ describe("Role-based discovery functions", () => {
 
   describe("findReadyToMergeIssues", () => {
     it("needs a manager agent", async () => {
-      await expect(findReadyToMergeIssues(contributor, "p1", 50, "done")).rejects.toBeInstanceOf(AgentLevelError);
+      await expect(findReadyToMergeIssues(contributor, "p1", "done")).rejects.toBeInstanceOf(AgentLevelError);
     });
 
     it("returns ready to merge issues when conditions are met", async () => {
@@ -64,7 +64,7 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", 50, "done");
+      const issues = await findReadyToMergeIssues(merger, "p1", "done");
       expect(issues).toHaveLength(1);
       expect(issues[0]).toMatchObject({
         id: "bug-1",
@@ -95,7 +95,7 @@ describe("Role-based discovery functions", () => {
         },
       ]);
       // One independent verdict of the two needed: the gate would refuse, so the queue doesn't list it.
-      await expect(findReadyToMergeIssues(merger, "p1", 50, "done")).resolves.toEqual([]);
+      await expect(findReadyToMergeIssues(merger, "p1", "done")).resolves.toEqual([]);
     });
 
     it("reads one status: Ready to merge, which needs no further verdicts", async () => {
@@ -116,7 +116,7 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", 50, "ready_to_merge");
+      const issues = await findReadyToMergeIssues(merger, "p1", "ready_to_merge");
       expect(db.bug.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ status: "ready_to_merge" }),
@@ -144,7 +144,7 @@ describe("Role-based discovery functions", () => {
         },
       ]);
 
-      const issues = await findReadyToMergeIssues(merger, "p1", 50, "ready_to_merge");
+      const issues = await findReadyToMergeIssues(merger, "p1", "ready_to_merge");
       expect(issues).toHaveLength(1);
       expect(issues[0].status).toBe("ready_to_merge");
     });
@@ -181,7 +181,7 @@ describe("Role-based discovery functions", () => {
   describe("findClaimableIssues", () => {
     it("is open to every working agent", async () => {
       db.bug.findMany.mockResolvedValue([]);
-      await expect(findClaimableIssues(contributor, "p1", 25, new Map())).resolves.toEqual([]);
+      await expect(findClaimableIssues(contributor, "p1", new Map())).resolves.toEqual([]);
     });
 
     it("finds confirmed issues available for bidding or claiming", async () => {
@@ -201,18 +201,19 @@ describe("Role-based discovery functions", () => {
         ["bug-4", { stage: "ready" as const, accepts: 2, rejects: 0, needed: 2, confirmed: true }],
         ["bug-5", { stage: "confirming" as const, accepts: 1, rejects: 0, needed: 2, confirmed: false }],
       ]);
-      const issues = await findClaimableIssues(contributor, "p1", 25, confirmations);
+      const issues = await findClaimableIssues(contributor, "p1", confirmations);
       expect(issues).toHaveLength(1);
       expect(issues[0].id).toBe("bug-4");
       expect(db.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({
         where: expect.objectContaining({ id: { in: ["bug-4"] } }),
-        take: 25,
       }));
+      // The work feed has no cap: every claimable issue is listed.
+      expect(db.bug.findMany.mock.calls[0]![0]).not.toHaveProperty("take");
     });
 
     it("returns nothing without querying issues when none is ready", async () => {
       const confirmations = new Map([["bug-5", { stage: "confirming" as const, accepts: 0, rejects: 0, needed: 2, confirmed: false }]]);
-      await expect(findClaimableIssues(contributor, "p1", 25, confirmations)).resolves.toEqual([]);
+      await expect(findClaimableIssues(contributor, "p1", confirmations)).resolves.toEqual([]);
       expect(db.bug.findMany).not.toHaveBeenCalled();
     });
   });

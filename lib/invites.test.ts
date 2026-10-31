@@ -164,6 +164,9 @@ function fakeDb() {
         return { count: doomed.length };
       }),
     },
+    pointEntry: {
+      createMany: vi.fn(async () => ({ count: 1 })),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
   };
 
@@ -332,6 +335,14 @@ describe("acceptInvite (#444)", () => {
     expect(first).toEqual({ ok: true, tenant: { id: s.acme.id, slug: "acme", name: "Acme" }, alreadyMember: false });
     expect(s.roleOf(s.acme, s.bob)).toBe("member");
     expect(s.invites[0]!.acceptedAt).toEqual(NOW);
+    // Joining an organisation for the first time pays the signup bonus there.
+    expect(s.raw.pointEntry.createMany).toHaveBeenCalledTimes(1);
+    expect(s.raw.pointEntry.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ tenantId: s.acme.id, userId: s.bob.id, role: "signup" })],
+        skipDuplicates: true,
+      }),
+    );
 
     const again = await acceptInvite(s.db, { token: rawToken }, s.bob, NOW);
     expect(again).toMatchObject({ ok: false, reason: "used", error: expect.stringContaining("already used") });
@@ -414,6 +425,8 @@ describe("acceptInvite (#444)", () => {
     const result = await acceptInvite(s.db, { token: rawToken }, s.bob, NOW);
     expect(result).toMatchObject({ ok: true, alreadyMember: true });
     expect(s.roleOf(s.acme, s.bob)).toBe("admin");
+    // Already a member: nothing new joined, so no signup bonus is written.
+    expect(s.raw.pointEntry.createMany).not.toHaveBeenCalled();
   });
 });
 

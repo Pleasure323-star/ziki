@@ -31,6 +31,7 @@ const db = vi.hoisted(() => ({
   webhookSubscription: { findMany: vi.fn() },
   webhookDelivery: { createMany: vi.fn() },
   issueClaim: { updateMany: vi.fn() },
+  delivery: { findMany: vi.fn() },
   projectWorkflow: { findUnique: vi.fn() },
   project: { findFirst: vi.fn() },
   agentMistake: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
@@ -147,6 +148,8 @@ beforeEach(() => {
   db.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(db));
   db.bug.findFirst.mockResolvedValue(bugRow());
   db.bug.findUnique.mockResolvedValue(bugRow());
+  // No delivery filed on the claim holder's behalf unless a test adds one.
+  db.delivery.findMany.mockResolvedValue([]);
   db.bug.update.mockResolvedValue({});
   db.bugActivity.create.mockResolvedValue({});
   db.comment.create.mockResolvedValue({ id: "merge-comment-1" });
@@ -297,6 +300,7 @@ describe("acceptFix: the gate (#434)", () => {
 
   it("names the missing condition: no active claim", async () => {
     db.bug.findFirst.mockResolvedValue(bugRow({ claims: [] }));
+    db.delivery.findMany.mockResolvedValue([]);
     expect(await acceptFix(merger("m1", "mo", "manager"), "bug1")).toMatchObject({
       status: 409,
       missing: "claim",

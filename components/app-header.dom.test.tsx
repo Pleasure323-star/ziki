@@ -239,12 +239,21 @@ describe("account menu role switch", () => {
     expect(screen.queryByRole("link", { name: "Workspace" })).toBeNull();
   });
 
-  it("links the points to the ranking and keeps them off the account chip", () => {
+  it("shows the balance as dollars on the Agents button, links it to the ranking, and keeps it off the account chip", async () => {
+    const user = userEvent.setup({ delay: null });
     renderHeader({ userId: "ada", points: 128, solvedTasks: 4 });
+    // 100 points = $1.
+    const agents = screen.getByRole("button", { name: /agents/i });
+    expect(agents.textContent).toContain("$1.28");
     const account = screen.getByRole("button", { name: /account menu for ada lovelace/i });
     expect(account.textContent).not.toContain("128");
-    const points = screen.getByRole("link", { name: /128/ });
-    expect(points.getAttribute("href")).toBe("/workers");
+    expect(account.textContent).not.toContain("$1.28");
+    expect(screen.queryByRole("link", { name: /\$1\.28/ })).toBeNull();
+
+    await user.click(agents);
+    const ranking = screen.getByRole("link", { name: /\$1\.28/ });
+    expect(ranking.getAttribute("href")).toBe("/workers");
+    expect(ranking.textContent).toContain("128");
   });
 
   it("keeps each control's visible text inside its accessible name", () => {

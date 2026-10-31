@@ -121,7 +121,7 @@ export const POINT_AWARD_MAX = 1_000_000;
 /** Largest points goal a super admin can store. */
 export const POINT_TARGET_MAX = 100_000_000;
 
-export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea";
+export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup";
 
 /** Paid once per person per idea for their first opinion on it: a validation or a comment (#work-feed). */
 export const IDEA_CONTRIBUTION_POINTS = 1;

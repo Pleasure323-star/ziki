@@ -231,7 +231,11 @@ describe("createTenant (#444)", () => {
       if (failure) throw failure;
       return { id: "tenant-new", slug: data.slug, name: data.name, projects: [{ id: "project-new" }] };
     });
-    return { tenant: { create }, membership: { findFirst: vi.fn<(args: unknown) => Promise<unknown>>(async () => null) } };
+    return {
+      tenant: { create },
+      membership: { findFirst: vi.fn<(args: unknown) => Promise<unknown>>(async () => null) },
+      pointEntry: { createMany: vi.fn(async () => ({ count: 1 })) },
+    };
   }
   const slugTaken = Object.assign(new Error("Unique constraint failed on the fields: (`slug`)"), {
     code: "P2002",
@@ -263,6 +267,14 @@ describe("createTenant (#444)", () => {
         },
       },
     });
+    // Creating an organisation pays the creator's signup bonus there.
+    expect(db.pointEntry.createMany).toHaveBeenCalledTimes(1);
+    expect(db.pointEntry.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ tenantId: "tenant-new", userId: "ada", role: "signup" })],
+        skipDuplicates: true,
+      }),
+    );
   });
 
   it("names the first project after the tenant when none is given", async () => {
@@ -314,6 +326,7 @@ describe("createTenant (#444)", () => {
     });
     expect(await createTenant(db as never, { id: "ada" }, {})).toMatchObject({ ok: false, field: "name" });
     expect(db.tenant.create).not.toHaveBeenCalled();
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
   });
 
   it("refuses markup-like names (#537)", async () => {
