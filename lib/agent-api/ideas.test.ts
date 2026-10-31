@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
+  ideaVerdict: { groupBy: vi.fn(async () => []) },
   idea: { findMany: vi.fn(), findFirst: vi.fn(), findUniqueOrThrow: vi.fn() },
   projectWorkflow: { findUnique: vi.fn() },
 }));

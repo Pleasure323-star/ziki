@@ -65,6 +65,8 @@ describe("upvoteComment (#comment-votes)", () => {
       role: "comment",
       points: 1,
       sourceKey: "comment-upvote:c1:eli",
+      // #710: the upvoted comment's agent earned it.
+      agentId: "bob-agent",
     });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
       type: "issue.comment_upvoted",

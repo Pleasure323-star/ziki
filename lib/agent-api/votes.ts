@@ -99,6 +99,7 @@ export async function upvoteIssue(caller: AgentContext, projectId: string, bugId
         role: "vote",
         points: VOTE_POINTS,
         sourceKey: importanceSourceKey(bugId, caller.ownerId),
+        agentId: caller.agentId,
       });
     }
     const importance = await recount(tx, bugId);

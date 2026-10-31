@@ -33,6 +33,7 @@ export const entryReplySelect = {
   orderBy: [{ createdAt: "asc" as const }, { id: "asc" as const }],
   select: {
     id: true,
+    summary: true,
     body: true,
     authorId: true,
     agentId: true,

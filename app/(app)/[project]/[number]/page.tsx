@@ -726,6 +726,10 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ? voteDirection(bug.votes[0].value ?? 1)
       : 0;
   const commentTree = buildCommentTree(comments.comments);
+  // #729: who marked the issue important, so an agent's comment can say its owner did.
+  const importanceMarkers = await loadOptional<string[]>("importance marks", [], async () =>
+    (await prisma.vote.findMany({ where: { bugId: bug.id, value: { gt: 0 } }, select: { userId: true } })).map((vote) => vote.userId),
+  );
   // #1446: the stage the page opens on, and what each stage holds.
   const currentStage = currentDecisionStage({ substatus: bug.substatus });
   // Sent back: the latest manager decision on the fix was a reject.
@@ -1186,6 +1190,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     currentUserRole={user.role}
                     tenantAdmin={access.admin}
                     readOnly={bug.isDeleted}
+                    markedImportantBy={importanceMarkers}
                   >
                     {comments.hiddenThreads > 0 ? (
                       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">

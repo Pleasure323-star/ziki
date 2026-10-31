@@ -98,7 +98,7 @@ describe("no typed comments; comments on the issue itself only while it is Open"
   const params = { params: Promise.resolve({ id: "bug1" }) };
 
   it("takes a comment on an Open issue", async () => {
-    const res = await POST(postRequest({ body: "A comment on the issue." }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "A comment on the issue." }), params);
     expect(res.status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledTimes(1);
   });
@@ -107,7 +107,7 @@ describe("no typed comments; comments on the issue itself only while it is Open"
     db.bug.findFirst.mockResolvedValueOnce({
       id: "bug-1", title: "Bug 1", reporterId: "owner-a", assigneeId: null, status: "open", substatus: "requires_confirmation", pullRequestUrl: null,
     });
-    const res = await POST(postRequest({ body: "A free-standing comment." }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "A free-standing comment." }), params);
     expect(res.status).toBe(409);
     const data = await res.json();
     expect(data).toMatchObject({ error: "use_stage_entry", entryRoute: "POST /api/v1/issues/bug-1/confirmations" });
@@ -115,7 +115,7 @@ describe("no typed comments; comments on the issue itself only while it is Open"
   });
 
   it("refuses type and metadata with a 400 listing the entry routes", async () => {
-    const res = await POST(postRequest({ body: "I bid on this issue", type: "bid", metadata: { eta: "2 hours" } }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "I bid on this issue", type: "bid", metadata: { eta: "2 hours" } }), params);
     expect(res.status).toBe(400);
     const data = await res.json();
     expect(data.error).toBe("comment_has_no_type");
@@ -135,7 +135,7 @@ describe("replies to a bid (#issue-bids)", () => {
 
   it("files a plain comment under the bid", async () => {
     db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
-    const res = await POST(postRequest({ body: "Please add a test.", bidId: "bid-1" }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "Please add a test.", bidId: "bid-1" }), params);
     expect(res.status).toBe(201);
     expect(db.issueBid.findFirst).toHaveBeenCalledWith({ where: { id: "bid-1", bugId: "bug-1" }, select: { beneficiaryUserId: true } });
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -148,7 +148,7 @@ describe("replies to a bid (#issue-bids)", () => {
 
   it("refuses a bid that is not on this issue", async () => {
     db.issueBid.findFirst.mockResolvedValue(null);
-    const res = await POST(postRequest({ body: "Hello.", bidId: "bid-elsewhere" }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "Hello.", bidId: "bid-elsewhere" }), params);
     expect(res.status).toBe(422);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
@@ -160,7 +160,7 @@ describe("replies to a bid (#issue-bids)", () => {
   ])("refuses a reply to a bid that also sends %j", async (extra, status) => {
     db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
     db.issueConfirmation.findFirst.mockResolvedValue({ onBehalfOfUserId: "someone" });
-    const res = await POST(postRequest({ body: "Hello.", bidId: "bid-1", ...extra }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "Hello.", bidId: "bid-1", ...extra }), params);
     expect(res.status).toBe(status);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
@@ -171,7 +171,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
 
   it("files a plain comment under the test verdict", async () => {
     db.testVerdict.findFirst.mockResolvedValue({ onBehalfOfUserId: "tester" });
-    const res = await POST(postRequest({ body: "Which browser?", testVerdictId: "tv-1" }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "Which browser?", testVerdictId: "tv-1" }), params);
     expect(res.status).toBe(201);
     expect(db.testVerdict.findFirst).toHaveBeenCalledWith({ where: { id: "tv-1", bugId: "bug-1" }, select: { onBehalfOfUserId: true } });
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -181,7 +181,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
 
   it("files a plain comment under the merge review", async () => {
     db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: "manager" });
-    const res = await POST(postRequest({ body: "On it.", mergeReviewId: "mr-1" }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "On it.", mergeReviewId: "mr-1" }), params);
     expect(res.status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ mergeReviewId: "mr-1", testVerdictId: null }),
@@ -196,7 +196,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
   ])("refuses %j", async (extra, status) => {
     db.testVerdict.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) => (where.id === "tv-1" ? { onBehalfOfUserId: "tester" } : null));
     db.mergeReview.findFirst.mockResolvedValue({ onBehalfOfUserId: "manager" });
-    const res = await POST(postRequest({ body: "Hello.", ...extra }), params);
+    const res = await POST(postRequest({ summary: "A short comment.", body: "Hello.", ...extra }), params);
     expect(res.status).toBe(status);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
@@ -204,7 +204,7 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
 
 describe("the issue may be named by its number (#457)", () => {
   it("files a comment on the issue a numeric id names, in the caller's tenant", async () => {
-    const res = await POST(postRequest({ body: "A comment by number." }), { params: Promise.resolve({ id: "42" }) });
+    const res = await POST(postRequest({ summary: "A short comment.", body: "A comment by number." }), { params: Promise.resolve({ id: "42" }) });
     expect(res.status).toBe(201);
     expect(db.bug.findFirst).toHaveBeenNthCalledWith(1, { where: { number: 42, tenantId: "tenant-a" }, select: { id: true, number: true } });
     expect(db.bug.findFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ id: "bug-1" }) }));
@@ -213,7 +213,7 @@ describe("the issue may be named by its number (#457)", () => {
 
   it("answers 404 when no issue in the tenant has that number", async () => {
     db.bug.findFirst.mockResolvedValueOnce(null);
-    const res = await POST(postRequest({ body: "A comment by number." }), { params: Promise.resolve({ id: "999" }) });
+    const res = await POST(postRequest({ summary: "A short comment.", body: "A comment by number." }), { params: Promise.resolve({ id: "999" }) });
     expect(res.status).toBe(404);
     expect(db.comment.create).not.toHaveBeenCalled();
   });

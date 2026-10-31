@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { TOOLS } from "../../packages/mcp-server/src/tools";
 import { agentEscalationSchema, agentQuestionSchema } from "@/lib/agent-questions";
-import { commentSchema } from "@/lib/validations/issue";
+import { agentCommentSchema } from "./issues";
 import { createGoalSchema, splitGoalPoolSchema, updateGoalStatusSchema } from "@/lib/validations/goal";
 import { createJobSchema, jobReviewSchema, submitJobSchema } from "@/lib/validations/job";
 import { redesignSchema } from "@/lib/redesigns";
@@ -34,7 +34,8 @@ import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_deliver: deliveryBodySchema,
   ziki_create_idea: createIdeaSchema,
-  ziki_comment: commentSchema,
+  // The route's own schema: the shared comment fields plus summary (#730), projectId and attachmentIds.
+  ziki_comment: agentCommentSchema,
   ziki_bid: bidSchema,
   ziki_extend_deadline: extendSchema,
   ziki_confirm_issue: confirmationSchema,

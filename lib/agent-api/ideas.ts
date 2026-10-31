@@ -19,11 +19,15 @@ import {
 import { issueJson, issueProject } from "@/lib/agent-api/issues";
 import { createBugSchema } from "@/lib/validations/issue";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
-import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_ITEM, checkAttachment } from "@/lib/attachments";
+import { MULTIPART_OVERHEAD_BYTES, readLimitedMultipart } from "@/lib/attachment-body";
+import { createHash } from "node:crypto";
 import { extractMentionedUserIds, normalizeMentions } from "@/lib/mentions";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 
 /**
  * Ideas through the agent API (#idea-table). Every report is an idea: an
@@ -130,7 +134,9 @@ export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
     select: ideaSelect,
   });
   const page = toPage(rows, limit);
-  return { ...page, items: page.items.map((row) => ideaJson(row, ideaThreshold)) };
+  // #724: each idea's weighted good, bad and neutral votes, as the Ideas list shows them.
+  const totals = await ideaVoteTotals(prisma, page.items.map((row) => row.id));
+  return { ...page, items: page.items.map((row) => ({ ...ideaJson(row, ideaThreshold), votes: totals.get(row.id) ?? NO_VOTES })) };
 }
 
 function ideaCursorWhere(cursor: IssueCursor): Prisma.IdeaWhereInput {
@@ -167,7 +173,10 @@ export async function readAgentIdea(scope: Scope, ref: string) {
     }),
     workflowFor(scope.projectId),
   ]);
-  return ideaJson(idea, ideaThreshold) as ReturnType<typeof ideaJson> & { attachments: typeof idea.attachments };
+  const votes = (await ideaVoteTotals(prisma, [idea.id])).get(idea.id) ?? NO_VOTES;
+  const json = ideaJson(idea, ideaThreshold) as ReturnType<typeof ideaJson> & { attachments: typeof idea.attachments };
+  // #722: each file with the URL an agent reads it from, with its key.
+  return { ...json, attachments: idea.attachments.map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })), votes };
 }
 
 async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: string, body: string) {
@@ -198,8 +207,75 @@ async function linkAgentIdeaAttachments(
 }
 
 /** `POST /api/v1/ideas`: an agent files a report, which is always an idea. */
+/**
+ * The create body (#722): JSON, or multipart/form-data with the same JSON in a
+ * `payload` part and up to 5 `file` parts. Every file is checked before any is
+ * stored, so one bad file creates nothing. Stored files join `attachmentIds`;
+ * `digests` (their SHA-256) stand in for those new ids in the idempotency
+ * hash, so a replay with the same files matches.
+ */
+async function ideaCreateBody(agent: AgentContext, request: NextRequest): Promise<{ body: unknown; uploaded: string[]; digests: string[] }> {
+  const type = request.headers.get("content-type") ?? "";
+  if (!type.toLowerCase().startsWith("multipart/form-data")) return { body: await issueJson(request), uploaded: [], digests: [] };
+  const read = await readLimitedMultipart(request, MAX_ATTACHMENTS_PER_ITEM * MAX_ATTACHMENT_BYTES + MULTIPART_OVERHEAD_BYTES);
+  if (!read.ok) {
+    const message = read.reason === "too-large" ? "Over the size limit: up to 5 files of 5 MB each." : "Send multipart/form-data with a `payload` part and `file` parts.";
+    throw new IssueApiError(read.status, message);
+  }
+  const raw = read.form.get("payload");
+  if (typeof raw !== "string") throw new IssueApiError(400, "Send the JSON fields as a `payload` part.");
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new IssueApiError(400, "The `payload` part is not valid JSON.");
+  }
+  const files = read.form.getAll("file").filter((part): part is File => typeof part !== "string");
+  const existing = Array.isArray(body.attachmentIds) ? body.attachmentIds : [];
+  if (existing.length + files.length > MAX_ATTACHMENTS_PER_ITEM) {
+    throw new IssueApiError(422, `At most ${MAX_ATTACHMENTS_PER_ITEM} attachments per idea.`);
+  }
+  const checked: { bytes: Uint8Array; filename: string; contentType: string }[] = [];
+  for (const file of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const check = checkAttachment(bytes, file.name);
+    if (!check.ok) throw new IssueApiError(bytes.byteLength > MAX_ATTACHMENT_BYTES ? 413 : 415, `${file.name}: ${check.error}`);
+    checked.push({ bytes, filename: check.filename, contentType: check.contentType });
+  }
+  const uploaded: string[] = [];
+  for (const file of checked) {
+    const saved = await prisma.attachment.create({
+      data: { uploaderId: agent.ownerId, filename: file.filename, contentType: file.contentType, size: file.bytes.byteLength, data: Buffer.from(file.bytes) },
+      select: { id: true },
+    });
+    uploaded.push(saved.id);
+  }
+  const digests = checked.map((file) => createHash("sha256").update(file.bytes).digest("hex"));
+  return { body: { ...body, attachmentIds: [...existing, ...uploaded] }, uploaded, digests };
+}
+
+/** Removes files a failed or replayed multipart create stored and nothing took. */
+async function dropUnused(uploaded: string[]): Promise<void> {
+  if (!uploaded.length) return;
+  await prisma.attachment
+    .deleteMany({ where: { id: { in: uploaded }, bugId: null, ideaId: null, commentId: null } })
+    .catch((error: unknown) => console.error("[ideas] dropping unused uploads failed", error));
+}
+
 export async function createAgentIdea(agent: AgentContext, request: NextRequest) {
-  const input = createIdeaSchema.parse(await issueJson(request));
+  const { body, uploaded, digests } = await ideaCreateBody(agent, request);
+  try {
+    const response = await createIdeaFromBody(agent, request, body, uploaded, digests);
+    if (response.status !== 201) await dropUnused(uploaded);
+    return response;
+  } catch (error) {
+    await dropUnused(uploaded);
+    throw error;
+  }
+}
+
+async function createIdeaFromBody(agent: AgentContext, request: NextRequest, body: unknown, uploaded: string[], digests: string[]) {
+  const input = createIdeaSchema.parse(body);
   const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
   const beneficiaryUserId = agent.ownerId;
   const requestHash = hashCreateRequest({
@@ -212,7 +288,11 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
     proofLinks: input.proofLinks,
     typeId: input.typeId ?? null,
     acknowledgeSimilar: input.acknowledgeSimilar ?? null,
-    ...(input.attachmentIds?.length ? { attachmentIds: [...new Set(input.attachmentIds)].sort() } : {}),
+    // Files sent in this request hash by content, not by the ids they were just given (#722).
+    ...(input.attachmentIds?.filter((id) => !uploaded.includes(id)).length
+      ? { attachmentIds: [...new Set(input.attachmentIds.filter((id) => !uploaded.includes(id)))].sort() }
+      : {}),
+    ...(digests.length ? { files: [...digests].sort() } : {}),
     ...(input.areaId ? { areaId: input.areaId } : {}),
   });
   const result = await createIdeaWithPolicy({

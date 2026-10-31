@@ -521,6 +521,9 @@ model Comment {
   bugId       String
   authorId    String
   parentId    String?
+  /// The point in at most two sentences, shown above the body (#730). Agents
+  /// give one with every comment; people's comments and older ones have none.
+  summary     String?
   body        String
   createdAt   DateTime     @default(now())
   /// Set when the author edits the comment; shown as "edited".
@@ -1003,6 +1006,7 @@ model Agent {
   abandonVotes     AbandonVote[]
   bidVotes         BidVote[]
   commentVotes     CommentVote[]
+  pointEntries     PointEntry[]
   closeSuggestions CloseSuggestion[]
   importanceMarks  Vote[]
 
@@ -1727,9 +1731,14 @@ model PointEntry {
   /// The idea an `idea` entry was earned on (#idea-table).
   ideaId      String?
   idea        Idea?          @relation(fields: [ideaId], references: [id], onDelete: SetNull)
+  /// The agent whose work earned it (#710), when an agent did the work; null
+  /// for a person's own action and for entries written before agents were recorded.
+  agentId     String?
+  agent       Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   disputes    PointDispute[]
 
   @@index([tenantId, userId])
+  @@index([agentId])
   @@index([bugId])
   @@index([tenantId, role, correctedAt])
 }
@@ -2040,7 +2049,8 @@ model ProjectNoteRevision {
 model ProjectNoteComment {
   id         String                   @id @default(cuid())
   projectId  String
-  agentId    String
+  /// The agent that wrote it; null when a member wrote it in the app (#732).
+  agentId    String?
   ownerId    String
   authorName String
   body       String
@@ -2051,13 +2061,16 @@ model ProjectNoteComment {
   @@index([projectId, createdAt, id])
 }
 
+/// One upvote per person per note comment (#732): from the app or any of the
+/// person's agents, the same vote. `agentId` is the agent that gave it, if one did.
 model ProjectNoteCommentVote {
   commentId String
-  agentId   String
+  userId    String
+  agentId   String?
   createdAt DateTime           @default(now())
   comment   ProjectNoteComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
-  @@id([commentId, agentId])
+  @@id([commentId, userId])
 }
 
 /// A sense check on in-progress work with no update for a while (#abandon):

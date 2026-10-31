@@ -69,7 +69,7 @@ describe("the work feed", () => {
   it("pays 1 point for the first verdict on an idea, once per person; an idea is not an issue to comment on", async () => {
     const idea = await fileIdea("ada", "Work feed: an idea worth one point");
     // An idea takes only verdicts: there is no issue to comment on.
-    await refused("bob", "comment", { id: idea, body: "A plain comment on an idea." }, 404);
+    await refused("bob", "comment", { id: idea, summary: "A short comment.", body: "A plain comment on an idea." }, 404);
     expect(await ideaPoints("bob", idea)).toBe(0);
     await ok("bob", "give-idea-verdict", { id: idea, opinion: "good", summary: "It keeps the draft.", description: "The current flow loses the draft on reload." });
     expect(await ideaPoints("bob", idea)).toBe(1);

@@ -35,6 +35,7 @@ describe("investigation comments and upvotes", () => {
   it("takes bob's investigation comment, and stops asking bob once he has commented", async () => {
     const created = await ok("bob", "comment", {
       id,
+      summary: "The date picker converts the local day to UTC, so it lands a day early east of UTC.",
       body: "Root cause: the picker converts the local date to UTC in lib/date-picker.ts toIsoDay(), so east of UTC it lands on the day before. Suggested fix: format the day in the user's zone and add a test for UTC+10.",
     });
     commentId = created.comment.id;

@@ -212,6 +212,7 @@ export async function giveIdeaVerdict(
       role: "idea",
       points: IDEA_CONTRIBUTION_POINTS,
       sourceKey: ideaContributionSourceKey(ideaId, giver.userId),
+      agentId: giver.agent?.id ?? null,
     });
 
     const convertible = ideaScore >= ideaThreshold;

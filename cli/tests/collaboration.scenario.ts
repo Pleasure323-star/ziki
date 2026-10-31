@@ -12,7 +12,7 @@ describe("working on issues together", () => {
   });
 
   it("takes no comment on the issue itself before it is Open: the 409 names the stage's entry route", async () => {
-    const body = await refused("bob", "comment", { id, body: "I can reproduce this on Firefox." }, 409);
+    const body = await refused("bob", "comment", { id, summary: "A short comment.", body: "I can reproduce this on Firefox." }, 409);
     expect(body.error).toBe("use_stage_entry");
     // A new issue requires confirmation, so the entry is a confirmation.
     expect(body.entryRoute).toMatch(/\/confirmations$/);
@@ -52,7 +52,7 @@ describe("working on issues together", () => {
     // Bidding again replaces the same bid.
     const again = await ok("eli", "bid", { id, summary: "I can fix this within the hour.", description: "Same plan, sooner." });
     expect(again).toMatchObject({ bid_id: bid.bid_id, replaced: true, summary: "I can fix this within the hour." });
-    const reply = await ok("cara", "comment", { id, body: "Please include a regression test.", bidId: bid.bid_id });
+    const reply = await ok("cara", "comment", { id, summary: "A short comment.", body: "Please include a regression test.", bidId: bid.bid_id });
     expect(reply.comment).toMatchObject({ bidId: bid.bid_id, parentId: null });
     // Replies read newest-first and from the start, like any comment.
     expect(JSON.stringify(await ok("ada", "list-comments", { id }))).toContain("Please include a regression test.");
@@ -65,14 +65,14 @@ describe("working on issues together", () => {
   });
 
   it("takes comments on the issue itself while it is Open, and one-level replies to them", async () => {
-    const { comment } = await ok("bob", "comment", { id, body: "Still blank on Firefox 131 after the deploy." });
+    const { comment } = await ok("bob", "comment", { id, summary: "A short comment.", body: "Still blank on Firefox 131 after the deploy." });
     expect(comment).toMatchObject({ parentId: null, bidId: null, confirmationId: null });
-    const { comment: reply } = await ok("cara", "comment", { id, body: "Thanks, that narrows it down.", parentId: comment.id });
+    const { comment: reply } = await ok("cara", "comment", { id, summary: "A short comment.", body: "Thanks, that narrows it down.", parentId: comment.id });
     expect(reply.parentId).toBe(comment.id);
     // Replies are one level deep.
-    await refused("ada", "comment", { id, body: "Me too.", parentId: reply.id }, 422);
+    await refused("ada", "comment", { id, summary: "A short comment.", body: "Me too.", parentId: reply.id }, 422);
     // One place per comment.
-    await refused("ada", "comment", { id, body: "Me too.", parentId: comment.id, confirmationId: "c0000000000000000000000000" }, 422);
+    await refused("ada", "comment", { id, summary: "A short comment.", body: "Me too.", parentId: comment.id, confirmationId: "c0000000000000000000000000" }, 422);
   });
 
   it("releases a claim it no longer wants, so the issue goes back to Open for bids", async () => {
@@ -167,6 +167,15 @@ describe("working on issues together", () => {
       acknowledgeSimilar: true,
     });
     expect(JSON.stringify(created.idea.attachments)).toContain(attachmentId);
+    // #722: agents read the file back with their key, at the URL the idea gives; any agent in the tenant may.
+    const file = created.idea.attachments.find((entry: { id: string }) => entry.id === attachmentId);
+    expect(file.url).toBe(`/api/v1/attachments/${attachmentId}`);
+    for (const reader of ["ada", "bob"] as const) {
+      const read = await ziki("request", "GET", file.url, "--as", reader);
+      expect(read.code, read.err).toBe(0);
+    }
+    const missing = await ziki("request", "GET", "/api/v1/attachments/not-a-file", "--as", "bob");
+    expect(missing.out + missing.err).toMatch(/not_found|404/);
     // The short summary is kept, for people to read at a glance (#report-summary).
     expect(created.idea.summary).toBe("The page shows an error instead of loading.\nThe screenshot shows the message.");
   });

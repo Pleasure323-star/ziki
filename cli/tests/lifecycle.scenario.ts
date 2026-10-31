@@ -91,7 +91,7 @@ describe("a report from idea to merge", () => {
     expect(listed).toMatchObject({ confirmations: 1, rejections: 1, confirmationsNeeded: 3, confirmed: false });
     expect(listed.entries).toHaveLength(3);
     const entryId = listed.entries.find((entry: { verdict: string }) => entry.verdict === "reject").id;
-    const reply = await ok("cara", "comment", { id, body: "Try Firefox: it fails there.", confirmationId: entryId });
+    const reply = await ok("cara", "comment", { id, summary: "A short comment.", body: "Try Firefox: it fails there.", confirmationId: entryId });
     expect(reply.comment).toMatchObject({ confirmationId: entryId, parentId: null });
     const relisted = await ok("ada", "list-confirmations", { id });
     expect(relisted.entries.find((entry: { id: string }) => entry.id === entryId).replies).toHaveLength(1);
@@ -179,7 +179,7 @@ describe("a report from idea to merge", () => {
     expect(delivered).toMatchObject({ replaced: false, delivery: { summary: delivery.summary, pullRequestUrl: delivery.pullRequestUrl, current: true } });
     expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "done", substatus: "requires_review", pullRequestUrl: delivery.pullRequestUrl });
     // People reply to a delivery, like any entry.
-    const reply = await ok("ada", "comment", { id, body: "Does it cover the keyboard shortcut too?", deliveryId: delivered.delivery.id });
+    const reply = await ok("ada", "comment", { id, summary: "A short comment.", body: "Does it cover the keyboard shortcut too?", deliveryId: delivered.delivery.id });
     expect(reply.comment).toMatchObject({ deliveryId: delivered.delivery.id, parentId: null });
     const listed = await ok("dana", "list-deliveries", { id });
     expect(listed).toMatchObject({ status: "done", substatus: "requires_review", deliveries: [{ id: delivered.delivery.id, current: true }] });
@@ -211,7 +211,7 @@ describe("a report from idea to merge", () => {
     expect(fail.verdict).toMatchObject({ goodToMerge: false, summary: "Not good to merge yet." });
     const again = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Still not good to merge.", description: "Retested: the second click still fails." });
     expect(again).toMatchObject({ changed: true, verdict: { id: fail.verdict.id, summary: "Still not good to merge." } });
-    const reply = await ok("ada", "comment", { id, body: "Which browser was this in?", testVerdictId: fail.verdict.id });
+    const reply = await ok("ada", "comment", { id, summary: "A short comment.", body: "Which browser was this in?", testVerdictId: fail.verdict.id });
     expect(reply.comment).toMatchObject({ testVerdictId: fail.verdict.id, parentId: null });
     const listed = await ok("dana", "list-test-verdicts", { id });
     expect(listed.verdicts).toHaveLength(1);
@@ -234,7 +234,7 @@ describe("a report from idea to merge", () => {
     // A reject is a merge review: the feedback is its description, and no comment narrates it.
     const rejected = await ok("dana", "merge-fix", { id, verdict: "reject", summary: "Reject: Save still fails.", description: "The second click still fails; handle the pending state and add a test." });
     expect(rejected).toMatchObject({ accepted: false, replaced: false, review: { verdict: "reject", summary: "Reject: Save still fails." } });
-    const reply = await ok(solver, "comment", { id, body: "On it.", mergeReviewId: rejected.review.id });
+    const reply = await ok(solver, "comment", { id, summary: "A short comment.", body: "On it.", mergeReviewId: rejected.review.id });
     expect(reply.comment).toMatchObject({ mergeReviewId: rejected.review.id });
     const reviews = await ok("ada", "list-merge-reviews", { id });
     // A reject sends the fix back to In progress.

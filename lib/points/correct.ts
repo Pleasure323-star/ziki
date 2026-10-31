@@ -18,6 +18,8 @@ export type PointEntryLike = {
   bugId: string | null;
   role: PointRole;
   points: PointAmount;
+  /** A correction is the same agent's (#710). */
+  agentId?: string | null;
 };
 
 export function correctionSourceKey(pointEntryId: string): string {
@@ -46,6 +48,7 @@ export async function correct(
     role: entry.role,
     points: -pointsNumber(entry.points),
     sourceKey: correctionSourceKey(entry.id),
+    agentId: entry.agentId ?? null,
   });
 
   return { awarded, entryId: entry.id };

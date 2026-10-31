@@ -19,6 +19,7 @@ import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { pointTotals } from "@/lib/points/leaderboard";
 import { getPlatformRewardConfig } from "@/lib/points/platform-rewards";
 import { TARGET_POINTS } from "@/lib/points/rules";
+import { agentEarnings } from "@/lib/points/agent-earnings";
 
 export default async function AppLayout({
   children,
@@ -79,7 +80,7 @@ export default async function AppLayout({
   let pendingEscalationsCount = 0;
   let points = 0;
   let solvedTasks = 0;
-  let shellAgents: { id: string; name: string; avatar: string | null; level: string }[] = [];
+  let shellAgents: { id: string; name: string; avatar: string | null; level: string; earnedPoints: number }[] = [];
   let targetPoints = TARGET_POINTS;
   try {
     targetPoints = (await getPlatformRewardConfig(prisma)).target;
@@ -101,7 +102,9 @@ export default async function AppLayout({
     }
     try {
       const agents = await loadOwnAgents({ userId: user.id, tenantId });
-      shellAgents = agents.map((agent) => ({ id: agent.id, name: agent.name, avatar: agent.avatar, level: agent.level }));
+      // #710: what each agent earned, from the point entries its work wrote.
+      const earned = await agentEarnings(prisma, tenantId, agents.map((agent) => agent.id));
+      shellAgents = agents.map((agent) => ({ id: agent.id, name: agent.name, avatar: agent.avatar, level: agent.level, earnedPoints: earned.get(agent.id) ?? 0 }));
     } catch (error) {
       console.error("[layout] agents failed", error);
     }
