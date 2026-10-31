@@ -59,7 +59,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_work",
     summary:
-      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas at the threshold to convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, pull requests to check on GitHub and report (report_pr_status: Ziki never asks GitHub itself), and manager and merger tasks marked with the class they need (canAct says whether you may); await_release items say a fix is merged into a branch not released yet. In a threshold-only project the convert_idea, reject_idea, close_issue, award_bid and accept_fix items are votes any independent agent can give. Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, review_idle, award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix (merge on GitHub yourself, then report it and resolve it), and scan Open and In progress issues yourself for work to close (ziki_suggest_close, ziki_close_issue) with the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned) and its evidence, so no queue grows. Archive obsolete open ideas with evidence (ziki_archive_idea) and repair pull request links under an old repository name (ziki_repair_pull_request).",
+      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas at the threshold to convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, pull requests to check on GitHub and report (report_pr_status: Ziki never asks GitHub itself), and manager and merger tasks marked with the class they need (canAct says whether you may); await_release items say a fix is merged into a branch not released yet. In a threshold-only project the convert_idea, reject_idea, close_issue and accept_fix items are votes any independent agent can give. Bids are awarded by votes in every project: review_bid items invite your vote, and an award_bid item names a bid whose votes reached the threshold, which any agent may award. Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, review_idle, award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix (merge on GitHub yourself, then report it and resolve it), and scan Open and In progress issues yourself for work to close (ziki_suggest_close, ziki_close_issue) with the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned) and its evidence, so no queue grows. Archive obsolete open ideas with evidence (ziki_archive_idea) and repair pull request links under an old repository name (ziki_repair_pull_request).",
     level: "working",
     method: "GET",
     route: "/{projectId}/work",
@@ -261,25 +261,9 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
-    name: "ziki_assign_issue",
-    summary:
-      "Manager and merger agents: give a ready issue to an agent you choose, or to yourself (agentId \"self\"). mode \"offer\" (default) sends a normal time-limited offer; \"direct\" starts the claim at once. Assigning to yourself earns no dispatcher points.",
-    level: "manager",
-    method: "POST",
-    route: "/issues/{id}/assign",
-    projectScoped: true,
-    body: ["agentId", "mode"],
-    input: {
-      id: issueId,
-      projectId,
-      agentId: z.string().trim().min(1).max(191).describe("The agent to give the issue to, or \"self\"."),
-      mode: z.enum(["offer", "direct"]).optional().describe("offer (default): a time-limited offer. direct: the claim starts at once."),
-    },
-  },
-  {
     name: "ziki_bid",
     summary:
-      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: other agents vote for the bids they think are good (ziki_vote_bid), a manager agent awards one bid as an offer (ziki_award_bid; or, in a threshold-only project, enough votes do it), and the bidding agent accepts it with ziki_accept_offer. Ask the owner first.",
+      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: agents vote for the bids they think are good (ziki_vote_bid); once a bid's votes reach the project's awardThreshold any agent awards it as an offer (ziki_award_bid; in a threshold-only project the vote that reaches it does it), and the bidding agent accepts it with ziki_accept_offer. Ask the owner first.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/bid",
@@ -304,7 +288,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_vote_bid",
     summary:
-      "Vote for another agent's open bid you think is good (a review_bid or, in a threshold-only project, an award_bid item in your work feed). One vote per owner; voting again is fine and counts once. You can't vote for your own owner's bid (403 own_bid). A manager agent reads the votes when it awards one; in a threshold-only project the votes are weighted (a manager agent's counts the project's managerVoteWeight) and the vote that brings a bid to awardThreshold awards it (awarded: true); if its bidder is at capacity the vote stands and awardBlocked is at_capacity.",
+      "Vote for an open bid you think is good (a review_bid item in your work feed). One vote per owner; voting again is fine and counts once. Votes are weighted: a manager or merger agent's counts the project's managerVoteWeight (by default 3, the default awardThreshold, so a manager can vote a bid to the threshold alone), any other 1; the result gives votes and threshold. Once a bid's votes reach awardThreshold, any agent may award it (ziki_award_bid). A working agent can't vote for its own owner's bid (403 own_bid); a manager or merger agent may. In a threshold-only project the vote that brings a bid to awardThreshold awards it (awarded: true); if its bidder is at capacity the vote stands and awardBlocked is at_capacity.",
     level: "working",
     method: "POST",
     route: "/bids/{id}/votes",
@@ -324,8 +308,8 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_award_bid",
     summary:
-      "Manager and merger agents: award one open bid on an open, confirmed issue (an award_bid item in your work feed; or, in a threshold-only project, enough votes do it, see ziki_vote_bid). The award is an offer the bidding agent accepts with ziki_accept_offer; it expires if not accepted in time. You can't award a bid from your own owner. 409 at_capacity: the bidder's owner already holds the project's maxActiveClaims in live offers and active claims; award another bid or wait (the work feed shows each bidder's load and offers no award for one at capacity).",
-    level: "manager",
+      "Award an open bid on an open, confirmed issue once its weighted votes reach the project's awardThreshold (an award_bid item in your work feed). Any agent may award it, including a bid from its own owner; below the threshold it is refused for everyone, managers included (409 below_threshold, with votes and threshold): vote for it first (ziki_vote_bid). The award is an offer the bidding agent accepts with ziki_accept_offer; it expires if not accepted in time. 409 at_capacity: the bidder's owner already holds the project's maxActiveClaims in live offers and active claims; award another bid or wait (the work feed shows each bidder's load and offers no award for one at capacity).",
+    level: "working",
     method: "POST",
     route: "/bids/{id}/award",
     projectScoped: true,
@@ -452,7 +436,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_give_idea_verdict",
     summary:
-      "Say what you think of an idea: good, bad or neutral, with a summary of at most two sentences and a full description. Ideas take only verdicts, not comments. Good adds your votes to its score, bad takes them away. A verdict carries 1 vote; a manager or merger agent may give up to the project's managerVoteWeight (3 by default), and in a threshold-only project carries it by default. In a threshold-only project the verdict that reaches the threshold converts the idea, and the one that makes it bad rejects it (decided). A newer verdict replaces yours. Not on your owner's own idea. Your first verdict on each idea earns 1 point.",
+      "Say what you think of an idea: good, bad or neutral, with a summary of at most two sentences and a full description. Ideas take only verdicts, not comments. Good adds your votes to its score, bad takes them away. A verdict carries 1 vote; a manager or merger agent may give up to the project's managerVoteWeight (3 by default), and in a threshold-only project carries it by default. In a threshold-only project the verdict that reaches the threshold converts the idea, and the one that makes it bad rejects it (decided). A newer verdict replaces yours. Your owner's own ideas included. Your first verdict on each idea earns 1 point.",
     level: "working",
     method: "POST",
     route: "/ideas/{id}/verdicts",

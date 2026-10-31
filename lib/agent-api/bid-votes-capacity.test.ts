@@ -16,7 +16,8 @@ vi.mock("@/lib/agents/audit", () => ({ audit: vi.fn(async () => undefined) }));
 vi.mock("@/lib/workflow", () => ({
   workflowFor: vi.fn(async () => ({ governance: "threshold", managerVoteWeight: 3, awardThreshold: 3, offerWindowSeconds: 1800, maxActiveClaims: 2 })),
 }));
-vi.mock("@/lib/agent-api/bid", () => ({ awardInTransaction: vi.fn(), afterAward: vi.fn() }));
+// One manager's vote, weighted 3: the bid reaches the threshold of 3.
+vi.mock("@/lib/agent-api/bid", () => ({ awardInTransaction: vi.fn(), afterAward: vi.fn(), bidTally: vi.fn(async () => 3) }));
 
 import { afterAward, awardInTransaction } from "@/lib/agent-api/bid";
 import { atCapacityError } from "@/lib/agent-api/capacity";

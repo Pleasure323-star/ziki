@@ -126,7 +126,6 @@ const openBid = (overrides: Partial<ProjectWork["bids"][number]> = {}): ProjectW
   ownerIds: ["owner-ada"],
   by: "Ada",
   summary: "I will fix the redirect.",
-  votes: 0,
   weightedVotes: 0,
   voters: [],
   load: 0,
@@ -169,10 +168,10 @@ describe("itemsFor", () => {
     expect(itemsFor(agent("manager"), heavier, nothingMine)[0].actions[0].cli).toContain("--votes 1-4");
   });
 
-  it("leaves out the agent's own ideas", () => {
+  it("asks for a verdict on the agent's own owner's ideas too", () => {
     const own = ideaFacts({ reporterId: "owner-bob", beneficiaryUserId: "owner-bob", createdByAgent: { ownerUserId: "owner-bob" } });
     const items = itemsFor(agent("working"), work({ ideas: [{ id: "b1", number: 7, title: "x", score: 0 }], ideaFacts: new Map([["b1", own]]) }), nothingMine);
-    expect(items).toEqual([]);
+    expect(items).toMatchObject([{ kind: "idea", canAct: true }]);
   });
 
   it("asks to confirm a converted issue at the confirmations route, and drops it once the owner gave an entry", () => {
@@ -281,7 +280,7 @@ describe("itemsFor", () => {
   it("lists manager and merger work for a working agent without letting it act", () => {
     const project = work({
       ready: [{ id: "b1", number: 1, title: "x", importance: 3 }],
-      toAward: [{ id: "b4", number: 4, title: "w", bids: [openBid({ issue: { id: "b4", number: 4, title: "w" } })] }],
+      toAward: [{ id: "b4", number: 4, title: "w", bids: [openBid({ issue: { id: "b4", number: 4, title: "w" }, weightedVotes: 3 })] }],
       toClose: [{ id: "b5", number: 5, title: "v", reason: "superseded", votes: 3, tallies: [{ reason: "superseded", votes: 3 }], threshold: 3, suggestions: 1, summaries: ["#2 covers it."], suggesters: ["owner-cara"], duplicateOfNumber: null }],
       toAccept: [{ id: "b2", number: 2, title: "y" }],
       toMerge: [{ id: "b3", number: 3, title: "z" }],
@@ -291,7 +290,8 @@ describe("itemsFor", () => {
     const byKind = Object.fromEntries(items.map((item) => [item.kind, item]));
     expect(byKind.ready_issue).toMatchObject({ canAct: true, minimumRole: "working" });
     expect(byKind).not.toHaveProperty("dispatch");
-    expect(byKind.award_bid).toMatchObject({ canAct: false, minimumRole: "manager", blockedReason: "Needs a manager agent." });
+    // A bid at the threshold is any agent's to award (#bid-votes).
+    expect(byKind.award_bid).toMatchObject({ canAct: true, minimumRole: "working" });
     expect(byKind.close_issue).toMatchObject({ canAct: false, minimumRole: "manager", blockedReason: "Needs a manager agent." });
     expect(byKind.accept_fix).toMatchObject({ canAct: false, minimumRole: "manager" });
     expect(byKind.merge_fix).toMatchObject({ canAct: false, minimumRole: "merger", blockedReason: "Needs a merger agent." });
@@ -310,12 +310,13 @@ describe("itemsFor", () => {
     expect(item.actions[0]).toMatchObject({ method: "POST", path: "/api/v1/issues/b1/bid?projectId=p1" });
   });
 
-  it("asks other agents to vote for an open bid, not its own owner or a past voter (#bid-votes)", () => {
-    const bid = openBid({ votes: 1, voters: ["owner-cara"] });
+  it("asks agents to vote for an open bid, not a working agent of its own owner, nor a past voter (#bid-votes)", () => {
+    const bid = openBid({ weightedVotes: 1, voters: ["owner-cara"] });
     const items = itemsFor(agent("working"), work({ bids: [bid] }), nothingMine).filter((item) => item.kind === "review_bid");
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ key: "review_bid:bid-ada", minimumRole: "working", canAct: true, issue: { id: "b1", number: 1 } });
-    expect(items[0].detail).toContain("1 vote so far");
+    expect(items[0].detail).toContain("1 of 3");
+    expect(items[0].detail).toContain("once a bid has 3, any agent can award it");
     expect(items[0].actions).toEqual([
       { name: "vote_bid", minimumRole: "working", method: "POST", path: "/api/v1/bids/bid-ada/votes?projectId=p1", cli: "vote-bid --id bid-ada" },
     ]);
@@ -323,6 +324,15 @@ describe("itemsFor", () => {
     for (const ownerId of ["owner-ada", "owner-cara"]) {
       expect(itemsFor(agent("working", ownerId), work({ bids: [bid] }), nothingMine).some((item) => item.kind === "review_bid")).toBe(false);
     }
+  });
+
+  it("asks a manager to vote too, its own owner's bid included, and says its vote can reach the threshold alone (#bid-votes)", () => {
+    const bid = openBid({ ownerIds: ["owner-dana"] });
+    const item = itemsFor(agent("manager", "owner-dana"), work({ bids: [bid] }), nothingMine).find((i) => i.kind === "review_bid");
+    expect(item).toMatchObject({ key: "review_bid:bid-ada", canAct: true });
+    expect(item!.detail).toContain("Your vote counts 3 and can reach the threshold alone.");
+    // Once the manager's owner voted, the item goes.
+    expect(itemsFor(agent("manager", "owner-dana"), work({ bids: [{ ...bid, voters: ["owner-dana"] }] }), nothingMine).some((i) => i.kind === "review_bid")).toBe(false);
   });
 
   it("asks to investigate an Open issue and comment, not on one its owner filed or already commented on (#comment-votes)", () => {
@@ -363,52 +373,53 @@ describe("itemsFor", () => {
     }
   });
 
-  it("asks a manager to award one of an open issue's bids, most voted first, never its own owner's (#bids-only-offers)", () => {
+  it("lets any agent award a bid that reached the threshold, its own owner's too, most voted first (#bid-votes)", () => {
     const issue = { id: "b1", number: 1, title: "x" };
     const bids = [
-      openBid({ id: "bid-ada", votes: 1 }),
-      openBid({ id: "bid-dana", agentName: "Dana's Claude", ownerIds: ["owner-dana"], by: "Dana", votes: 5 }),
-      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", votes: 3 }),
+      openBid({ id: "bid-ada", weightedVotes: 1 }),
+      openBid({ id: "bid-dana", agentName: "Dana's Claude", ownerIds: ["owner-dana"], by: "Dana", weightedVotes: 3 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", weightedVotes: 5 }),
     ];
     const project = work({ toAward: [{ ...issue, bids }] });
 
-    const item = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "award_bid");
-    expect(item).toMatchObject({ key: "award_bid:b1", minimumRole: "manager", canAct: true, title: "Award one of the 3 bids on #1" });
-    expect(item!.actions.map((a) => a.cli)).toEqual(["award-bid --id bid-cara", "award-bid --id bid-ada"]);
-    expect(item!.actions[0]).toMatchObject({ name: "award_bid", method: "POST", path: "/api/v1/bids/bid-cara/award?projectId=p1" });
-    expect(item!.detail).toContain("Dana's Claude for Dana (5 votes)");
+    for (const caller of [agent("working", "owner-eli"), agent("manager", "owner-dana")]) {
+      const item = itemsFor(caller, project, nothingMine).find((i) => i.kind === "award_bid");
+      expect(item).toMatchObject({ key: "award_bid:b1", minimumRole: "working", canAct: true, title: "Award #1 to Cara's Claude: its bid has 5 of 3 votes" });
+      // Only the bids at the threshold, the most voted first; the one below it is not offered.
+      expect(item!.actions.map((a) => a.cli)).toEqual(["award-bid --id bid-cara", "award-bid --id bid-dana"]);
+      expect(item!.actions[0]).toMatchObject({ name: "award_bid", minimumRole: "working", method: "POST", path: "/api/v1/bids/bid-cara/award?projectId=p1" });
+      expect(item!.detail).toContain("Dana's Claude for Dana (3 of 3)");
+    }
+  });
 
-    const onlyOwn = work({ toAward: [{ ...issue, bids: [bids[1]] }] });
-    expect(itemsFor(agent("manager", "owner-dana"), onlyOwn, nothingMine).find((i) => i.kind === "award_bid")).toMatchObject({
-      canAct: false,
-      blockedReason: "Every bid on it is from your owner.",
-      actions: [],
-    });
-
-    const forWorking = itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "award_bid");
-    expect(forWorking).toMatchObject({ canAct: false, blockedReason: "Needs a manager agent." });
+  it("offers no award while every bid is below the threshold (#bid-votes)", () => {
+    const issue = { id: "b1", number: 1, title: "x" };
+    const project = work({ toAward: [{ ...issue, bids: [openBid({ weightedVotes: 2 })] }] });
+    for (const level of ["working", "manager", "merger"] as const) {
+      expect(itemsFor(agent(level, "owner-dana"), project, nothingMine).some((i) => i.kind === "award_bid")).toBe(false);
+    }
   });
 
   it("shows each bidder's load and offers no award for a bid at capacity (#bidder-capacity)", () => {
     const issue = { id: "b1", number: 1, title: "x" };
     const bids = [
-      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", votes: 5, load: 2 }),
-      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", votes: 1, load: 1 }),
+      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", weightedVotes: 5, load: 2 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", weightedVotes: 3, load: 1 }),
     ];
-    const item = itemsFor(agent("manager", "owner-dana"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
-    expect(item).toMatchObject({ canAct: true });
+    const item = itemsFor(agent("working", "owner-eli"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    expect(item).toMatchObject({ canAct: true, title: "Award #1 to Cara's Claude: its bid has 3 of 3 votes" });
     expect(item!.detail).toContain("Pixel: 2 of 2 — at capacity");
     expect(item!.detail).toContain("Cara's Claude: 1 of 2");
     expect(item!.actions.map((a) => a.cli)).toEqual(["award-bid --id bid-cara"]);
   });
 
-  it("keeps the award item but blocks it when every bidder is at capacity (#bidder-capacity)", () => {
+  it("keeps the award item but blocks it when every bidder at the threshold is at capacity (#bidder-capacity)", () => {
     const issue = { id: "b1", number: 1, title: "x" };
     const bids = [
-      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", load: 2 }),
-      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", load: 3 }),
+      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", weightedVotes: 3, load: 2 }),
+      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", weightedVotes: 4, load: 3 }),
     ];
-    const item = itemsFor(agent("manager", "owner-dana"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    const item = itemsFor(agent("working", "owner-eli"), work({ toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
     expect(item).toMatchObject({
       canAct: false,
       blockedReason: "every bidder is at capacity; wait or ask for more bids",
@@ -416,22 +427,12 @@ describe("itemsFor", () => {
     });
   });
 
-  it("offers threshold-only votes only on bids under capacity (#bidder-capacity)", () => {
-    const issue = { id: "b1", number: 1, title: "x" };
+  it("in a threshold-only project, asks for votes on each bid and says the crossing vote awards it", () => {
     const governance = { thresholdOnly: true, managerVoteWeight: 3, closeThreshold: 3, awardThreshold: 3, acceptThreshold: 3 };
-    const bids = [
-      openBid({ id: "bid-pixel", agentName: "Pixel", ownerIds: ["owner-pix"], by: "Pix", weightedVotes: 2, load: 2 }),
-      openBid({ id: "bid-cara", agentName: "Cara's Claude", ownerIds: ["owner-cara"], by: "Cara", weightedVotes: 0, load: 0 }),
-    ];
-    const item = itemsFor(agent("working", "owner-eli"), work({ governance, toAward: [{ ...issue, bids }] }), nothingMine).find((i) => i.kind === "award_bid");
+    const bid = openBid({ weightedVotes: 2 });
+    const item = itemsFor(agent("working", "owner-eli"), work({ governance, bids: [bid] }), nothingMine).find((i) => i.kind === "review_bid");
     expect(item).toMatchObject({ canAct: true });
-    expect(item!.actions.map((a) => a.cli)).toEqual(["vote-bid --id bid-cara"]);
-
-    const allFull = work({ governance, toAward: [{ ...issue, bids: bids.map((bid) => ({ ...bid, load: 2 })) }] });
-    expect(itemsFor(agent("working", "owner-eli"), allFull, nothingMine).find((i) => i.kind === "award_bid")).toMatchObject({
-      canAct: false,
-      blockedReason: "every bidder is at capacity; wait or ask for more bids",
-    });
+    expect(item!.detail).toContain("the vote that reaches the threshold awards it");
   });
 
   it("asks a manager to close an issue for its leading reason once that reason reaches the threshold (#close-reasons)", () => {

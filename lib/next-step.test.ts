@@ -34,19 +34,19 @@ describe("issueNextStep (#next-step)", () => {
     expect(issueNextStep(issue({ status: "requires_confirmation", confirmations: 2 }))).toMatchObject({ tone: "ok", title: "Confirmed", actor: null });
   });
 
-  it("asks managers to award one of the open bids, and agents to vote for the good ones", () => {
+  it("asks agents to vote for the good bids; once one has 3 votes, any agent can award it (#bid-votes)", () => {
     const step = issueNextStep(issue({ openBids: 2 }));
-    expect(step).toMatchObject({
-      tone: "info",
-      title: "Open: bids waiting",
-      // Two audiences, so no single actor or action: both instructions are in the detail.
-      actor: null,
-      action: null,
-    });
-    expect(step.detail).toMatch(/agents/i);
-    expect(step.detail).toMatch(/vote/i);
-    expect(step.detail).toMatch(/managers/i);
-    expect(step.detail).toMatch(/award/i);
+    expect(step).toMatchObject({ tone: "info", title: "Open: bids waiting", actor: null, action: null });
+    expect(step.detail).toBe("Agents: vote for the bids you think are good; once one has 3 votes, any agent can award it.");
+
+    const governance = { thresholdOnly: false, managerVoteWeight: 3, awardThreshold: 3 };
+    const below = issueNextStep(issue({ openBids: 2, governance, topBidVotes: 2 }));
+    expect(below).toMatchObject({ title: "Open: bids waiting", actor: "Agents", action: "vote for the bids you think are good; once one has 3 votes, any agent can award it." });
+    expect(below.detail).toBe("Leading bid: 2 of 3 votes; managers' votes count 3.");
+    const reached = issueNextStep(issue({ openBids: 2, governance, topBidVotes: 3 }));
+    expect(reached).toMatchObject({ title: "Open: a bid can be awarded", actor: "Agents", action: expect.stringContaining("any agent can award it") });
+    // Threshold-only: the crossing vote awards it.
+    expect(issueNextStep(issue({ openBids: 2, governance: { ...governance, thresholdOnly: true }, topBidVotes: 1 })).action).toContain("the vote that brings one to 3 awards it");
   });
 
   it("asks working agents to bid when nobody has bid, and the offered agent to accept an offer", () => {
@@ -131,14 +131,13 @@ describe("ideaNextStep (#next-step)", () => {
     expect(ideaNextStep(idea({ status: "rejected" }))).toMatchObject({ tone: "bad", title: "Idea rejected", actor: null });
   });
 
-  it("in a threshold-only project, says a bad idea judged by one person waits for a second verdict (#vote-governance)", () => {
+  it("in a threshold-only project, says the next verdict rejects a bad idea, however few people judged it (#vote-governance)", () => {
     const governance = { thresholdOnly: true, managerVoteWeight: 3 };
-    const one = ideaNextStep(idea({ bad: true, totalVotes: 3, people: 1, governance }));
-    expect(one).toMatchObject({ tone: "bad", actor: "Everyone but its reporter" });
-    expect(one.detail).toContain("at least 2 people");
-    expect(ideaNextStep(idea({ bad: true, totalVotes: 4, people: 2, governance }))).toMatchObject({ actor: "Agents", action: expect.stringContaining("rejects it") });
-    // A manager still decides in a manager-governed project, whoever judged it.
-    expect(ideaNextStep(idea({ bad: true, totalVotes: 3, people: 1 }))).toMatchObject({ actor: "Managers" });
+    const one = ideaNextStep(idea({ bad: true, totalVotes: 3, governance }));
+    expect(one).toMatchObject({ tone: "bad", actor: "Agents", action: expect.stringContaining("rejects it") });
+    expect(one.detail).not.toContain("people");
+    // A manager still decides in a manager-governed project.
+    expect(ideaNextStep(idea({ bad: true, totalVotes: 3 }))).toMatchObject({ actor: "Managers" });
   });
 
   it("says when the owner withdrew the idea (#idea-withdraw)", () => {

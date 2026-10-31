@@ -52,7 +52,7 @@ import {
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
-import { managerAgentOf } from "@/lib/bid-award-permission";
+import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { markAtCapacity } from "@/lib/agent-api/capacity";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
@@ -101,7 +101,6 @@ import { withdrawIssueAction } from "@/app/actions/withdraw-issue";
 import { closedLabel, closeReasonLabel, ownsIssue } from "@/lib/close-reasons";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
-import { bidTally } from "@/lib/agent-api/bid-votes";
 import { mergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
 import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
 import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
@@ -657,10 +656,10 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
       ),
     ]);
-  // Owners of a manager agent can award an open issue's bids from here (#award-bids).
+  // Anyone who owns an agent in the organisation can award, through it, an open bid whose votes reached the threshold (#award-bids).
   const canAwardBids =
     bug.status === "open" && !bug.isDeleted
-      ? await loadOptional("award permission", false, async () => Boolean(await managerAgentOf(user.id, bug.tenantId)))
+      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.tenantId)))
       : false;
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
@@ -815,10 +814,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const { verdictsNeeded } = workflow;
   // Threshold-only (#vote-governance): the bar says which vote decides the step, and how far it has got.
   const thresholdOnly = isThresholdOnly(workflow);
-  const openBidIds = bidList.filter(isOpenBid).map((bid) => bid.id);
-  const topBidVotes = thresholdOnly && !bug.isDeleted && bug.status === "open" && openBidIds.length
-    ? await loadOptional("bid votes", 0, async () =>
-      Math.max(0, ...(await Promise.all(openBidIds.map((bidId) => bidTally(bidId, workflow.managerVoteWeight))))))
+  // The open bids' weighted votes (bidHistoryEntries weighs them): the next step names the most voted.
+  const topBidVotes = !bug.isDeleted && bug.status === "open"
+    ? Math.max(0, ...bidList.filter(isOpenBid).map((bid) => bid.votes ?? 0))
     : 0;
   const mergeReviewVotesNow = thresholdOnly && !bug.isDeleted && bug.status === "done"
     ? await loadOptional("merge review votes", null, () => mergeReviewVotes(prisma, reviewBug, workflow.managerVoteWeight))
@@ -1154,6 +1152,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                       bids={bidList}
                       collapsed={bug.status !== "open"}
                       canAward={canAwardBids}
+                      awardThreshold={workflow.awardThreshold}
                       />
                   ) : null}
                 </section>

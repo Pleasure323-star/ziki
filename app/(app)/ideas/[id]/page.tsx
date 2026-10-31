@@ -99,7 +99,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
     workflowFor(idea.projectId),
   ]);
   const own = idea.reporterId === user.id || idea.beneficiaryUserId === user.id || idea.createdByAgent?.ownerUserId === user.id;
-  const block: IdeaVerdictBlock = idea.status !== "open" ? "closed" : own ? "own" : null;
+  // Anyone may give a verdict on their own idea.
+  const block: IdeaVerdictBlock = idea.status !== "open" ? "closed" : null;
   const votes = { total: verdicts.votes.good + verdicts.votes.bad + verdicts.votes.neutral, good: verdicts.votes.good };
   // A bad open idea is red and manager agents are advised to reject it; one at the threshold is accepted.
   const rejectable = idea.status === "open" && isBadIdea(votes, verdicts.ideaThreshold);
@@ -116,8 +117,6 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
     issueNumber: idea.issue?.number ?? null,
     archiveLabel: idea.status === "archived" ? archiveReasonLabel(idea.archiveReason, idea.archiveDuplicateOf) : null,
     withdrawn: idea.status === "archived" && idea.archiveReason === IDEA_WITHDRAWN_REASON,
-    // One verdict per person, so the verdicts are the people who judged it.
-    people: verdicts.verdicts.length,
     governance: { thresholdOnly: isThresholdOnly(workflow), managerVoteWeight: workflow.managerVoteWeight },
   });
   const earlier = legacyComments(idea.legacyComments);

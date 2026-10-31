@@ -377,13 +377,13 @@ export default async function BugsPage({
   let stages = new Map<string, IssueStage>();
   // How many independent people confirmed each open issue, under the one rule (#issue-confirmations).
   let confirmationCounts = new Map<string, number>();
-  let confirmationStates = new Map<string, { accepts: number; needed: number; confirmed: boolean }>();
+  let confirmationStates = new Map<string, { accepts: number; rejects: number; needed: number; confirmed: boolean }>();
   if (!isDeletedView) {
     try {
       const confirmations = await openIssueConfirmations(prisma, where);
       stages = new Map([...confirmations].map(([id, c]) => [id, c.stage]));
       confirmationCounts = new Map([...confirmations].map(([id, c]) => [id, c.accepts]));
-      confirmationStates = new Map([...confirmations].map(([id, c]) => [id, { accepts: c.accepts, needed: c.needed, confirmed: c.confirmed }]));
+      confirmationStates = new Map([...confirmations].map(([id, c]) => [id, { accepts: c.accepts, rejects: c.rejects, needed: c.needed, confirmed: c.confirmed }]));
     } catch (error) {
       console.error("[bugs] issue stage lookup failed", error);
     }
@@ -987,7 +987,7 @@ export default async function BugsPage({
                       >
                         {confirmationsView ? (
                           <div className="w-[52px] shrink-0">
-                            <ConfirmationCountBadge {...(confirmationStates.get(bug.id) ?? { accepts: 0, needed: 0, confirmed: false })} />
+                            <ConfirmationCountBadge {...(confirmationStates.get(bug.id) ?? { accepts: 0, rejects: 0, needed: 0, confirmed: false })} />
                           </div>
                         ) : (
                           <div className="issues-vote w-[76px] shrink-0">{importance}</div>
@@ -1050,7 +1050,10 @@ export default async function BugsPage({
                         </Link>
                         <span className="issues-status-cell" aria-hidden="true">{rowStatus}</span>
                         {confirmationsView ? (
-                          <div className="issues-vote issues-vote-end shrink-0">{importance}</div>
+                          // A plain number here: the box in the first column is the confirmations.
+                          <div className="issues-vote issues-vote-end shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-text2" aria-label={`Importance ${bug.voteCount}`} title={`Importance ${bug.voteCount}`} data-testid="importance-count">
+                            {bug.voteCount}
+                          </div>
                         ) : null}
                         <span
                           className={`w-10 shrink-0 items-center justify-end gap-2 ${

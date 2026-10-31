@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => {
   const mock = {
     issueBid: { findUnique: vi.fn() },
-    bidVote: { createMany: vi.fn(), count: vi.fn() },
+    bidVote: { createMany: vi.fn(), findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };
@@ -13,7 +13,7 @@ const db = vi.hoisted(() => {
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: vi.fn(async () => ({ id: "evt" })) }));
 vi.mock("@/lib/agents/audit", () => ({ audit: vi.fn(async () => undefined) }));
-// A manager-governed project (the default): votes are counted for the manager to read, never award.
+// A manager-governed project (the default): votes are weighted, and a vote never awards on its own; any agent awards a bid at the threshold.
 vi.mock("@/lib/workflow", () => ({
   workflowFor: vi.fn(async () => ({ governance: "manager", managerVoteWeight: 3, awardThreshold: 3 })),
 }));
@@ -45,12 +45,14 @@ beforeEach(() => {
   db.$queryRaw.mockResolvedValue([{ id: "issue1" }]);
   db.issueBid.findUnique.mockResolvedValueOnce(scope).mockResolvedValueOnce(openBid);
   db.bidVote.createMany.mockResolvedValue({ count: 1 });
-  db.bidVote.count.mockResolvedValue(1);
+  db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "eli", agent: { level: "working" } }]);
 });
+
+const manager = { ...eli, agentId: "dana-agent", name: "Dana's Claude", ownerId: "dana", level: "manager" as const };
 
 describe("voteForBid (#bid-votes)", () => {
   it("records one vote for the voter's owner, publishes issue.bid_voted and audits it", async () => {
-    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 1, threshold: null, awarded: false });
+    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 1, threshold: 3, awarded: false });
     expect(db.bidVote.createMany).toHaveBeenCalledWith({
       data: [{ bidId: "bid1", bugId: "issue1", onBehalfOfUserId: "eli", agentId: "eli-agent" }],
       skipDuplicates: true,
@@ -65,13 +67,34 @@ describe("voteForBid (#bid-votes)", () => {
 
   it("is idempotent: voting again counts once and publishes nothing new", async () => {
     db.bidVote.createMany.mockResolvedValue({ count: 0 });
-    db.bidVote.count.mockResolvedValue(2);
-    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 2, threshold: null, awarded: false });
+    db.bidVote.findMany.mockResolvedValue([
+      { onBehalfOfUserId: "eli", agent: { level: "working" } },
+      { onBehalfOfUserId: "cara", agent: { level: "working" } },
+    ]);
+    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 2, threshold: 3, awarded: false });
     expect(publish).not.toHaveBeenCalled();
     expect(audit).not.toHaveBeenCalled();
   });
 
-  it("refuses the owner's own bid with 403 own_bid, as beneficiary or as the bidding agent's owner", async () => {
+  it("weighs a manager's vote managerVoteWeight, so it can take a bid to the threshold alone, and never awards it in a manager-governed project", async () => {
+    db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "dana", agent: { level: "manager" } }]);
+    await expect(voteForBid(manager, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 3, threshold: 3, awarded: false });
+  });
+
+  it("lets a manager or merger agent vote for its own owner's bid", async () => {
+    for (const agent of [manager, { ...manager, level: "merger" as const }]) {
+      db.issueBid.findUnique.mockReset();
+      db.issueBid.findUnique.mockResolvedValueOnce(scope).mockResolvedValueOnce({ ...openBid, beneficiaryUserId: "dana", agent: { ownerUserId: "dana" } });
+      db.bidVote.findMany.mockResolvedValue([{ onBehalfOfUserId: "dana", agent: { level: agent.level } }]);
+      await expect(voteForBid(agent, "project", "bid1")).resolves.toMatchObject({ votes: 3, threshold: 3 });
+    }
+    expect(db.bidVote.createMany).toHaveBeenCalledWith({
+      data: [{ bidId: "bid1", bugId: "issue1", onBehalfOfUserId: "dana", agentId: "dana-agent" }],
+      skipDuplicates: true,
+    });
+  });
+
+  it("refuses a working agent its owner's own bid with 403 own_bid, as beneficiary or as the bidding agent's owner", async () => {
     for (const bid of [{ ...openBid, beneficiaryUserId: "eli" }, { ...openBid, agent: { ownerUserId: "eli" } }]) {
       db.issueBid.findUnique.mockReset();
       db.issueBid.findUnique.mockResolvedValueOnce(scope).mockResolvedValueOnce(bid);

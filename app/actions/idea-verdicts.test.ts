@@ -71,9 +71,9 @@ describe("giveIdeaVerdictAction (#idea-verdicts)", () => {
     expect(giveIdeaVerdict.mock.calls[0][3]).not.toHaveProperty("votes");
   });
 
-  it("shows the API's refusal, such as on your own idea", async () => {
-    giveIdeaVerdict.mockRejectedValue(new IssueApiError(403, "You can't give a verdict on your own idea.", { error: "own_idea" }));
-    expect(await giveIdeaVerdictAction("idea-1", form())).toEqual({ error: "You can't give a verdict on your own idea." });
+  it("shows the API's refusal, such as on a closed idea", async () => {
+    giveIdeaVerdict.mockRejectedValue(new IssueApiError(409, "This idea is no longer open.", { error: "idea_converted" }));
+    expect(await giveIdeaVerdictAction("idea-1", form())).toEqual({ error: "This idea is no longer open." });
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

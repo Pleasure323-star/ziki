@@ -12,7 +12,7 @@ import { idleInProgress } from "@/lib/agent-api/idle";
 import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { currentHold, type IssueHold } from "@/lib/issue-holders";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
-import { isThresholdOnly } from "@/lib/governance";
+import { isThresholdOnly, weightedTally } from "@/lib/governance";
 import { workflowFor } from "@/lib/workflow";
 import { parseGitHubRepoUrl, parsePullRequestUrl, type RepoRef } from "@/lib/github/pull-request-url";
 import { linkStateFromUrl, prGate, reportWanted, type LinkState, type PrGate } from "@/lib/agent-api/pr-gate";
@@ -155,9 +155,11 @@ export type TriageFacts = {
   projectId: string;
   repo: RepoRef | null;
   thresholdOnly: boolean;
+  /** The project's awardThreshold: a bid whose weighted votes reach it may be awarded by any agent (#bid-votes). */
+  awardThreshold: number;
   pullRequest: TriagePullRequest;
   judgements: TriageItem["judgements"];
-  /** Open bids, most voted first: the bid id, its votes and the owners it is from. */
+  /** Open bids, most voted first: the bid id, its weighted votes and the owners it is from. */
   bids: { id: string; votes: number; ownerIds: string[] }[];
   hold: IssueHold | null;
   stranded: StrandedDelivery | null;
@@ -270,17 +272,20 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
       const live = facts.hold
         ? `${facts.hold.agentName} for ${facts.hold.personName} ${facts.hold.status === "active" ? "holds it" : "has a live offer on it"}.`
         : null;
-      const others = facts.bids.filter((bid) => !bid.ownerIds.includes(caller.ownerId));
-      const ownOnly = facts.bids.length && !others.length ? "Every bid on it is from your owner." : null;
-      const top = others[0] ?? facts.bids[0];
-      if (top) {
-        if (facts.thresholdOnly) {
-          push("vote_bid", `/api/v1/bids/${top.id}/votes?projectId=${projectId}`, "working", gate("working", [live, ownOnly], false),
-            `The most voted bid from another owner (${top.votes} votes).`);
-        } else {
-          push("award_bid", `/api/v1/bids/${top.id}/award?projectId=${projectId}`, "manager", gate("manager", [live, ownOnly], false),
-            `The most voted bid from another owner (${top.votes} votes).`);
-        }
+      // Bids are awarded by votes (#bid-votes): a bid at the threshold may be
+      // awarded by any agent; below it, the best bid the caller may vote for
+      // (a working agent not its own owner's; a manager or merger agent any).
+      const threshold = facts.awardThreshold;
+      const top = facts.bids[0];
+      if (top && top.votes >= threshold) {
+        push("award_bid", `/api/v1/bids/${top.id}/award?projectId=${projectId}`, "working", gate("working", [live], false),
+          `The most voted bid (${top.votes} of ${threshold} votes) reached the threshold, so any agent may award it.`);
+      } else if (top) {
+        const votable = hasLevel(caller.level, "manager") ? facts.bids : facts.bids.filter((bid) => !bid.ownerIds.includes(caller.ownerId));
+        const ownOnly = !votable.length ? "Every bid on it is from your owner." : null;
+        const best = votable[0] ?? top;
+        push("vote_bid", `/api/v1/bids/${best.id}/votes?projectId=${projectId}`, "working", gate("working", [ownOnly], false),
+          `The most voted bid you may vote for (${best.votes} of ${threshold} votes); once a bid has ${threshold}, any agent can award it.`);
       }
       break;
     }
@@ -364,7 +369,7 @@ export async function triageQueue(
     const [hold, judged, bids, stranded, idle, stale] = await Promise.all([
       currentHold(bug.id),
       bug.pullRequestUrl ? judgementsOn(bug, pullRequest.headSha, workflow.verdictsNeeded, caller.ownerId) : Promise.resolve(null),
-      bug.status === "open" ? openBidsOn(bug.id) : Promise.resolve([]),
+      bug.status === "open" ? openBidsOn(bug.id, workflow.managerVoteWeight) : Promise.resolve([]),
       bug.status === "in_progress" ? strandedDelivery(bug.id, prisma, new Date(now)) : Promise.resolve(null),
       bug.status === "in_progress" ? idleInProgress(bug.id, prisma, now) : Promise.resolve(null),
       bug.status === "open" || bug.status === "in_progress" ? staleHold(bug.id, new Date(now)) : Promise.resolve(null),
@@ -374,6 +379,7 @@ export async function triageQueue(
       projectId: project.id,
       repo,
       thresholdOnly,
+      awardThreshold: workflow.awardThreshold,
       pullRequest,
       judgements: judged?.counts ?? null,
       bids,
@@ -441,14 +447,21 @@ async function judgementsOn(
   return { counts: { good, notGood, needed, goodAtHead, headSha }, byCaller };
 }
 
-/** Open bids on an issue, most voted first, then oldest. */
-async function openBidsOn(bugId: string): Promise<TriageFacts["bids"]> {
+/** Open bids on an issue, most weighted votes first, then oldest. */
+async function openBidsOn(bugId: string, managerVoteWeight: number): Promise<TriageFacts["bids"]> {
   const rows = await prisma.issueBid.findMany({
     where: { bugId, ...OPEN_BID_WHERE },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } }, _count: { select: { votes: true } } },
+    select: {
+      id: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } },
+      votes: { select: { onBehalfOfUserId: true, agent: { select: { level: true } } } },
+    },
   });
   return rows
-    .map((row) => ({ id: row.id, votes: row._count.votes, ownerIds: [row.beneficiaryUserId, row.agent.ownerUserId] }))
+    .map((row) => ({
+      id: row.id,
+      votes: weightedTally(row.votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight),
+      ownerIds: [row.beneficiaryUserId, row.agent.ownerUserId],
+    }))
     .sort((a, b) => b.votes - a.votes);
 }

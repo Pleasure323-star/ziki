@@ -110,7 +110,7 @@ export async function fileIssue(agent: Agent, label: string, givers: [Agent, Age
 
 /**
  * The sandbox agent the issue is offered to, from each agent's work feed, if any.
- * Only a manager agent's award of a bid (or an assignment) makes an offer (#bids-only-offers).
+ * Only an award of a bid makes an offer (#bids-only-offers).
  */
 export async function offeredTo(id: string): Promise<{ agent: Agent; offerId: string } | null> {
   for (const agent of ["ada", "bob", "cara", "dana", "eli"] as const) {

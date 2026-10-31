@@ -426,14 +426,15 @@ describe("issue list layout", () => {
 
   it("counts confirmations on the Requires confirmation tab", async () => {
     const html = await renderList({ status: "requires_confirmation" });
-    expect(html).toContain('aria-label="1 of 2 confirmations so far"');
+    expect(html).toMatch(/data-testid="confirmation-accepts"[^>]*>.*?1<\/span>/);
+    expect(html).toContain('data-tone="neutral"');
     expect(clean(html)).toContain("Not confirmed");
   });
 
   it("shows the issue as confirmed at the threshold", async () => {
     vi.mocked(openIssueConfirmations).mockResolvedValueOnce(new Map([["bug-1", { stage: "confirming", accepts: 2, rejects: 0, needed: 2, confirmed: true }]]));
     const html = await renderList({ status: "requires_confirmation" });
-    expect(html).toContain('aria-label="Confirmed: 2 of 2 confirmations"');
+    expect(html).toMatch(/data-testid="confirmation-count"[^>]*data-tone="ok"|data-tone="ok"[^>]*data-testid="confirmation-count"/);
     expect(clean(html)).not.toContain("Not confirmed");
   });
 

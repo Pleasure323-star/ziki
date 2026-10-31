@@ -12,7 +12,7 @@ import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
 import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary, sentenceCount } from "@/lib/agent-api/entry-fields";
-import { ideaVotes, isAutoRejectable, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
+import { ideaVotes, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
 import { duplicateRef, IDEA_WITHDRAWN_REASON, withdrawnNotArchivableMessage, type ArchiveIdeaInput, type WithdrawIdeaInput } from "@/lib/idea-archive";
 import { WORKFLOW_LIMITS } from "@/lib/workflow-config";
 import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision } from "@/lib/governance";
@@ -29,8 +29,7 @@ import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision 
  * When the score reaches the project's `ideaThreshold`, any agent may
  * convert the idea, which creates an issue. The verdicts stay with the idea:
  * the issue is then confirmed on its own. In a threshold-only project
- * (#vote-governance) the verdict that makes the idea bad rejects it, once at
- * least two different people gave it verdicts (isAutoRejectable), and the
+ * (#vote-governance) the verdict that makes the idea bad rejects it, and the
  * one that brings the score to the threshold converts it; a manager agent's
  * verdict there carries its full weight unless it asks for fewer votes.
  */
@@ -174,9 +173,6 @@ export async function giveIdeaVerdict(
   const given = await prisma.$transaction(async (tx) => {
     const idea = await lockedIdea(tx, { tenantId: giver.tenantId, projectId }, ideaRef);
     assertOpenIdea(idea);
-    if (ownsIdea(idea, giver.userId)) {
-      throw new IssueApiError(403, "You can't give a verdict on your own idea.", { error: "own_idea", message: "You can't give a verdict on your own idea." });
-    }
     const ideaId = idea.id;
     const existing = await tx.ideaVerdict.findUnique({
       where: { ideaId_onBehalfOfUserId: { ideaId, onBehalfOfUserId: giver.userId } },
@@ -245,8 +241,7 @@ export async function giveIdeaVerdict(
       const scope = { tenantId: giver.tenantId, projectId };
       const by = { userId: giver.userId, agentId: giver.agent?.id ?? null };
       const tally = ideaVotes(await tx.ideaVerdict.findMany({ where: { ideaId }, select: { opinion: true, votes: true } }));
-      // A bad idea is rejected on its own only once two different people judged it (isAutoRejectable).
-      if (isAutoRejectable(tally, ideaThreshold)) {
+      if (isBadIdea(tally, ideaThreshold)) {
         await rejectLocked(tx, scope, { ...idea, score: ideaScore }, by, tally, thresholdDecision(by, tally.total, ideaThreshold));
         decided = { outcome: "rejected" };
       } else if (ideaScore >= ideaThreshold) {

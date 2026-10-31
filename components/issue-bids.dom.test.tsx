@@ -56,7 +56,7 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.queryByRole("button", { name: "Award bid" })).toBeNull();
   });
 
-  it("shows each open bid's votes, and no Award button: a manager agent awards through the API", () => {
+  it("shows each open bid's votes, and no Award button to a viewer who can't award", () => {
     render(<IssueBidsPanel bids={[{ ...bid, votes: 3 }, { ...bid, id: "bid2", agentName: "Bob's agent", votes: 1 }, { ...bid, id: "bid3", agentName: "Cara's agent" }]} />);
     expect(screen.getAllByTestId("bid-votes").map((votes) => votes.textContent?.match(/\d+/)?.[0])).toEqual(["3", "1", "0"]);
     expect(screen.queryByRole("button", { name: /Award/ })).toBeNull();
@@ -103,15 +103,16 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.getAllByTestId("bid-state").map((chip) => chip.textContent)).toEqual(["Awarded", "Bid"]);
   });
 
-  it("offers Award on open bids only, and only to a viewer who can award", () => {
+  it("offers Award on open bids at the threshold only, and only to a viewer who can award", () => {
     const at = new Date("2026-10-29T12:00:00Z");
     const bids: BidEntryView[] = [
-      { ...bid, id: "open1", agentName: "Open agent" },
-      { ...bid, id: "open2", agentName: "Second agent" },
-      { ...bid, id: "withdrawn1", agentName: "Withdrawn agent", withdrawnAt: at },
-      { ...bid, id: "released1", agentName: "Released agent", awardedAt: at, awardReleasedAt: at },
+      { ...bid, id: "open1", agentName: "Open agent", votes: 3 },
+      { ...bid, id: "open2", agentName: "Second agent", votes: 4 },
+      { ...bid, id: "below1", agentName: "Short agent", votes: 2 },
+      { ...bid, id: "withdrawn1", agentName: "Withdrawn agent", withdrawnAt: at, votes: 3 },
+      { ...bid, id: "released1", agentName: "Released agent", awardedAt: at, awardReleasedAt: at, votes: 3 },
     ];
-    const { unmount } = render(<IssueBidsPanel bids={bids} canAward />);
+    const { unmount } = render(<IssueBidsPanel bids={bids} canAward awardThreshold={3} />);
     const buttons = screen.getAllByRole("button", { name: /Award/ });
     expect(buttons).toHaveLength(2);
     const awardedIds = buttons.map((button) => (button.closest("form")?.querySelector("input[name=bidId]") as HTMLInputElement | null)?.value);
@@ -120,12 +121,12 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     expect(screen.getByTestId("bid-released").querySelector("button")).toBeNull();
     unmount();
 
-    render(<IssueBidsPanel bids={bids} />);
+    render(<IssueBidsPanel bids={bids} awardThreshold={3} />);
     expect(screen.queryByRole("button", { name: /Award/ })).toBeNull();
   });
 
   it("marks an open bid whose bidder is at capacity, and offers no Award button for it (#bidder-capacity)", () => {
-    render(<IssueBidsPanel bids={[{ ...bid, id: "full", agentName: "Pixel", atCapacity: true }, { ...bid, id: "free", agentName: "Cara's agent" }]} canAward />);
+    render(<IssueBidsPanel bids={[{ ...bid, id: "full", agentName: "Pixel", atCapacity: true, votes: 3 }, { ...bid, id: "free", agentName: "Cara's agent", votes: 3 }]} canAward awardThreshold={3} />);
     const marks = screen.getAllByTestId("bid-at-capacity");
     expect(marks).toHaveLength(1);
     expect(marks[0]).toHaveTextContent("at capacity");

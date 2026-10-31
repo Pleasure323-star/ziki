@@ -176,8 +176,10 @@ describe("giveIdeaVerdict", () => {
     expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
   });
 
-  it("refuses a verdict on your own idea, a converted one and a closed one", async () => {
-    await expect(giveIdeaVerdict({ ...person, userId: "ada" }, "p1", "i1", input)).rejects.toMatchObject({ status: 403, body: { error: "own_idea" } });
+  it("takes a verdict on your own idea, and refuses a converted or closed one", async () => {
+    await expect(giveIdeaVerdict({ ...person, userId: "ada" }, "p1", "i1", input)).resolves.toBeDefined();
+    expect(db.ideaVerdict.upsert).toHaveBeenCalledTimes(1);
+    db.ideaVerdict.upsert.mockClear();
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
     await expect(giveIdeaVerdict(person, "p1", "i1", input)).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     db.$queryRaw.mockResolvedValue([idea({ status: "rejected" })]);
@@ -300,7 +302,7 @@ describe("rejectIdea (#idea-rejected)", () => {
   });
 });
 
-describe("threshold-only automatic reject needs two people (#vote-governance)", () => {
+describe("threshold-only automatic reject, with no two-person rule (#vote-governance)", () => {
   const dana = { tenantId: "t1", userId: "dana", agent: { id: "agent-dana", level: "manager" as const } };
   const bad = { opinion: "bad" as const, summary: "Not worth it.", description: "The log is fine as it is." };
   const rejectedWrite = expect.objectContaining({ data: expect.objectContaining({ status: "rejected" }) });
@@ -310,15 +312,15 @@ describe("threshold-only automatic reject needs two people (#vote-governance)", 
     db.$queryRaw.mockResolvedValue([idea({ score: 0 })]);
   });
 
-  it("does not reject on one manager's bad verdict alone, though its weight of 3 makes the idea bad", async () => {
+  it("rejects on one manager's bad verdict alone when its weight of 3 makes the idea bad", async () => {
     db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "bad", votes: 3 }]);
     const result = await giveIdeaVerdict(dana, "p-threshold-one", "7", bad);
-    expect(result.decided).toBeNull();
-    expect(db.idea.update).not.toHaveBeenCalledWith(rejectedWrite);
-    expect(publish).not.toHaveBeenCalledWith(db, expect.objectContaining({ type: "idea.rejected" }));
+    expect(result.decided).toEqual({ outcome: "rejected" });
+    expect(db.idea.update).toHaveBeenCalledWith(rejectedWrite);
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "idea.rejected", payload: expect.objectContaining({ via: "threshold" }) }));
   });
 
-  it("rejects once a second person's verdict leaves it bad", async () => {
+  it("rejects when another person's verdict leaves it bad", async () => {
     db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "bad", votes: 3 }, { opinion: "neutral", votes: 1 }]);
     const result = await giveIdeaVerdict({ tenantId: "t1", userId: "eli" }, "p-threshold-two", "7", { ...bad, opinion: "neutral" });
     expect(result.decided).toEqual({ outcome: "rejected" });

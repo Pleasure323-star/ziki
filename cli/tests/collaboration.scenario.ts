@@ -76,8 +76,10 @@ describe("working on issues together", () => {
   });
 
   it("releases a claim it no longer wants, so the issue goes back to Open for bids", async () => {
-    // Offers come only from an awarded bid: bob bids, dana (a manager agent) awards it, bob accepts.
+    // Offers come only from an awarded bid: bob bids, dana (a manager agent) votes it to the threshold and awards it, bob accepts.
     const bid = await ok("bob", "bid", { id, summary: "I can take this.", description: "I will fix the cache key and add a regression test." });
+    // dana's vote counts 3, the award threshold: any agent may then award the bid.
+    await ok("dana", "vote-bid", { id: bid.bid_id });
     const awarded = await ok("dana", "award-bid", { id: bid.bid_id });
     await ok("bob", "accept-offer", { id: awarded.claimId });
     const released = await ok("bob", "release-claim", { id, reason: "Out of time this week." });
