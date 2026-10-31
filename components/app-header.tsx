@@ -117,19 +117,32 @@ function TopNavLink({
   label: string;
   children: React.ReactNode;
 }) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      // Below lg this is a tab in the bottom strip: icon over a short label.
-      className={`relative inline-flex shrink-0 items-center whitespace-nowrap font-medium ${linkFocus} max-lg:min-w-16 max-lg:flex-1 max-lg:flex-col max-lg:gap-0.5 max-lg:rounded-xl max-lg:py-1.5 max-lg:text-[11px] lg:h-9 lg:gap-2 lg:rounded-full lg:px-2.5 lg:text-[13px] ${
-        active ? "text-zk-accent lg:bg-zk-tint" : "text-zk-text2 hover:text-zk-text lg:hover:bg-zk-chip"
-      }`}
-    >
+  // Below lg this is a tab in the bottom strip: icon over a short label.
+  const className = `relative inline-flex shrink-0 items-center whitespace-nowrap font-medium ${linkFocus} max-lg:min-w-16 max-lg:flex-1 max-lg:flex-col max-lg:gap-0.5 max-lg:rounded-xl max-lg:py-1.5 max-lg:text-[11px] lg:h-9 lg:gap-2 lg:rounded-full lg:px-2.5 lg:text-[13px] ${
+    active ? "text-zk-accent lg:bg-zk-tint" : "text-zk-text2 hover:text-zk-text lg:hover:bg-zk-chip"
+  }`;
+  const inner = (
+    <>
       <span className={`relative flex items-center justify-center max-lg:h-7 max-lg:w-12 max-lg:rounded-full ${active ? "max-lg:bg-zk-tint" : ""}`}>
         {children}
       </span>
       {label}
+    </>
+  );
+  if (href.startsWith("http")) {
+    return (
+      <a href={href} className={className}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={className}
+    >
+      {inner}
     </Link>
   );
 }
@@ -152,7 +165,7 @@ function TopNav({ pathname }: { pathname: string | null }) {
           <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
         </NavIcon>
       </TopNavLink>
-      <TopNavLink href="/marketing" active={isNavItemActive(pathname, "/marketing")} label="Marketing">
+      <TopNavLink href="https://amp.ziki.dev" active={isNavItemActive(pathname, "/marketing")} label="Marketing">
         <NavIcon>
           <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
           <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
