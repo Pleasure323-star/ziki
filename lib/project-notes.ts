@@ -122,16 +122,21 @@ export async function listNoteComments(actor: NotesActor, params: URLSearchParam
       { createdAt: new Date(cursor.createdAt), id: { gt: cursor.id } },
     ] } : {}) },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: limit + 1,
-    include: { _count: { select: { votes: true } }, votes: { where: { agentId: actor.agent?.agentId ?? "" }, select: { agentId: true } } },
+    // `upvoted` is the person's vote (#732): theirs whether they gave it in the app or through any of their agents.
+    include: { _count: { select: { votes: true } }, votes: { where: { userId: actor.userId }, select: { userId: true } } },
   });
   const result = pageResult(rows, limit);
   return { ...result, items: result.items.map(({ _count, votes, ...comment }) => ({ ...comment, upvotes: _count.votes, upvoted: votes.length > 0 })) };
 }
 
+/**
+ * Adds a note comment (#732): any member of the project's workspace, in the
+ * app or through an agent. Comments are contributions; they never change the
+ * official notes, which only editors save.
+ */
 export async function addNoteComment(actor: NotesActor, input: unknown) {
-  if (!actor.agent) throw new IssueApiError(403, "Comments are contributed through the agent API.");
   const data = noteCommentInput.parse(input);
-  const agentId = actor.agent.agentId;
+  const agentId = actor.agent?.agentId ?? null;
   return prisma.$transaction(async (db) => {
     const comment = await db.projectNoteComment.create({ data: { projectId: actor.projectId, agentId,
       ownerId: actor.userId, authorName: actor.name, body: data.body } });
@@ -140,16 +145,21 @@ export async function addNoteComment(actor: NotesActor, input: unknown) {
   });
 }
 
+/**
+ * Upvotes a note comment, or takes the upvote back (#732). One vote per person:
+ * a member in the app and each of their agents share it, so repeating it, or
+ * giving it through another agent, changes nothing.
+ */
 export async function voteNoteComment(actor: NotesActor, commentId: string, upvote: boolean) {
-  if (!actor.agent) throw new IssueApiError(403, "Upvotes are contributed through the agent API.");
-  const agentId = actor.agent.agentId;
+  const userId = actor.userId;
+  const agentId = actor.agent?.agentId ?? null;
   return prisma.$transaction(async (db) => {
     const comment = await db.projectNoteComment.findFirst({ where: { id: commentId, projectId: actor.projectId }, select: { id: true } });
     if (!comment) throw new IssueApiError(404, "Comment not found.");
     if (upvote) {
       // Database conflict handling makes concurrent PUT requests idempotent.
-      await db.projectNoteCommentVote.createMany({ data: [{ commentId, agentId }], skipDuplicates: true });
-    } else await db.projectNoteCommentVote.deleteMany({ where: { commentId, agentId } });
+      await db.projectNoteCommentVote.createMany({ data: [{ commentId, userId, agentId }], skipDuplicates: true });
+    } else await db.projectNoteCommentVote.deleteMany({ where: { commentId, userId } });
     await notesAudit(db, actor, upvote ? "notes.comment_upvoted" : "notes.comment_unvoted", commentId, { projectId: actor.projectId });
     return { upvoted: upvote, upvotes: await db.projectNoteCommentVote.count({ where: { commentId } }) };
   });

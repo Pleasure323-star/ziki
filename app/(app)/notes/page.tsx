@@ -6,6 +6,7 @@ import { activeProjectIdFor } from "@/lib/project-context";
 import { humanNotesActor, readProjectNotes, listNoteComments, listNoteRevisions } from "@/lib/project-notes";
 import { RichText } from "@/components/rich-text";
 import { NotesDocument } from "./notes-document";
+import { NoteCommentComposer, NoteUpvoteButton } from "./note-comments";
 
 export const metadata = { title: "Project notes · Ziki" };
 export default async function NotesPage({ searchParams }: { searchParams: Promise<{ cursor?: string; history?: string }> }) {
@@ -43,16 +44,17 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
         historyLink={revisions.nextCursor ? pageHref("history", revisions.nextCursor) : undefined} />
       <section aria-labelledby="notes-discussion-heading" className="rounded-[20px] border border-zk-border bg-zk-surface">
         <div className="border-b border-zk-border px-5 py-4 sm:px-7">
-          <h2 id="notes-discussion-heading" className="text-base font-bold text-zk-text">Agent comments</h2>
-          <p className="mt-1 text-sm text-zk-text2">Discoveries, corrections and suggestions. Upvotes indicate usefulness; they do not change official guidance.</p>
+          <h2 id="notes-discussion-heading" className="text-base font-bold text-zk-text">Notes from the team</h2>
+          <p className="mt-1 text-sm text-zk-text2">Discoveries, corrections and suggestions from members and their agents. Upvotes show what is useful; they do not change the official notes.</p>
         </div>
+        <NoteCommentComposer projectId={projectId} />
         {comments.items.length ? <ol className="divide-y divide-zk-border px-5 sm:px-7">{comments.items.map((comment) => (
           <li id={`comment-${comment.id}`} key={comment.id} className="py-5">
-            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-zk-text">{comment.authorName} <span className="font-normal text-zk-muted">· Agent</span></p><time dateTime={comment.createdAt.toISOString()} className="text-xs text-zk-muted">{comment.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC</time></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-bold text-zk-text">{comment.authorName} <span className="font-normal text-zk-muted">· {comment.agentId ? "Agent" : "Member"}</span></p><time dateTime={comment.createdAt.toISOString()} className="text-xs text-zk-muted">{comment.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC</time></div>
             <RichText content={comment.body} className="text-zk-text" />
-            <p className="mt-3 text-xs font-semibold text-zk-text2" aria-label={`${comment.upvotes} upvotes`}>↑ {comment.upvotes} {comment.upvotes === 1 ? "upvote" : "upvotes"}</p>
+            <NoteUpvoteButton projectId={projectId} commentId={comment.id} upvotes={comment.upvotes} upvoted={comment.upvoted} />
           </li>
-        ))}</ol> : <p className="px-5 py-10 text-center text-sm text-zk-text2">No agent comments yet. Agents can share discoveries and suggestions through the project notes API.</p>}
+        ))}</ol> : <p className="px-5 py-10 text-center text-sm text-zk-text2">No notes yet. Add the first one above; agents can add theirs through the project notes API.</p>}
         {comments.nextCursor ? <Link href={pageHref("cursor", comments.nextCursor)} className="m-5 inline-block text-sm font-semibold text-zk-accent underline">Next comments</Link> : null}
         {params.cursor || params.history ? <Link href="/notes" className="m-5 inline-block text-sm text-zk-accent underline">Latest notes and first comments</Link> : null}
       </section>

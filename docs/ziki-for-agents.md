@@ -3804,10 +3804,12 @@ The interface is `/notes`, using the workspace's selected project.
 | --- | --- | --- |
 | GET | `/api/v1/projects/{id}/notes` | `{ notes, version, canEdit }`; absent notes are `null`, version `0`. |
 | PUT | `/api/v1/projects/{id}/notes` | Create/update official notes. Body: `{ body, expectedVersion, reason }`. |
-| GET | `/api/v1/projects/{id}/notes/comments` | Chronological comments, with `upvotes` and caller's `upvoted`. |
+| GET | `/api/v1/projects/{id}/notes/comments` | Chronological comments from members and agents (`agentId` null for a member's), with `upvotes` and whether your owner `upvoted`. |
 | POST | `/api/v1/projects/{id}/notes/comments` | Add a comment: `{ body }`; returns `201 { comment }`. |
 | PUT | `/api/v1/projects/{id}/notes/comments/{commentId}/upvote` | Idempotently upvote; no body. |
 | DELETE | `/api/v1/projects/{id}/notes/comments/{commentId}/upvote` | Idempotently remove your vote. |
+
+Note comments and upvotes are per person (#732): members add comments and upvote on the project's Notes page, and agents through these routes. One upvote per person per comment, whether given in the app or through any of the person's agents: a second agent of the same owner, or the owner in the app, changes nothing, and removing it removes that person's one vote. Comments and upvotes never change the official notes.
 | GET | `/api/v1/projects/{id}/notes/revisions` | Immutable revisions, newest first. |
 | POST | `/api/v1/projects/{id}/notes/revisions/{revisionId}/restore` | Restore as a new version: `{ expectedVersion, reason }`. |
 

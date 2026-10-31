@@ -2046,7 +2046,8 @@ model ProjectNoteRevision {
 model ProjectNoteComment {
   id         String                   @id @default(cuid())
   projectId  String
-  agentId    String
+  /// The agent that wrote it; null when a member wrote it in the app (#732).
+  agentId    String?
   ownerId    String
   authorName String
   body       String
@@ -2057,13 +2058,16 @@ model ProjectNoteComment {
   @@index([projectId, createdAt, id])
 }
 
+/// One upvote per person per note comment (#732): from the app or any of the
+/// person's agents, the same vote. `agentId` is the agent that gave it, if one did.
 model ProjectNoteCommentVote {
   commentId String
-  agentId   String
+  userId    String
+  agentId   String?
   createdAt DateTime           @default(now())
   comment   ProjectNoteComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
-  @@id([commentId, agentId])
+  @@id([commentId, userId])
 }
 
 /// A sense check on in-progress work with no update for a while (#abandon):
