@@ -179,14 +179,14 @@ describe("structureIssue execution", () => {
 
   it.each(["manager", "merger"] as const)("blocks an owner's %s from marking their report as a duplicate", async (level) => {
     db.bug.findFirst.mockResolvedValueOnce({ id: "bug-1", title: "Report", description: "Original description", reporterId: "user-1", beneficiaryUserId: "another-person", createdByAgent: { ownerUserId: "user-1" }, claims: [] }).mockResolvedValueOnce({ id: "canonical" });
-    await expect(structureIssue({ ...mockAgent, level }, "proj-1", "bug-1", { duplicateOfId: "canonical" })).rejects.toMatchObject({ status: 403 });
+    await expect(structureIssue({ ...mockAgent, level }, "proj-1", "bug1", { duplicateOfId: "canonical" })).rejects.toMatchObject({ status: 403 });
     expect(txMock.bug.update).not.toHaveBeenCalled();
     expect(txMock.issueConfirmation.upsert).not.toHaveBeenCalled();
   });
 
   it("lets an independent working agent mark a report as a duplicate through the structuring endpoint", async () => {
     db.bug.findFirst.mockResolvedValueOnce({ id: "bug-1", title: "Report", description: "Original description", reporterId: "another-person", beneficiaryUserId: "another-person", createdByAgent: null, claims: [] }).mockResolvedValueOnce({ id: "canonical" });
-    const result = await structureIssue(mockAgent, "proj-1", "bug-1", { duplicateOfId: "canonical", checkDuplicates: false });
+    const result = await structureIssue(mockAgent, "proj-1", "bug1", { duplicateOfId: "canonical", checkDuplicates: false });
     expect(result.ok).toBe(true);
     expect(txMock.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ duplicateOfId: "canonical" }) }));
     // The issue's duplicateOfId marks it; structuring writes no confirmation entry (#issue-confirmations).

@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe("no typed comments; comments on the issue itself only while it is Open", () => {
-  const params = { params: Promise.resolve({ id: "bug-1" }) };
+  const params = { params: Promise.resolve({ id: "bug1" }) };
 
   it("takes a comment on an Open issue", async () => {
     const res = await POST(postRequest({ body: "A comment on the issue." }), params);
@@ -131,7 +131,7 @@ describe("no typed comments; comments on the issue itself only while it is Open"
 });
 
 describe("replies to a bid (#issue-bids)", () => {
-  const params = { params: Promise.resolve({ id: "bug-1" }) };
+  const params = { params: Promise.resolve({ id: "bug1" }) };
 
   it("files a plain comment under the bid", async () => {
     db.issueBid.findFirst.mockResolvedValue({ beneficiaryUserId: "bidder" });
@@ -167,7 +167,7 @@ describe("replies to a bid (#issue-bids)", () => {
 });
 
 describe("replies to a test verdict or a merge review (#review-entries)", () => {
-  const params = { params: Promise.resolve({ id: "bug-1" }) };
+  const params = { params: Promise.resolve({ id: "bug1" }) };
 
   it("files a plain comment under the test verdict", async () => {
     db.testVerdict.findFirst.mockResolvedValue({ onBehalfOfUserId: "tester" });
@@ -199,5 +199,28 @@ describe("replies to a test verdict or a merge review (#review-entries)", () => 
     const res = await POST(postRequest({ body: "Hello.", ...extra }), params);
     expect(res.status).toBe(status);
     expect(db.comment.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the issue may be named by its number (#457)", () => {
+  it("files a comment on the issue a numeric id names, in the caller's tenant", async () => {
+    const res = await POST(postRequest({ body: "A comment by number." }), { params: Promise.resolve({ id: "42" }) });
+    expect(res.status).toBe(201);
+    expect(db.bug.findFirst).toHaveBeenNthCalledWith(1, { where: { number: 42, tenantId: "tenant-a" }, select: { id: true, number: true } });
+    expect(db.bug.findFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ id: "bug-1" }) }));
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ bugId: "bug-1" }) }));
+  });
+
+  it("answers 404 when no issue in the tenant has that number", async () => {
+    db.bug.findFirst.mockResolvedValueOnce(null);
+    const res = await POST(postRequest({ body: "A comment by number." }), { params: Promise.resolve({ id: "999" }) });
+    expect(res.status).toBe(404);
+    expect(db.comment.create).not.toHaveBeenCalled();
+  });
+
+  it("lists the comments of the issue a numeric id names", async () => {
+    const res = await GET(getRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(res.status).toBe(200);
+    expect(db.comment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ bugId: "bug-1" }) }));
   });
 });

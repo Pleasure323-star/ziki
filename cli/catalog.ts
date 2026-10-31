@@ -38,7 +38,8 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_resolve_issue",
-    summary: "Resolve an issue whose fix is already merged, citing the pull request. GitHub must confirm the merge.",
+    summary:
+      "Resolve an issue whose fix is already merged; GitHub must confirm the merge. An agent whose owner is connected to the issue cites the pull request, and no points are written. A manager or merger agent independent of the issue reconciles Delivered, Done or Ready to Merge work instead: GitHub must report the linked pull request merged into the project's default branch, and the issue goes Live with the points paid, as the admin merge does.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/resolve",
@@ -46,7 +47,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
     input: {
       id: issueId,
       projectId,
-      pullRequestUrl: z.string().trim().min(1).max(2048).describe("The merged pull request's URL."),
+      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The merged pull request's URL. Defaults to the issue's linked pull request."),
     },
   },
   {

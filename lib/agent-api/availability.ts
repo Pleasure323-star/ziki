@@ -8,7 +8,13 @@ import { publish } from "@/lib/agent-api/events";
 import { notifyAgentQuestion } from "@/lib/agent-notifications";
 import { expireOffer } from "@/lib/agent-api/offer";
 import { staleHold } from "@/lib/agent-api/stale-hold";
-import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
+import { idleInProgress } from "@/lib/agent-api/idle";
+import { strandedDelivery } from "@/lib/agent-api/stranded-delivery";
+import { issueChangePayload } from "@/lib/agent-api/web-events";
+import { requireLevel } from "@/lib/agents/levels";
+import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
+import { statusChangedSummary } from "@/lib/activity-log";
+import { issueIdFor, parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { isDeliveryOverdue, isOwnerWaitOver, ownerWaitCapMinutes, OWNER_REMINDER_MINUTES } from "@/lib/claim-deadline";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
@@ -49,8 +55,11 @@ function claimSweepWhere(
   };
 }
 
-export async function heartbeatClaim(agent: AgentContext, projectId: string, bugId: string) {
+export async function heartbeatClaim(agent: AgentContext, projectId: string, issueRef: string) {
   return prisma.$transaction(async (tx) => {
+    // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+    const bugId = await issueIdFor(tx, issueRef, agent.tenantId);
+    if (!bugId) throw new IssueApiError(404, "Issue not found in this project.");
     // All claim transitions lock the issue first, including the stale-claim sweep.
     const issues = await tx.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${agent.tenantId}
@@ -205,7 +214,9 @@ async function remindOwnerIfDue(agentId: string, bugId: string, now: Date) {
  * `POST /api/v1/issues/{id}/reclaim` (#reclaim): any working agent asks the
  * site to take back a stale hold. The site checks it itself: an expired offer
  * is released, and undelivered work past its deadline (or silent) is released
- * and the issue goes back to Open. A hold that is not stale is refused (409).
+ * and the issue goes back to Open. Idle In progress work that nobody holds
+ * goes to `reclaimIdleIssue`, for manager agents only (#idle). Anything else
+ * is refused (409).
  */
 export async function reclaimStaleIssue(agent: AgentContext, projectId: string, issueRef: string) {
   const ref = parseIssueRef(issueRef);
@@ -217,7 +228,10 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
   if (!row) throw new IssueApiError(404, "Issue not found in this project.");
   const stale = await staleHold(row.id);
   if (!stale) {
-    const message = "Nothing to reclaim: this issue's offer or work is not stale (or nobody holds it).";
+    // #idle: In progress work nobody holds, idle past the window, is a manager's call.
+    const idle = await idleInProgress(row.id);
+    if (idle && !idle.claim) return reclaimIdleIssue(agent, row);
+    const message = "Nothing to reclaim: this issue's offer or work is not stale, and it is not idle In progress work that nobody holds.";
     throw new IssueApiError(409, message, { error: "not_stale", message });
   }
   if (stale.kind === "offer_expired") {
@@ -232,6 +246,93 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
   }
   const after = await prisma.bug.findUnique({ where: { id: row.id }, select: { status: true } });
   return { issueId: row.id, issueNumber: row.number, claimId: stale.claimId, reason: stale.kind, status: after?.status ?? null };
+}
+
+/**
+ * #idle: a manager agent takes idle In progress work that nobody holds back to
+ * Open (lib/agent-api/idle.ts). Only a manager (or merger) agent independent of
+ * the issue may: not its filer's, beneficiary's or assignee's. A stranded
+ * delivery is delivered instead (deliver_stranded), never reclaimed. The issue
+ * goes to Open with no assignee, the activity log and an `issue.updated` event
+ * record it with the reason `idle`, and the pull request link, if any, stays.
+ */
+async function reclaimIdleIssue(
+  agent: AgentContext,
+  row: { id: string; number: number; tenantId: string; projectId: string },
+) {
+  requireLevel(agent, "manager");
+  const reviewed = await prisma.bug.findUnique({
+    where: { id: row.id },
+    select: {
+      reporterId: true,
+      beneficiaryUserId: true,
+      assigneeId: true,
+      createdByAgent: { select: { ownerUserId: true } },
+      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+    },
+  });
+  const conflict = reviewed ? reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, reviewed) : null;
+  if (conflict) {
+    const message = new ReviewerNotIndependentError(conflict).message;
+    throw new IssueApiError(403, message, { error: "not_independent", message });
+  }
+  if (await strandedDelivery(row.id)) {
+    const message = "Its linked pull request has enough good judgements: deliver it on the holder's behalf instead of reclaiming it.";
+    throw new IssueApiError(409, message, { error: "stranded_delivery", message });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${row.id} FOR NO KEY UPDATE`;
+    // Re-check after locking: an update, a claim or another manager may have won the race.
+    const idle = await idleInProgress(row.id, tx);
+    if (!idle || idle.claim) {
+      const message = "Nothing to reclaim: this issue is no longer idle In progress work that nobody holds.";
+      throw new IssueApiError(409, message, { error: "not_stale", message });
+    }
+    const bug = await tx.bug.findUnique({ where: { id: row.id }, select: { assigneeId: true } });
+    const reopened = await tx.bug.updateMany({
+      where: { id: row.id, tenantId: row.tenantId, projectId: row.projectId, isDeleted: false, status: "in_progress" },
+      data: { status: "open", assigneeId: null },
+    });
+    if (reopened.count !== 1) {
+      const message = "Nothing to reclaim: this issue is no longer In progress.";
+      throw new IssueApiError(409, message, { error: "not_stale", message });
+    }
+    await tx.bugActivity.create({
+      data: {
+        bugId: row.id,
+        actorId: agent.ownerId,
+        type: "status_changed",
+        summary: statusChangedSummary("in_progress", "open"),
+        metadata: { field: "status", from: "in_progress", to: "open", via: "idle", lastUpdate: idle.lastUpdate.toISOString() },
+      },
+    });
+    await publish(tx, {
+      tenantId: row.tenantId,
+      type: "issue.updated",
+      actorAgentId: agent.agentId,
+      bugId: row.id,
+      projectId: row.projectId,
+      payload: {
+        issueId: row.id,
+        projectId: row.projectId,
+        ...issueChangePayload({ status: "open", assigneeId: null }),
+        reason: "idle",
+        previousStatus: "in_progress",
+        previousAssigneeId: bug?.assigneeId ?? null,
+        lastUpdate: idle.lastUpdate.toISOString(),
+      },
+    });
+    return { lastUpdate: idle.lastUpdate, previousAssigneeId: bug?.assigneeId ?? null };
+  });
+  await audit(agent, "issue.updated", `issue:${row.id}`, {
+    reason: "idle",
+    from: "in_progress",
+    to: "open",
+    previousAssigneeId: result.previousAssigneeId,
+    lastUpdate: result.lastUpdate.toISOString(),
+  }, { bugId: row.id });
+  return { issueId: row.id, issueNumber: row.number, claimId: null, reason: "idle" as const, status: "open" as const };
 }
 
 /** Super-admin server action. Invoke periodically from an authenticated admin context.

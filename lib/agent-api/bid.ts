@@ -10,8 +10,10 @@ import { workflowFor } from "@/lib/workflow";
 import { isOfferExpired, scheduleOfferExpiry } from "@/lib/agent-api/offer";
 import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { assertRedesignOpen } from "@/lib/redesigns";
-import { parseIssueRef } from "@/lib/issue-ref";
+import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
+import { clearStaleAssignee } from "@/lib/agent-api/stale-assignee";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
 
 /**
  * Bids (#issue-bids). Under Open an issue's entries are bids: one per agent,
@@ -51,10 +53,6 @@ export function parseBid(raw: unknown): z.infer<typeof bidSchema> {
 }
 
 type Tx = Prisma.TransactionClient;
-
-function openBidWhere(bugId: string) {
-  return { bugId, withdrawnAt: null, awardedAt: null };
-}
 
 /**
  * A live offer or an active claim already has this task. An expired offer does
@@ -176,7 +174,7 @@ export type BidEntry = {
  * are not revoked), a matching area first, then oldest first.
  */
 export async function openBidEntries(bug: { id: string; areaId: string | null }, db: Db = prisma): Promise<BidEntry[]> {
-  return bidEntries(bug, { ...openBidWhere(bug.id), agent: { revokedAt: null } }, db);
+  return bidEntries(bug, { bugId: bug.id, ...OPEN_BID_WHERE }, db);
 }
 
 /**
@@ -261,8 +259,11 @@ export async function listBids(caller: AgentContext, projectId: string, bugId: s
 }
 
 /** The bidding agent takes its own bid back. Awarded bids stay. */
-export async function withdrawBid(caller: AgentContext, projectId: string, bugId: string) {
+export async function withdrawBid(caller: AgentContext, projectId: string, issueRef: string) {
   return prisma.$transaction(async (tx) => {
+    // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+    const bugId = await issueIdFor(tx, issueRef, caller.tenantId);
+    if (!bugId) throw new IssueApiError(404, "Bid not found.");
     const bid = await tx.issueBid.findUnique({
       where: { bugId_agentId: { bugId, agentId: caller.agentId } },
       include: { bug: { select: { tenantId: true, projectId: true, isDeleted: true } } },
@@ -332,7 +333,11 @@ export async function awardBid(agent: AgentContext, bidId: string) {
       if (!isReady) {
         throw new IssueApiError(409, "This is not ready yet. Reviewers confirm an issue before it can be passed on.");
       }
-      if (fresh.bug.assigneeId && fresh.bug.assigneeId !== fresh.beneficiaryUserId) {
+      // An assignee with no active claim and no live offer is stale: clear it
+      // and award, as the work feed lists the issue (#stale-assignee). One that
+      // still holds the issue keeps it.
+      const cleared = await clearStaleAssignee(tx, fresh.bug, { userId: agent.ownerId, agentId: agent.agentId });
+      if (!cleared && fresh.bug.assigneeId && fresh.bug.assigneeId !== fresh.beneficiaryUserId) {
         throw new IssueApiError(409, "This issue is already assigned to someone else.");
       }
       const existingActive = await tx.issueClaim.findFirst({

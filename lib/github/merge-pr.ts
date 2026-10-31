@@ -85,6 +85,14 @@ export type PullRequest = {
   state?: string;
   /** How many files the pull request changes, when GitHub says (Ziki #713). Zero means it is empty. */
   changedFiles?: number;
+  /** The branch it merges into (`base.ref`), when GitHub says. */
+  baseRef?: string;
+  /** The repository it merges into (`base.repo.full_name`, `owner/repo`), when GitHub says. */
+  baseRepo?: string;
+  /** That repository's default branch (`base.repo.default_branch`), when GitHub says. */
+  defaultBranch?: string;
+  /** The commit GitHub made when it merged the pull request (`merge_commit_sha`); only meaningful once `merged`. */
+  mergeCommitSha?: string | null;
 };
 
 /** What GitHub answered the merge request (#492). */
@@ -159,7 +167,16 @@ type ReviewThreadsPage = {
   nodes?: { isResolved?: boolean; comments?: { nodes?: { author?: { login?: string } | null }[] } }[];
 };
 
-export class GitHubError extends Error {}
+export class GitHubError extends Error {
+  /** The HTTP status GitHub answered with, when it answered (404: no such pull request or repository). */
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "GitHubError";
+    this.status = status;
+  }
+}
 
 const GITHUB_API = "https://api.github.com";
 
@@ -285,14 +302,16 @@ export function createInstallationClient(
       if (!response.ok) {
         const errBody = (await response.json().catch(() => null)) as { message?: string } | null;
         const detail = errBody?.message ? `: ${errBody.message}` : ` (HTTP ${response.status})`;
-        throw new GitHubError(`Could not read the pull request${detail}.`);
+        throw new GitHubError(`Could not read the pull request${detail}.`, response.status);
       }
       const body = (await response.json()) as {
         state?: string;
         merged?: boolean;
         mergeable?: boolean;
         changed_files?: number;
+        merge_commit_sha?: string | null;
         head?: { sha?: string };
+        base?: { ref?: string; repo?: { full_name?: string; default_branch?: string } | null };
       };
       return {
         state: body.state,
@@ -300,6 +319,10 @@ export function createInstallationClient(
         mergeable: body.mergeable !== false,
         ...(typeof body.changed_files === "number" ? { changedFiles: body.changed_files } : {}),
         headSha: body.head?.sha ?? "",
+        ...(body.base?.ref ? { baseRef: body.base.ref } : {}),
+        ...(body.base?.repo?.full_name ? { baseRepo: body.base.repo.full_name } : {}),
+        ...(body.base?.repo?.default_branch ? { defaultBranch: body.base.repo.default_branch } : {}),
+        ...(body.merge_commit_sha !== undefined ? { mergeCommitSha: body.merge_commit_sha } : {}),
       };
     },
     async checksGreen(ref, headSha) {
@@ -494,6 +517,22 @@ export function clientForInstallation(installationId: string | null | undefined,
   } catch {
     return null;
   }
+}
+
+/**
+ * The client for a project's installation, but only when the GitHub App itself
+ * is configured on this server (its id and private key). Null means GitHub
+ * can't be asked at all, which callers answer with 503.
+ */
+export function configuredClientFor(installationId: string | null | undefined, env: NodeJS.ProcessEnv = process.env): GitHubClient | null {
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) return null;
+  return clientForInstallation(installationId, env);
+}
+
+/** `owner/repo` (GitHub's `full_name`) as a repository ref. */
+export function parseRepoFullName(fullName: string | null | undefined): RepoRef | null {
+  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(fullName?.trim() ?? "");
+  return match ? { owner: match[1], repo: match[2] } : null;
 }
 
 /** True when `pullRequestUrl` names a PR on GitHub that was closed without merging (#642). */

@@ -198,15 +198,26 @@ export function IdeaRowStatus({
   score,
   threshold,
   rejected = false,
+  archived = null,
   bad = false,
 }: {
   score: number;
   threshold: number | null;
   rejected?: boolean;
+  /** A manager agent archived it (#idea-archive): the reason in words. */
+  archived?: string | null;
   /** More bad and neutral votes than good, at the threshold: manager agents are advised to reject it. */
   bad?: boolean;
 }) {
   const text = threshold === null ? `${score}` : `${score}/${threshold}`;
+  if (archived) {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-muted" title={`Archived by a manager agent: ${archived}`}>
+        <Svg><path d="M3 7h18M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7M9 11h6M4 4h16v3H4z" /></Svg> Archived{" "}
+        <span className="font-normal">({archived})</span>
+      </span>
+    );
+  }
   if (rejected) {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg" title={`Score ${score}: a manager agent rejected it`}>

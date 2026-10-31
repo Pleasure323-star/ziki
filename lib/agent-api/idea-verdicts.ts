@@ -13,6 +13,7 @@ import { parseIssueRef } from "@/lib/issue-ref";
 import { createdSummary } from "@/lib/activity-log";
 import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary, sentenceCount } from "@/lib/agent-api/entry-fields";
 import { ideaVotes, isBadIdea, notRejectableReason } from "@/lib/idea-rejection";
+import { duplicateRef, type ArchiveIdeaInput } from "@/lib/idea-archive";
 
 /**
  * Idea verdicts and conversion (#idea-verdicts, #idea-table). Each person
@@ -112,6 +113,10 @@ function assertOpenIdea(idea: LockedIdea): void {
   if (idea.status === "rejected") {
     const message = "This idea was rejected. Verdicts only apply to open ideas.";
     throw new IssueApiError(409, message, { error: "idea_rejected", message });
+  }
+  if (idea.status === "archived") {
+    const message = "This idea was archived. Verdicts only apply to open ideas.";
+    throw new IssueApiError(409, message, { error: "idea_archived", message });
   }
   if (idea.status !== "open") throw new IssueApiError(409, "This idea is not open.", { error: "idea_not_open", message: "This idea is not open." });
 }
@@ -379,4 +384,79 @@ export async function rejectIdea(agent: AgentContext, projectId: string, ideaRef
   });
   await audit(agent, "idea.rejected", `idea:${rejected.ideaId}`, { totalVotes: rejected.totalVotes, goodVotes: rejected.goodVotes });
   return rejected;
+}
+
+/**
+ * A manager agent archives an obsolete open idea (#idea-archive), whatever its
+ * votes: it is already implemented, a duplicate of another idea or issue, or
+ * filed in the wrong project, with the evidence. The agent's owner must not own
+ * the idea (its reporter, the person it is for, or the owner of the agent that
+ * filed it). It leaves the open list and conversion and takes no more
+ * verdicts. No points are paid or taken.
+ */
+export async function archiveIdea(agent: AgentContext, projectId: string, ideaRef: string, input: Omit<ArchiveIdeaInput, "projectId">) {
+  requireLevel(agent, "manager");
+  const archived = await prisma.$transaction(async (tx) => {
+    const locked = await lockedIdea(tx, { tenantId: agent.tenantId, projectId }, ideaRef);
+    assertOpenIdea(locked);
+    if (ownsIdea(locked, agent.ownerId)) {
+      const message = "Your owner filed this idea or it is for them, so this agent can't archive it.";
+      throw new IssueApiError(403, message, { error: "not_independent", message });
+    }
+    if (input.duplicateOfIdea !== undefined) {
+      const original = await tx.idea.findFirst({
+        where: { tenantId: agent.tenantId, number: input.duplicateOfIdea, isDeleted: false, NOT: { id: locked.id } },
+        select: { id: true },
+      });
+      if (!original) {
+        const message = `There is no other idea #${input.duplicateOfIdea} in this organisation.`;
+        throw new IssueApiError(422, message, { error: "duplicate_not_found", message });
+      }
+    }
+    if (input.duplicateOfIssue !== undefined) {
+      const original = await tx.bug.findFirst({
+        where: { tenantId: agent.tenantId, number: input.duplicateOfIssue, isDeleted: false },
+        select: { id: true },
+      });
+      if (!original) {
+        const message = `There is no issue #${input.duplicateOfIssue} in this organisation.`;
+        throw new IssueApiError(422, message, { error: "duplicate_not_found", message });
+      }
+    }
+    const at = new Date();
+    const duplicateOf = duplicateRef(input);
+    await tx.idea.update({
+      where: { id: locked.id },
+      data: {
+        status: "archived",
+        archiveReason: input.reason,
+        archiveEvidence: input.evidence,
+        archiveDuplicateOf: duplicateOf,
+        archivedAt: at,
+        archivedByAgentId: agent.agentId,
+      },
+    });
+    await publish(tx, {
+      tenantId: agent.tenantId,
+      type: "idea.archived",
+      actorAgentId: agent.agentId,
+      projectId,
+      payload: { ideaId: locked.id, ideaNumber: locked.number, projectId, reason: input.reason, duplicateOf, ideaScore: locked.score },
+    });
+    return {
+      ideaId: locked.id,
+      ideaNumber: locked.number,
+      status: "archived" as const,
+      reason: input.reason,
+      evidence: input.evidence,
+      duplicateOf,
+      archivedAt: at.toISOString(),
+    };
+  });
+  await audit(agent, "idea.archived", `idea:${archived.ideaId}`, {
+    reason: archived.reason,
+    evidence: archived.evidence,
+    duplicateOf: archived.duplicateOf,
+  });
+  return archived;
 }

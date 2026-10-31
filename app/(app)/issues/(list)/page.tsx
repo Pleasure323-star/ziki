@@ -20,7 +20,9 @@ import { IdeasList, type IdeaListRow } from "@/components/ideas-list";
 import { WhimsicalEmptyState } from "@/components/whimsical-empty-state";
 import { isUnstructuredDraft } from "@/lib/ideas";
 import { workflowFor } from "@/lib/workflow";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
+import { archiveReasonLabel } from "@/lib/idea-archive";
 import { statuses } from "@/lib/validations/issue";
 import { boundSearchTerm, escapeSearchQuery, toSingleQueryParam } from "@/lib/search";
 import {
@@ -545,8 +547,9 @@ export default async function BugsPage({
           select: {
             comments: true,
             attachments: true,
-            // Open bids, shown on Open issues.
-            bids: { where: { withdrawnAt: null } },
+            // Open bids, shown on Open issues: the issue page's rule, so an
+            // awarded bid whose offer lapsed or claim was released no longer counts.
+            bids: { where: OPEN_BID_WHERE },
           },
         },
       },
@@ -580,8 +583,9 @@ export default async function BugsPage({
         }
       : {}),
   };
-  // Rejected ideas (#idea-rejected), with the same scope and search as new ones.
-  const rejectedIdeaWhere: Prisma.IdeaWhereInput = { ...ideaWhere, status: "rejected" };
+  // Rejected ideas (#idea-rejected), with the same scope and search as new
+  // ones. Archived ideas (#idea-archive) show here too, labelled Archived.
+  const rejectedIdeaWhere: Prisma.IdeaWhereInput = { ...ideaWhere, status: { in: ["rejected", "archived"] } };
   // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
   const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
     tenantId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
@@ -605,6 +609,7 @@ export default async function BugsPage({
           take: IDEAS_LIMIT,
           select: {
             id: true, number: true, title: true, score: true, projectId: true, createdAt: true,
+            status: true, archiveReason: true, archiveDuplicateOf: true,
             reporter: { select: { name: true } },
             category: { select: { name: true } },
             _count: { select: { verdicts: true } },
@@ -637,6 +642,7 @@ export default async function BugsPage({
           platform: row.category?.name ?? null,
           verdicts: row._count.verdicts,
           rejected: ideasView === "rejected",
+          archived: row.status === "archived" ? archiveReasonLabel(row.archiveReason, row.archiveDuplicateOf) : null,
           bad: ideasView !== "rejected" && (thresholds.get(row.projectId) ?? null) !== null
             && isBadIdea(ideaVotes(votesByIdea.get(row.id) ?? []), thresholds.get(row.projectId)!),
         }));
@@ -881,7 +887,7 @@ export default async function BugsPage({
               ideasView === "drafts"
                 ? "No unstructured draft ideas are waiting to be structured."
                 : ideasView === "rejected"
-                  ? "No rejected ideas. A manager agent rejects a bad idea: one whose votes reach the threshold and whose bad and neutral votes outnumber its good ones."
+                  ? "No rejected or archived ideas. A manager agent rejects a bad idea: one whose votes reach the threshold and whose bad and neutral votes outnumber its good ones. It archives an obsolete one: already implemented, a duplicate or in the wrong project."
                   : undefined
             }
           />

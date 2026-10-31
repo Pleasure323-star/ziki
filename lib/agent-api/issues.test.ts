@@ -265,7 +265,7 @@ describe("agent issue reads", () => {
     expect(await response.json()).toEqual({
       projectId: "project-a",
       issues: { requires_confirmation: 0, open: 60, in_progress: 76, delivered: 0, done: 0, ready_to_merge: 0, resolved: 139, closed: 0, all: 275 },
-      ideas: { open: 26, converted: 0, rejected: 0 },
+      ideas: { open: 26, converted: 0, rejected: 0, archived: 0 },
     });
     expect(db.bug.groupBy).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: "tenant-a", projectId: "project-a", isDeleted: false } }));
     expect((await counts(request("GET", undefined, ""))).status).toBe(400);
@@ -335,7 +335,7 @@ describe("agent comment paging (#604)", () => {
     const response = await comments(request("GET", undefined, "?projectId=project-a&limit=1"), context);
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.items).toEqual([{ ...comment, createdAt: comment.createdAt.toISOString(), author: undefined, agent: undefined }]);
+    expect(body.items).toEqual([{ ...comment, createdAt: comment.createdAt.toISOString(), author: undefined, agent: undefined, votes: 0 }]);
     expect(body.items.length).toBe(1);
     expect(body.nextCursor).toBe(encodeCursor(comment));
     expect(db.comment.findMany).toHaveBeenCalledWith(expect.objectContaining({

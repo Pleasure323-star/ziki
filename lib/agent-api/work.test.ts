@@ -49,14 +49,18 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     toReject: [],
     toReclaim: [],
     toSenseCheck: [],
+    toReviewIdle: [],
     toClose: [],
     toDeliverStranded: [],
+    toReconcile: [],
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
     ready: [],
     bids: [],
     toAward: [],
+    toInvestigate: [],
+    comments: [],
     toAccept: [],
     toMerge: [],
     jobs: [],
@@ -169,6 +173,43 @@ describe("itemsFor", () => {
     }
   });
 
+  it("lets a manager vote on a sense check, whoever else already voted (#idle)", () => {
+    const since = new Date("2026-10-30T06:00:00Z");
+    const check = { id: "b5", number: 5, title: "x", votes: 2, threshold: 3, holderOwners: ["owner-ada"], voters: ["owner-cara", "owner-eli"], since };
+    const item = itemsFor(agent("manager", "owner-dana"), work({ toSenseCheck: [check] }), nothingMine).find((i) => i.kind === "sense_check");
+    expect(item).toMatchObject({ key: "sense_check:b5", canAct: true });
+    expect(item!.detail).toContain("as a manager agent your vote counts 3");
+  });
+
+  it("asks an independent manager whether idle In progress work nobody holds was abandoned (#idle)", () => {
+    const since = new Date("2026-10-31T06:00:00Z");
+    const idle = { id: "b8", number: 8, title: "x", since, idleHours: 6, pullRequestUrl: null };
+    const project = work({ toReviewIdle: [idle], facts: new Map([["b8", facts({ assigneeId: "owner-cara" })]]) });
+
+    const item = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "review_idle");
+    expect(item).toMatchObject({ key: `review_idle:b8:${since.toISOString()}`, minimumRole: "manager", canAct: true, issue: { id: "b8", number: 8 } });
+    expect(item!.detail).toContain("#8 has been In progress for 6h with no update");
+    expect(item!.detail).toContain("nobody holds it: decide whether it was abandoned");
+    expect(item!.detail).toContain("leave it");
+    expect(item!.actions).toEqual([
+      { name: "reclaim_issue", minimumRole: "manager", method: "POST", path: "/api/v1/issues/b8/reclaim?projectId=p1", cli: "reclaim-issue --id b8" },
+    ]);
+
+    // Listed for a working agent, who can't act; blocked for the assignee's or filer's manager.
+    expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "review_idle")).toMatchObject({
+      canAct: false,
+      blockedReason: "Needs a manager agent.",
+    });
+    for (const ownerId of ["owner-cara", "owner-ada"]) {
+      expect(itemsFor(agent("manager", ownerId), project, nothingMine).find((i) => i.kind === "review_idle")).toMatchObject({ canAct: false });
+    }
+
+    // A linked pull request is named, to check before deciding.
+    const pr = "https://github.com/emerjent/ziki/pull/9";
+    const linked = work({ toReviewIdle: [{ ...idle, pullRequestUrl: pr }], facts: new Map([["b8", facts()]]) });
+    expect(itemsFor(agent("manager", "owner-dana"), linked, nothingMine).find((i) => i.kind === "review_idle")!.detail).toContain(pr);
+  });
+
   it("lists a stale hold for any agent to reclaim (#reclaim)", () => {
     const items = itemsFor(agent("working"), work({ toReclaim: [{ id: "b6", number: 6, title: "x", reason: "offer_expired" }] }), nothingMine);
     const item = items.find((i) => i.kind === "reclaim_issue");
@@ -227,6 +268,44 @@ describe("itemsFor", () => {
 
     for (const ownerId of ["owner-ada", "owner-cara"]) {
       expect(itemsFor(agent("working", ownerId), work({ bids: [bid] }), nothingMine).some((item) => item.kind === "review_bid")).toBe(false);
+    }
+  });
+
+  it("asks to investigate an Open issue and comment, not on one its owner filed or already commented on (#comment-votes)", () => {
+    const issue = { id: "b1", number: 1, title: "x", reporterOwners: ["owner-ada"], commenterOwners: ["owner-cara"] };
+    const items = itemsFor(agent("working"), work({ toInvestigate: [issue] }), nothingMine).filter((item) => item.kind === "investigate_issue");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ key: "investigate_issue:b1", title: "Investigate #1 and comment", minimumRole: "working", canAct: true, issue: { id: "b1", number: 1 } });
+    expect(items[0].detail).toContain("root cause");
+    expect(items[0].actions.map((action) => action.name)).toEqual(["get_issue", "comment"]);
+    expect(items[0].actions[1]).toMatchObject({ method: "POST", path: "/api/v1/issues/b1/comments?projectId=p1" });
+
+    for (const ownerId of ["owner-ada", "owner-cara"]) {
+      expect(itemsFor(agent("working", ownerId), work({ toInvestigate: [issue] }), nothingMine).some((item) => item.kind === "investigate_issue")).toBe(false);
+    }
+  });
+
+  it("asks other people's agents to upvote a comment on an Open issue, not its author's or a past voter's (#comment-votes)", () => {
+    const comment = {
+      id: "c1",
+      issue: { id: "b1", number: 1, title: "x" },
+      by: "Ada's Claude for Ada",
+      ownerIds: ["owner-ada"],
+      excerpt: "The redirect drops the session cookie in middleware.ts.",
+      votes: 1,
+      voters: ["owner-cara"],
+      createdAt: new Date("2026-10-29T10:00:00Z"),
+    };
+    const items = itemsFor(agent("working"), work({ comments: [comment] }), nothingMine).filter((item) => item.kind === "review_comment");
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ key: "review_comment:c1", minimumRole: "working", canAct: true, issue: { id: "b1", number: 1 } });
+    expect(items[0].detail).toContain("1 upvote so far");
+    expect(items[0].actions).toEqual([
+      { name: "upvote_comment", minimumRole: "working", method: "POST", path: "/api/v1/comments/c1/votes?projectId=p1", cli: "upvote-comment --id c1" },
+    ]);
+
+    for (const ownerId of ["owner-ada", "owner-cara"]) {
+      expect(itemsFor(agent("working", ownerId), work({ comments: [comment] }), nothingMine).some((item) => item.kind === "review_comment")).toBe(false);
     }
   });
 
@@ -313,6 +392,24 @@ describe("itemsFor", () => {
     const items = itemsFor(agent("manager", "owner-dana"), work({ toAccept: [{ id: "b2", number: 2, title: "y" }], facts: new Map([["b2", own]]) }), nothingMine);
     expect(items[0]).toMatchObject({ kind: "accept_fix", canAct: false });
     expect(items[0].blockedReason).toMatch(/Your owner/);
+  });
+
+  it("asks an independent manager to check whether a long-waiting fix is merged already (#reconcile-merged)", () => {
+    const pr = "https://github.com/emerjent/ziki/pull/552";
+    const project = work({
+      toReconcile: [{ id: "b5", number: 552, title: "Old fix", status: "ready_to_merge", pullRequestUrl: pr }],
+      facts: new Map([["b5", facts({ pullRequestUrl: pr })]]),
+    });
+    const item = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "reconcile_merged");
+    expect(item).toMatchObject({ key: `reconcile_merged:b5:${pr}`, minimumRole: "manager", canAct: true });
+    expect(item!.detail).toContain("Check whether the PR is merged; if so, resolve it");
+    expect(item!.actions.map((a) => [a.name, a.path])).toEqual([
+      ["resolve_merged", "/api/v1/issues/b5/resolve?projectId=p1"],
+      ["repair_pull_request", "/api/v1/issues/b5/pull-request?projectId=p1"],
+    ]);
+    // A working agent sees it but can't act; a manager whose owner filed it can't either.
+    expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
+    expect(itemsFor(agent("manager", "owner-ada"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
   });
 
   it("puts offers addressed to the agent first, with their deadline", () => {

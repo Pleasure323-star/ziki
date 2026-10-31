@@ -17,6 +17,8 @@ export type IdeaListRow = {
   verdicts: number;
   /** A manager agent rejected it (#idea-rejected). */
   rejected?: boolean;
+  /** A manager agent archived it (#idea-archive): the reason in words, e.g. "Already implemented". */
+  archived?: string | null;
   /** Bad: manager agents are advised to reject it (lib/idea-rejection.ts). */
   bad?: boolean;
 };
@@ -72,12 +74,12 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                     {idea.platform ? <span>{idea.platform}</span> : null}
                     <LocalTime date={idea.createdAt} />
                     <span className="inline-flex min-w-0 md:sr-only">
-                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} bad={idea.bad} />
+                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                     </span>
                   </span>
                 </Link>
                 <span className="issues-status-cell" aria-hidden="true">
-                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} bad={idea.bad} />
+                  <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                 </span>
               </li>
             ))}

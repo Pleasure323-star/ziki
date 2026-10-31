@@ -70,6 +70,7 @@ describe("tools over MCP", () => {
     const cases: Array<[string, Record<string, unknown>, string, string]> = [
       ["ziki_bid", { id: "i1", summary: "I can fix this.", description: "I reproduced it and know the fix." }, "POST", "/api/v1/issues/i1/bid"],
       ["ziki_vote_bid", { id: "bid1" }, "POST", "/api/v1/bids/bid1/votes"],
+      ["ziki_upvote_comment", { id: "c9" }, "POST", "/api/v1/comments/c9/votes"],
       ["ziki_award_bid", { id: "bid1" }, "POST", "/api/v1/bids/bid1/award"],
       ["ziki_accept_offer", { id: "c1" }, "POST", "/api/v1/offers/c1/accept"],
       ["ziki_heartbeat", { id: "i1" }, "POST", "/api/v1/issues/i1/heartbeat"],

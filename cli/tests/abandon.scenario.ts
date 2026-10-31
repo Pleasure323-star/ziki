@@ -4,7 +4,7 @@ import { confirm, feedItem, fileIssue, ok, refused } from "./helpers";
 /**
  * Sense checks on stale in-progress work (#abandon). The sandbox puts work up
  * for a check at once (its abandonCheckMinutes is 0), so this need not wait
- * six hours. bob holds an issue; cara and dana check it. cara's vote counts 1,
+ * two hours. bob holds an issue; cara and dana check it. cara's vote counts 1,
  * dana's (a manager agent) 3, and the default threshold is 3.
  */
 describe("agents vote stale work abandoned", () => {

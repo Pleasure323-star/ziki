@@ -4,7 +4,8 @@ import { AgentLevelError } from "@/lib/agents/levels";
 const db = vi.hoisted(() => ({
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
-  bug: { findFirst: vi.fn() },
+  bug: { findFirst: vi.fn(), updateMany: vi.fn() },
+  bugActivity: { create: vi.fn() },
   agent: { findFirst: vi.fn() },
   issueClaim: { findFirst: vi.fn(), update: vi.fn(), create: vi.fn(), count: vi.fn() },
 }));
@@ -42,6 +43,7 @@ beforeEach(() => {
   )[where.id] ?? null);
   db.issueClaim.findFirst.mockResolvedValue(null);
   db.issueClaim.count.mockResolvedValue(0);
+  db.bug.updateMany.mockResolvedValue({ count: 1 });
   db.issueClaim.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: "claim-1", ...data }));
   isConfirmed.mockResolvedValue(true);
   acceptOffer.mockResolvedValue({ claim: { id: "claim-1", status: "active" } });
@@ -91,11 +93,27 @@ describe("assignIssue (#715)", () => {
 
   it.each([
     ["a closed issue", { status: "closed" }, "Only open issues"],
-    ["an issue assigned to someone else", { assigneeId: "cara" }, "assigned to someone else"],
   ])("refuses %s", async (_label, bug, message) => {
-    db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Example", status: "open", assigneeId: null, convertedToIssueAt: new Date(), ...bug });
+    db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Example", assigneeId: null, convertedToIssueAt: new Date(), ...bug });
     await expect(assignIssue(manager, "p1", "bug-1", input())).rejects.toMatchObject({ status: 409, message: expect.stringContaining(message) });
     expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses an issue assigned to someone who still holds it", async () => {
+    db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Example", status: "open", assigneeId: "cara", assignee: { name: "Cara" }, tenantId: "t1", projectId: "p1" });
+    db.issueClaim.findFirst.mockImplementation(async ({ where }: { where: { OR?: unknown } }) =>
+      where.OR ? { id: "c0", status: "active", beneficiaryUserId: "cara" } : null);
+    await expect(assignIssue(manager, "p1", "bug-1", input())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("assigned to someone else") });
+    expect(db.bug.updateMany).not.toHaveBeenCalled();
+    expect(db.issueClaim.create).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale assignee (no active claim, no live offer) and assigns (#stale-assignee)", async () => {
+    db.bug.findFirst.mockResolvedValue({ id: "bug-1", title: "Example", status: "open", assigneeId: "cara", assignee: { name: "Cara" }, tenantId: "t1", projectId: "p1" });
+    await assignIssue(manager, "p1", "bug-1", input());
+    expect(db.bug.updateMany).toHaveBeenCalledWith({ where: { id: "bug-1", assigneeId: "cara", status: "open" }, data: { assigneeId: null } });
+    expect(db.bugActivity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ type: "assignee_changed", actorId: "mo" }) });
+    expect(db.issueClaim.create).toHaveBeenCalled();
   });
 
   it("refuses an unconfirmed issue", async () => {

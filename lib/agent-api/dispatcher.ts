@@ -3,6 +3,8 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { workflowFor } from "@/lib/workflow";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
+import { liveHoldWhere } from "@/lib/issue-holders";
 
 /**
  * The dispatcher's read side (#bids-only-offers). Nothing here hands work
@@ -41,7 +43,6 @@ export async function findReadyIssues(
     : 50;
 
   const workflow = await workflowFor(projectId);
-  const offerCutoff = new Date(Date.now() - workflow.offerWindowSeconds * 1000);
 
   const ready: ReadyIssue[] = [];
   let cursor: string | undefined;
@@ -52,15 +53,7 @@ export async function findReadyIssues(
         projectId,
         isDeleted: false,
         status: "open",
-        claims: {
-          none: {
-            releasedAt: null,
-            OR: [
-              { status: "active" },
-              { status: "offered", offeredAt: { gt: offerCutoff } },
-            ],
-          },
-        },
+        claims: { none: liveHoldWhere(workflow.offerWindowSeconds) },
       },
       select: {
         id: true,
@@ -131,8 +124,7 @@ export async function getDispatcherMetrics(
     prisma.issueBid.count({
       where: {
         bug: { tenantId: agent.tenantId, projectId },
-        withdrawnAt: null,
-        awardedAt: null,
+        ...OPEN_BID_WHERE,
       },
     }),
   ]);

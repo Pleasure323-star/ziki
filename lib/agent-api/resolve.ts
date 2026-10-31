@@ -1,11 +1,15 @@
 import { prisma } from "@/lib/prisma";
+import { issueIdFor } from "@/lib/issue-ref";
 import { audit } from "@/lib/agents/audit";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { publish } from "@/lib/agent-api/events";
 import { statusChangedSummary, unboostedSummary } from "@/lib/activity-log";
 import { AGENT_RESOLVE_VIA } from "@/lib/agent-resolution";
+import { hasLevel } from "@/lib/agents/levels";
+import { reconcileMergedWork, type ReconcileResult } from "@/lib/agent-api/reconcile-merged";
 import {
   clientForInstallation,
+  configuredClientFor,
   parseGitHubRepoUrl,
   parsePullRequestUrl,
   sameRepo,
@@ -22,11 +26,19 @@ import {
  * with GitHub that the pull request is merged into the project's repo. No
  * points are written: they still follow the review gates or a person
  * resolving the issue, as in #474.
+ *
+ * One route, two ways in (#reconcile-merged): an agent whose owner is not
+ * connected to the issue may still resolve it if it is a manager or merger
+ * agent independent of the issue. That is a manager reconciling work GitHub
+ * already merged (lib/agent-api/reconcile-merged.ts): stricter checks (the
+ * linked pull request, merged into the default branch, with a merge commit),
+ * and it finishes like the merger's admin merge, points included.
  */
 
 export type ResolveResult =
   | { status: 200; body: { resolved: true; issueId: string; previousStatus: string; pullRequestUrl: string } }
-  | { status: 403 | 404 | 409 | 422 | 502; body: { error: string; message: string } };
+  | { status: 403 | 404 | 409 | 422 | 502; body: { error: string; message: string } }
+  | ReconcileResult;
 
 const fail = (status: 403 | 404 | 409 | 422 | 502, error: string, message: string): ResolveResult =>
   ({ status, body: { error, message } });
@@ -34,13 +46,19 @@ const fail = (status: 403 | 404 | 409 | 422 | 502, error: string, message: strin
 export async function resolveMergedFix(
   agent: AgentContext,
   scope: { tenantId: string; projectId: string },
-  bugId: string,
-  pullRequestUrl: string,
-  clientFor: (installationId: string | null | undefined) => GitHubClient | null = clientForInstallation,
+  issueRef: string,
+  /** The merged pull request; the issue's linked one when left out. */
+  requestedUrl?: string,
+  /** Builds the GitHub client; tests pass a fake. */
+  clientFor?: (installationId: string | null | undefined) => GitHubClient | null,
 ): Promise<ResolveResult> {
-  const ref = parsePullRequestUrl(pullRequestUrl);
-  if (!ref) return fail(422, "invalid_url", "That is not a GitHub pull request URL.");
+  if (requestedUrl !== undefined && !parsePullRequestUrl(requestedUrl)) {
+    return fail(422, "invalid_url", "That is not a GitHub pull request URL.");
+  }
 
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const bugId = await issueIdFor(prisma, issueRef, scope.tenantId);
+  if (!bugId) return fail(404, "not_found", "No such issue in this project.");
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, ...scope, isDeleted: false },
     select: {
@@ -62,8 +80,17 @@ export async function resolveMergedFix(
     bug.reporterId === agent.ownerId ||
     bug.claims.some((claim) => claim.beneficiaryUserId === agent.ownerId);
   if (!connected) {
-    return fail(403, "not_connected", "Only an agent whose owner is this issue's assignee, reporter or claim holder can resolve it.");
+    // A manager independent of the issue reconciles merged work instead.
+    if (hasLevel(agent.level, "manager")) {
+      return reconcileMergedWork(agent, scope, bugId, requestedUrl, clientFor ?? configuredClientFor);
+    }
+    return fail(403, "not_connected", "Only an agent whose owner is this issue's assignee, reporter or claim holder, or an independent manager agent, can resolve it.");
   }
+
+  const pullRequestUrl = requestedUrl ?? bug.pullRequestUrl;
+  if (!pullRequestUrl) return fail(409, "no_pull_request", "Send the merged pull request's URL: this issue has none linked.");
+  const ref = parsePullRequestUrl(pullRequestUrl);
+  if (!ref) return fail(422, "invalid_url", "The linked address is not a GitHub pull request URL.");
 
   // A different linked PR is what reviewers looked at; resolving with another
   // merged PR would close the issue on code nobody tied to it.
@@ -75,7 +102,7 @@ export async function resolveMergedFix(
   if (!repo) return fail(422, "no_repo", "This project has no GitHub repository set, so the merge can't be checked.");
   if (!sameRepo(ref, repo)) return fail(422, "wrong_repo", "That pull request is not in this project's repository.");
 
-  const client = clientFor(bug.project?.githubInstallationId);
+  const client = (clientFor ?? clientForInstallation)(bug.project?.githubInstallationId);
   if (!client) return fail(409, "github_unavailable", "Ziki can't read pull requests for this project: its GitHub App isn't installed.");
   const pullRequest = await client.getPullRequest(ref).catch(() => null);
   if (!pullRequest) return fail(502, "github_error", "GitHub didn't answer. Try again in a minute.");

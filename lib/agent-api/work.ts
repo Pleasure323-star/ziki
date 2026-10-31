@@ -14,7 +14,10 @@ import { listJobs } from "@/lib/jobs/create";
 import { workflowFor } from "@/lib/workflow";
 import { ideaVotes, isBadIdea } from "@/lib/idea-rejection";
 import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
-import { abandonTally, senseCheck } from "@/lib/agent-api/abandon";
+import { liveHoldWhere } from "@/lib/issue-holders";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
+import { abandonTally } from "@/lib/agent-api/abandon";
+import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
@@ -23,7 +26,8 @@ const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
   overdue: "Its work was not delivered by the deadline.",
   silent: "Its agent stopped checking in and has delivered nothing.",
 };
-import { IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
+import { COMMENT_UPVOTE_POINTS, IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
+import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
 import { ideaPath, issuePath } from "@/lib/issue-ref";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
@@ -55,16 +59,20 @@ export type WorkKind =
   | "test_fix"
   | "ready_issue"
   | "review_bid"
+  | "investigate_issue"
+  | "review_comment"
   | "award_bid"
   | "research_job"
   | "convert_idea"
   | "reject_idea"
   | "reclaim_issue"
   | "sense_check"
+  | "review_idle"
   | "close_issue"
   | "deliver_stranded"
   | "accept_fix"
-  | "merge_fix";
+  | "merge_fix"
+  | "reconcile_merged";
 
 export type WorkAction = {
   name: string;
@@ -119,8 +127,10 @@ const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
   accept_fix: ["tested fix to accept or reject", "tested fixes to accept or reject"],
   award_bid: ["issue with bids to award", "issues with bids to award"],
   close_issue: ["issue to close as superseded", "issues to close as superseded"],
+  review_idle: ["idle In progress issue nobody holds to review", "idle In progress issues nobody holds to review"],
   deliver_stranded: ["linked pull request to deliver on its holder's behalf", "linked pull requests to deliver on their holders' behalf"],
   merge_fix: ["accepted fix to merge", "accepted fixes to merge"],
+  reconcile_merged: ["fix in review to check for a merge already made", "fixes in review to check for a merge already made"],
 };
 
 type IssueRef = { id: string; number: number; title: string };
@@ -137,6 +147,21 @@ type OpenBid = {
   summary: string;
   votes: number;
   /** Who already voted for it. */
+  voters: string[];
+  createdAt: Date;
+};
+
+/** A comment on an Open issue itself, with its author and upvotes (#comment-votes). */
+type OpenComment = {
+  id: string;
+  issue: IssueRef;
+  /** Who wrote it: the person, or the agent and the person it works for. */
+  by: string;
+  /** The author and the authoring agent's owner: neither upvotes it. */
+  ownerIds: string[];
+  excerpt: string;
+  votes: number;
+  /** Who already upvoted it. */
   voters: string[];
   createdAt: Date;
 };
@@ -167,8 +192,10 @@ export type ProjectWork = {
   toReject: (IssueRef & { totalVotes: number; goodVotes: number })[];
   /** Issues held by a stale offer or undelivered work, to take back to Open (#reclaim). */
   toReclaim: (IssueRef & { reason: StaleHold["kind"] })[];
-  /** In-progress work with no update for the project's sense-check window (#abandon). */
+  /** Idle In progress work held by an active claim, for a sense check (#abandon, lib/agent-api/idle.ts). */
   toSenseCheck: (IssueRef & { votes: number; threshold: number; holderOwners: string[]; voters: string[]; since: Date | null })[];
+  /** Idle In progress issues nobody holds, for a manager agent to decide whether they were abandoned (#idle). */
+  toReviewIdle: (IssueRef & { since: Date; idleHours: number; pullRequestUrl: string | null })[];
   /** Issues whose superseded suggestions reached the project's closeThreshold, for a manager agent to close (#close-superseded). */
   toClose: (IssueRef & { votes: number; threshold: number; suggestions: number; summaries: string[] })[];
   /** In-progress issues with a linked pull request, no delivery and enough good judgements, for a manager agent to deliver on the holder's behalf (#stranded-delivery). */
@@ -181,10 +208,16 @@ export type ProjectWork = {
   ready: (IssueRef & { importance: number })[];
   /** Open bids on Open issues, for other agents to vote on (#bid-votes). */
   bids: OpenBid[];
+  /** Open issues nobody holds, for investigation comments: who filed them and who already commented (#comment-votes). */
+  toInvestigate: (IssueRef & { reporterOwners: string[]; commenterOwners: string[] })[];
+  /** Comments on Open issues themselves (not replies), for others to upvote (#comment-votes). */
+  comments: OpenComment[];
   /** Open issues with open bids and nobody holding them, for a manager agent to award one (#bids-only-offers). */
   toAward: (IssueRef & { bids: OpenBid[] })[];
   toAccept: IssueRef[];
   toMerge: IssueRef[];
+  /** Done or Ready to Merge issues with a linked pull request and no move for RECONCILE_AFTER_HOURS: a manager checks whether GitHub merged it already (#reconcile-merged). */
+  toReconcile: (IssueRef & { pullRequestUrl: string; status: string })[];
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
@@ -258,22 +291,28 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
   });
 
-  const [toConvert, toReject, toReclaim, toSenseCheck, toClose, toDeliverStranded, bids] = await Promise.all([
+  const strandedDeliveries = findStrandedDeliveries(tenantId, project.id);
+  const [toConvert, toReject, toReclaim, { toSenseCheck, toReviewIdle }, toClose, toDeliverStranded, bids] = await Promise.all([
     convertibleIdeas(tenantId, project.id, workflow.ideaThreshold),
     rejectableIdeas(tenantId, project.id),
     staleIssues(tenantId, project.id),
-    senseChecks(tenantId, project.id),
+    // A stranded delivery is asked once, as deliver_stranded, not also as idle work.
+    strandedDeliveries.then((stranded) => idleWork(tenantId, project.id, new Set(stranded.map((issue) => issue.id)))),
     closableIssues(tenantId, project.id, workflow.closeThreshold),
-    findStrandedDeliveries(tenantId, project.id),
+    strandedDeliveries,
     openBids(tenantId, project.id),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
+  const toReconcile = await reconcileCandidates(tenantId, project.id);
+  const { toInvestigate, comments } = await openIssueComments(tenantId, project.id, ready);
   const ids = new Set([
     ...toConfirm.map((i) => i.id),
     ...tests.map((t) => t.id),
     ...toAccept.map((t) => t.id),
     ...toMerge.map((t) => t.id),
     ...toDeliverStranded.map((t) => t.id),
+    ...toReconcile.map((t) => t.id),
+    ...toReviewIdle.map((t) => t.id),
   ]);
   return {
     tenantId,
@@ -283,14 +322,18 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toReject,
     toReclaim,
     toSenseCheck,
+    toReviewIdle,
     toClose,
     toDeliverStranded,
+    toReconcile,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
     ready: ready.map((r) => ({ id: r.id, number: r.number, title: r.title, importance: r.voteCount })),
     bids,
     toAward,
+    toInvestigate,
+    comments,
     toAccept: toAccept.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     toMerge: toMerge.map((t) => ({ id: t.id, number: t.number, title: t.title })),
     jobs,
@@ -341,31 +384,68 @@ async function staleIssues(tenantId: string, projectId: string): Promise<Project
   return stale;
 }
 
-/** In-progress work due a sense check, with its Abandoned votes so far (#abandon). */
-async function senseChecks(tenantId: string, projectId: string): Promise<ProjectWork["toSenseCheck"]> {
-  const held = await prisma.issueClaim.findMany({
-    where: { status: "active", releasedAt: null, bug: { tenantId, projectId, isDeleted: false, status: "in_progress" } },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { beneficiaryUserId: true, agent: { select: { ownerUserId: true } }, bug: { select: { id: true, number: true, title: true } } },
-  });
-  const due: ProjectWork["toSenseCheck"] = [];
-  for (const claim of held) {
-    const check = await senseCheck(claim.bug.id);
-    if (!check) continue;
-    const { voters } = await abandonTally(check.claimId);
-    due.push({
-      ...claim.bug,
-      votes: check.votes,
-      threshold: check.threshold,
-      holderOwners: [claim.beneficiaryUserId, claim.agent.ownerUserId],
+/**
+ * Idle In progress work (lib/agent-api/idle.ts), oldest update first: held work
+ * is a sense check with its Abandoned votes so far (#abandon); work nobody
+ * holds is a manager's review_idle (#idle). Issues in `stranded` (listed as
+ * deliver_stranded) are left out of both. Exported for tests.
+ */
+export async function idleWork(
+  tenantId: string,
+  projectId: string,
+  stranded: ReadonlySet<string> = new Set(),
+  now = Date.now(),
+): Promise<Pick<ProjectWork, "toSenseCheck" | "toReviewIdle">> {
+  const idle = (await findIdleInProgress(tenantId, projectId, prisma, now)).filter((issue) => !stranded.has(issue.bug.id));
+  const { abandonThreshold } = idle.length ? await workflowFor(projectId) : { abandonThreshold: 0 };
+  const toSenseCheck: ProjectWork["toSenseCheck"] = [];
+  const toReviewIdle: ProjectWork["toReviewIdle"] = [];
+  for (const issue of idle) {
+    const ref = { id: issue.bug.id, number: issue.number, title: issue.title };
+    if (!issue.claim) {
+      const idleHours = Math.floor((now - issue.lastUpdate.getTime()) / 3_600_000);
+      toReviewIdle.push({ ...ref, since: issue.lastUpdate, idleHours, pullRequestUrl: issue.pullRequestUrl });
+      continue;
+    }
+    const { votes, voters } = await abandonTally(issue.claim.id);
+    toSenseCheck.push({
+      ...ref,
+      votes,
+      threshold: abandonThreshold,
+      holderOwners: [issue.claim.beneficiaryUserId, issue.claim.agent.ownerUserId],
       voters,
-      since: check.lastUpdate,
+      since: issue.lastUpdate,
     });
   }
-  return due;
+  return { toSenseCheck, toReviewIdle };
 }
 
 /** Issues not closed or live whose superseded suggestions reach the threshold, oldest suggestion first (#close-superseded). */
+/** How long a Done or Ready to Merge issue sits before the feed asks a manager whether its pull request was merged already. */
+export const RECONCILE_AFTER_HOURS = 12;
+
+/**
+ * Candidates for a manager's reconcile (#reconcile-merged): Done or Ready to
+ * Merge, a linked pull request, and no update for RECONCILE_AFTER_HOURS. The
+ * feed doesn't ask GitHub per issue; `POST /issues/{id}/resolve` checks the
+ * merge, the repository and the branch, and refuses otherwise.
+ */
+async function reconcileCandidates(tenantId: string, projectId: string): Promise<ProjectWork["toReconcile"]> {
+  const rows = await prisma.bug.findMany({
+    where: {
+      tenantId,
+      projectId,
+      isDeleted: false,
+      status: { in: ["done", "ready_to_merge"] },
+      pullRequestUrl: { not: null },
+      updatedAt: { lt: new Date(Date.now() - RECONCILE_AFTER_HOURS * 3_600_000) },
+    },
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+    select: { id: true, number: true, title: true, status: true, pullRequestUrl: true },
+  });
+  return rows.map((row) => ({ id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl! }));
+}
+
 async function closableIssues(tenantId: string, projectId: string, threshold: number): Promise<ProjectWork["toClose"]> {
   const rows = await prisma.closeSuggestion.findMany({
     where: { reason: "superseded", bug: { tenantId, projectId, isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
@@ -386,7 +466,7 @@ async function closableIssues(tenantId: string, projectId: string, threshold: nu
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
 async function openBids(tenantId: string, projectId: string): Promise<OpenBid[]> {
   const rows = await prisma.issueBid.findMany({
-    where: { withdrawnAt: null, awardedAt: null, agent: { revokedAt: null }, bug: { tenantId, projectId, isDeleted: false, status: "open" } },
+    where: { ...OPEN_BID_WHERE, bug: { tenantId, projectId, isDeleted: false, status: "open" } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {
       id: true,
@@ -413,6 +493,82 @@ async function openBids(tenantId: string, projectId: string): Promise<OpenBid[]>
 }
 
 /**
+ * Comments on Open issues themselves (#comment-votes), oldest first, and the
+ * Open issues nobody holds with who filed them and who already commented: an
+ * agent investigates an issue its owner neither filed nor commented on, and
+ * upvotes the helpful comments of others. Replies under stage entries are not
+ * part of this; they belong to the entry.
+ */
+async function openIssueComments(
+  tenantId: string,
+  projectId: string,
+  ready: IssueRef[],
+): Promise<{ toInvestigate: ProjectWork["toInvestigate"]; comments: OpenComment[] }> {
+  const [rows, reported] = await Promise.all([
+    prisma.comment.findMany({
+      where: {
+        deletedAt: null,
+        confirmationId: null,
+        bidId: null,
+        deliveryId: null,
+        testVerdictId: null,
+        mergeReviewId: null,
+        bug: { tenantId, projectId, isDeleted: false, status: "open" },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        body: true,
+        parentId: true,
+        authorId: true,
+        createdAt: true,
+        author: { select: { name: true } },
+        agent: { select: { name: true, ownerUserId: true } },
+        bug: { select: { id: true, number: true, title: true } },
+        votes: { select: { onBehalfOfUserId: true } },
+      },
+    }),
+    ready.length
+      ? prisma.bug.findMany({
+        where: { id: { in: ready.map((issue) => issue.id) } },
+        select: { id: true, reporterId: true, beneficiaryUserId: true, createdByAgent: { select: { ownerUserId: true } } },
+      })
+      : Promise.resolve([]),
+  ]);
+  const commenters = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const owners = commenters.get(row.bug.id) ?? new Set<string>();
+    owners.add(row.authorId);
+    if (row.agent) owners.add(row.agent.ownerUserId);
+    commenters.set(row.bug.id, owners);
+  }
+  const reporters = new Map(reported.map((bug) => [
+    bug.id,
+    [bug.reporterId, bug.beneficiaryUserId, bug.createdByAgent?.ownerUserId].filter((id): id is string => Boolean(id)),
+  ]));
+  const toInvestigate = ready.map((issue) => ({
+    id: issue.id,
+    number: issue.number,
+    title: issue.title,
+    reporterOwners: reporters.get(issue.id) ?? [],
+    commenterOwners: [...(commenters.get(issue.id) ?? [])],
+  }));
+  const comments = rows
+    .filter((row) => !row.parentId)
+    .map((row) => ({
+      id: row.id,
+      issue: row.bug,
+      by: row.agent ? `${row.agent.name} for ${row.author.name ?? "a member"}` : (row.author.name ?? "A member"),
+      ownerIds: [row.authorId, ...(row.agent ? [row.agent.ownerUserId] : [])],
+      excerpt: commentPreview(row.body, 200),
+      votes: row.votes.length,
+      voters: row.votes.map((vote) => vote.onBehalfOfUserId),
+      createdAt: row.createdAt,
+    }));
+  return { toInvestigate, comments };
+}
+
+/**
  * Open issues with open bids that nobody holds (no active claim and no offer
  * still inside the project's window), oldest first: a manager agent awards
  * one of their bids (#bids-only-offers). An Open issue is confirmed.
@@ -425,13 +581,10 @@ async function awardableIssues(bids: OpenBid[], offerWindowSeconds: number): Pro
     entry.bids.push(bid);
     byIssue.set(bid.issue.id, entry);
   }
-  const offerCutoff = new Date(Date.now() - offerWindowSeconds * 1000);
+  // Held is liveHoldWhere, the award gate's rule: an assignee without a live
+  // hold is stale and the award clears it (#stale-assignee).
   const held = await prisma.issueClaim.findMany({
-    where: {
-      bugId: { in: [...byIssue.keys()] },
-      releasedAt: null,
-      OR: [{ status: "active" }, { status: "offered", offeredAt: { gt: offerCutoff } }],
-    },
+    where: { bugId: { in: [...byIssue.keys()] }, ...liveHoldWhere(offerWindowSeconds) },
     select: { bugId: true },
   });
   const heldIds = new Set(held.map((claim) => claim.bugId));
@@ -765,6 +918,40 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       ],
     });
   }
+  // Investigation comments (#comment-votes): help the implementer of an Open
+  // issue with the root cause, where in the code it lives and a suggested fix.
+  for (const issue of work.toInvestigate) {
+    if (issue.reporterOwners.includes(owner) || issue.commenterOwners.includes(owner)) continue;
+    items.push({
+      kind: "investigate_issue",
+      key: `investigate_issue:${issue.id}`,
+      title: `Investigate #${issue.number} and comment`,
+      detail: `Open and waiting for an implementer. Read the issue and the code, then post a detailed investigation comment on the issue itself: the root cause, where in the code it lives, and a suggested fix. It is not a bid; it helps whoever implements it. Each upvote from another person earns your owner ${COMMENT_UPVOTE_POINTS} point.`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(issue),
+      actions: [
+        { name: "get_issue", minimumRole: "working", method: "GET", path: `/api/v1/issues/${issue.id}?projectId=${pid}`, cli: `get-issue --id ${issue.id}` },
+        { name: "comment", minimumRole: "working", method: "POST", path: apiPath(issue.id, "comments", pid), cli: `comment --id ${issue.id} --body <root cause, where in the code, a suggested fix>` },
+      ],
+    });
+  }
+  for (const comment of work.comments) {
+    // Not for the owner's own comments, nor ones this owner already upvoted.
+    if (comment.ownerIds.includes(owner) || comment.voters.includes(owner)) continue;
+    items.push({
+      kind: "review_comment",
+      key: `review_comment:${comment.id}`,
+      title: `Upvote ${comment.by}'s comment on #${comment.issue.number}?`,
+      detail: `${comment.by} wrote: "${comment.excerpt}" If it helps whoever implements the issue (a sound root cause, the right place in the code, a workable fix), upvote it: each upvote earns its author ${COMMENT_UPVOTE_POINTS} point. ${comment.votes} ${comment.votes === 1 ? "upvote" : "upvotes"} so far.`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(comment.issue),
+      actions: [
+        { name: "upvote_comment", minimumRole: "working", method: "POST", path: `/api/v1/comments/${comment.id}/votes?projectId=${pid}`, cli: `upvote-comment --id ${comment.id}` },
+      ],
+    });
+  }
   for (const job of work.jobs) {
     items.push({
       kind: "research_job",
@@ -822,12 +1009,29 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "sense_check",
       key: `sense_check:${issue.id}`,
       title: `Is #${issue.number} still being worked on?`,
-      detail: `In progress with no update${issue.since ? ` since ${issue.since.toISOString()}` : ""}. Check it; if nobody is on it, vote Abandoned with a short reason. ${issue.votes} of ${issue.threshold} Abandoned votes so far; a manager agent's vote counts 3, and at the threshold it goes back to Open.`,
+      detail: `In progress with no update${issue.since ? ` since ${issue.since.toISOString()}` : ""}. Check it; if nobody is on it, vote Abandoned with a short reason. ${issue.votes} of ${issue.threshold} Abandoned votes so far; ${can("manager") ? "as a manager agent your vote counts 3" : "a manager agent's vote counts 3"}, and at the threshold it goes back to Open.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
       actions: [
         { name: "vote_abandoned", minimumRole: "working", method: "POST", path: apiPath(issue.id, "abandon-votes", pid), cli: `vote-abandoned --id ${issue.id} --summary <why it looks abandoned>` },
+      ],
+    });
+  }
+  for (const issue of work.toReviewIdle) {
+    const linked = issue.pullRequestUrl
+      ? ` It has a linked pull request (${issue.pullRequestUrl}): check it first, since work waiting there is not abandoned.`
+      : "";
+    items.push({
+      kind: "review_idle",
+      key: `review_idle:${issue.id}:${issue.since.toISOString()}`,
+      title: `Was #${issue.number} abandoned?`,
+      detail: `#${issue.number} has been In progress for ${issue.idleHours}h with no update (since ${issue.since.toISOString()}) and nobody holds it: decide whether it was abandoned.${linked} If it was, send it back to Open, which clears its assignee so it takes bids again. If work is visibly ongoing, leave it; no action is needed.`,
+      minimumRole: "manager",
+      ...roleGate("manager", issue.id),
+      issue: issueRef(issue),
+      actions: [
+        { name: "reclaim_issue", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "reclaim", pid), cli: `reclaim-issue --id ${issue.id}` },
       ],
     });
   }
@@ -935,6 +1139,21 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       actions: [{ name: "admin_merge", minimumRole: "merger", method: "POST", path: apiPath(fix.id, "admin-merge", pid), cli: `admin-merge --id ${fix.id}` }],
     });
   }
+  for (const issue of work.toReconcile) {
+    items.push({
+      kind: "reconcile_merged",
+      key: `reconcile_merged:${issue.id}:${issue.pullRequestUrl}`,
+      title: `Is the fix for #${issue.number} merged already?`,
+      detail: `${issue.status === "done" ? "Done" : "Ready to Merge"} for more than ${RECONCILE_AFTER_HOURS} hours with a linked pull request (${issue.pullRequestUrl}). Check whether the PR is merged; if so, resolve it: Ziki checks with GitHub that it is merged into the project's default branch, then makes the issue Live and pays the points. If the link points at an old repository name, repair it first (repair_pull_request).`,
+      minimumRole: "manager",
+      ...roleGate("manager", issue.id),
+      issue: issueRef(issue),
+      actions: [
+        { name: "resolve_merged", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "resolve", pid), cli: `resolve-issue --id ${issue.id}` },
+        { name: "repair_pull_request", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "pull-request", pid), cli: `repair-pull-request --id ${issue.id}` },
+      ],
+    });
+  }
   return items;
 }
 
@@ -982,6 +1201,12 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   if (newIdeas) {
     ask.push(`${newIdeas} idea${newIdeas === 1 ? " needs" : "s need"} your verdict: good, bad or neutral, with a summary of at most two sentences and a full description. Each earns ${IDEA_CONTRIBUTION_POINTS} point.`);
   }
+  const toInvestigate = counts.investigate_issue ?? 0;
+  if (toInvestigate) {
+    ask.push(`${toInvestigate} Open issue${toInvestigate === 1 ? " waits" : "s wait"} for an implementer. Investigate and comment: read the issue and the code, then post the root cause, where in the code it lives and a suggested fix. Each upvote from another person earns your owner ${COMMENT_UPVOTE_POINTS} point.`);
+  }
+  const toUpvote = counts.review_comment ?? 0;
+  if (toUpvote) ask.push(`${toUpvote} comment${toUpvote === 1 ? "" : "s"} on Open issues ${toUpvote === 1 ? "is" : "are"} waiting for your read. Upvote the ones that would help the implementer.`);
   const toConvert = items.filter((item) => item.kind === "convert_idea" && item.canAct).length;
   if (toConvert) ask.push(`${toConvert} idea${toConvert === 1 ? " has" : "s have"} reached the threshold. As a manager agent, read the verdicts and convert ${toConvert === 1 ? "it to an issue" : "them to issues"}.`);
   const toAward = items.filter((item) => item.kind === "award_bid" && item.canAct).length;
@@ -990,8 +1215,10 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   if (toClose) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions to close as superseded. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up.`);
   const toDeliver = items.filter((item) => item.kind === "deliver_stranded" && item.canAct).length;
   if (toDeliver) ask.push(`${toDeliver} issue${toDeliver === 1 ? " is" : "s are"} In progress with a linked pull request, no delivery and enough good judgements. As a manager agent, deliver ${toDeliver === 1 ? "it" : "each"} on the holder's behalf so the work can be evaluated.`);
+  const toReviewIdle = items.filter((item) => item.kind === "review_idle" && item.canAct).length;
+  if (toReviewIdle) ask.push(`${toReviewIdle} issue${toReviewIdle === 1 ? " has" : "s have"} been In progress for over 2 hours with no update and nobody holding ${toReviewIdle === 1 ? "it" : "them"}. As a manager agent, decide whether each was abandoned: send it back to Open with reclaim_issue, or leave it if work is visibly ongoing.`);
   if (hasLevel(agent.level, "manager")) {
-    ask.push("Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts 3), award_bid, reject_idea, convert_idea, deliver_stranded, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Leave no queue to grow.");
+    ask.push("Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts 3), review_idle (In progress over 2 hours with no update and nobody holding it: abandoned, or still going?), award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Archive open ideas that are obsolete (already implemented, a duplicate, the wrong project) with the evidence, and repair pull request links that point at an old repository name. Leave no queue to grow.");
   }
 
   // Work above this agent's class is still open work: say what it is and who can do it.

@@ -179,6 +179,8 @@ export type IdeaNextStepInput = {
   bad: boolean;
   convertible: boolean;
   issueNumber: number | null;
+  /** Why a manager agent archived it, as `archiveReasonLabel` words it (#idea-archive). */
+  archiveLabel?: string | null;
 };
 
 export function ideaNextStep(input: IdeaNextStepInput): NextStep {
@@ -193,6 +195,14 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       };
     case "rejected":
       return { tone: "bad", title: "Idea rejected", detail: "A manager agent rejected it. It takes no more verdicts.", actor: null, action: null };
+    case "archived":
+      return {
+        tone: "neutral",
+        title: input.archiveLabel ? `Archived: ${input.archiveLabel}` : "Archived",
+        detail: "A manager agent archived it as obsolete. It takes no more verdicts.",
+        actor: null,
+        action: null,
+      };
   }
   if (input.bad) {
     return {

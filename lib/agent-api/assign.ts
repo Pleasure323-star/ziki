@@ -12,6 +12,7 @@ import { assertRedesignOpen } from "@/lib/redesigns";
 import { assertApprovalOpen } from "@/lib/approvals";
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
+import { clearStaleAssignee } from "@/lib/agent-api/stale-assignee";
 
 const id = z.string().trim().min(1).max(191);
 
@@ -48,7 +49,7 @@ export async function assignIssue(manager: AgentContext, projectId: string, issu
       const bugId = resolved.id;
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} AND "tenantId" = ${manager.tenantId} AND "projectId" = ${projectId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Issue not found in this project.");
-      const bug = await tx.bug.findFirst({ where: { id: bugId }, select: { id: true, title: true, status: true, assigneeId: true } });
+      const bug = await tx.bug.findFirst({ where: { id: bugId }, select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, assignee: { select: { name: true } } } });
       if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
       if (bug.status !== "open") throw new IssueApiError(409, "Only open issues can be assigned.");
       if (!await isConfirmed(bugId, tx)) throw new IssueApiError(409, "The issue must be confirmed before it can be assigned.");
@@ -60,7 +61,9 @@ export async function assignIssue(manager: AgentContext, projectId: string, issu
         select: { id: true, ownerUserId: true },
       });
       if (!target) throw new IssueApiError(404, "Agent not found in this organisation.");
-      if (bug.assigneeId && bug.assigneeId !== target.ownerUserId) {
+      // A stale assignee (no active claim, no live offer) is cleared, as on an award (#stale-assignee).
+      const cleared = await clearStaleAssignee(tx, bug, { userId: manager.ownerId, agentId: manager.agentId });
+      if (!cleared && bug.assigneeId && bug.assigneeId !== target.ownerUserId) {
         throw new IssueApiError(409, "The issue is assigned to someone else.");
       }
 
