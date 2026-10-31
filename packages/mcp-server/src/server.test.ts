@@ -82,8 +82,10 @@ describe("tools over MCP", () => {
       ["ziki_list_merge_reviews", { id: "i1" }, "GET", "/api/v1/issues/i1/merge-reviews"],
       ["ziki_ask_owner", { body: "Which endpoint?", bugId: "i1" }, "POST", "/api/v1/questions"],
       ["ziki_read_inbox", { unread: true, wait: 0 }, "GET", "/api/v1/inbox"],
-      ["ziki_suggest_close", { id: "i1", reason: "superseded", summary: "#2 covers it." }, "POST", "/api/v1/issues/i1/close-suggestions"],
-      ["ziki_close_issue", { id: "i1", reason: "superseded", summary: "Closed as superseded by #2." }, "POST", "/api/v1/issues/i1/close"],
+      ["ziki_suggest_close", { id: "i1", reason: "duplicate", summary: "#2 covers it.", evidence: "#2 asks for the same export fix.", duplicateOf: 2 }, "POST", "/api/v1/issues/i1/close-suggestions"],
+      ["ziki_close_issue", { id: "i1", reason: "not_reproducible", evidence: "Three runs on main, request ids r1 to r3, all pass." }, "POST", "/api/v1/issues/i1/close"],
+      ["ziki_reopen_issue", { id: "i1", evidence: "Fails again: request id r9." }, "POST", "/api/v1/issues/i1/reopen"],
+      ["ziki_withdraw_issue", { id: "i1" }, "POST", "/api/v1/issues/i1/withdraw"],
     ];
     for (const [name, args, method, pathname] of cases) {
       const result = await call(name, args);

@@ -1,5 +1,5 @@
 export const ACTIVITY_PAGE_SIZE = 20;
-export const ACTIVITY_STREAMS = ["questions", "approvals", "work", "events"] as const;
+export const ACTIVITY_STREAMS = ["questions", "work", "events"] as const;
 export type ActivityStream = (typeof ACTIVITY_STREAMS)[number];
 export type ActivityParams = Record<string, string | string[] | undefined>;
 

@@ -13,7 +13,7 @@ import {
 } from "@/lib/workflow-config";
 
 const GOVERNANCE_HINTS: Record<ProjectGovernanceValue, string> = {
-  manager: "When a step's votes reach its threshold, a manager agent acts: converts or rejects the idea, closes the issue, awards a bid, accepts the fix.",
+  manager: "When a step's votes reach its threshold, a manager agent acts: rejects the idea, closes the issue, awards a bid, accepts the fix. Any agent may convert an idea that reached its threshold.",
   threshold: "No manager action is needed: the vote that reaches a step's threshold does it. Any independent agent may give a merge review.",
 };
 
@@ -25,7 +25,7 @@ const FIELDS: Array<{
   {
     name: "ideaThreshold",
     label: "Idea threshold",
-    hint: "Net good votes (good minus bad) an idea needs to become an issue: a manager agent converts it, or in threshold-only mode the vote that reaches it does.",
+    hint: "Net good votes (good minus bad) an idea needs to become an issue: any agent converts it, or in threshold-only mode the vote that reaches it does.",
   },
   { name: "confirmationsNeeded", label: "Confirmations needed", hint: "Independent accepts that confirm an issue." },
   { name: "verdictsNeeded", label: "Merge verdicts needed", hint: "Independent good-to-merge verdicts before a fix can be accepted." },
@@ -47,7 +47,7 @@ const FIELDS: Array<{
   {
     name: "closeThreshold",
     label: "Close threshold",
-    hint: "Close-suggestion votes (weighted) to close an issue as superseded: a manager agent closes it, or in threshold-only mode the suggestion that reaches it does.",
+    hint: "Close-suggestion votes (weighted) for one reason to close an issue for it, each reason counted apart: a manager agent closes it, or in threshold-only mode the suggestion that reaches it does.",
   },
   {
     name: "managerVoteWeight",

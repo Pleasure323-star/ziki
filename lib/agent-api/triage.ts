@@ -14,19 +14,15 @@ import { currentHold, type IssueHold } from "@/lib/issue-holders";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { isThresholdOnly } from "@/lib/governance";
 import { workflowFor } from "@/lib/workflow";
-import { isFormerNameOf } from "@/lib/github/former-repos";
+import { parseGitHubRepoUrl, parsePullRequestUrl, type RepoRef } from "@/lib/github/pull-request-url";
+import { linkStateFromUrl, prGate, reportWanted, type LinkState, type PrGate } from "@/lib/agent-api/pr-gate";
 import {
-  commitInBranch,
-  configuredClientFor,
-  GitHubError,
-  parseGitHubRepoUrl,
-  parsePullRequestUrl,
-  sameRepo,
-  type GitHubClient,
-  type PullRequest,
-  type PullRequestRef,
-  type RepoRef,
-} from "@/lib/github/merge-pr";
+  gateReport,
+  latestPullRequestReports,
+  pullRequestStateView,
+  type PullRequestStateView,
+  type StoredPullRequestReport,
+} from "@/lib/agent-api/pull-request-report";
 import { absoluteUrl } from "@/lib/site-url";
 import { issuePath } from "@/lib/issue-ref";
 
@@ -42,51 +38,44 @@ import { issuePath } from "@/lib/issue-ref";
  * - who holds it (the claim, `lib/issue-holders.ts`), and whether an Open
  *   issue's assignee is stale;
  * - its pull request: whether the link points at the project's repository
- *   (`linkState`), and from GitHub its state, the branch it was merged into
- *   and whether the default branch contains it;
+ *   (`linkState`), and the latest report on it from an agent independent of
+ *   the issue (#pr-reports: state, the branch it was merged into, whether the
+ *   default branch contains it, checks, conflicts), with who reported it and
+ *   how long ago, and what the gate (lib/agent-api/pr-gate.ts) makes of it;
  * - its judgements on the linked pull request (the Delivered step's count);
  * - its open bids;
  * - `nextActions`: what the caller may do now, under the same rules the write
  *   routes enforce, each with `canAct` and, when blocked, why.
  *
- * It only reads. GitHub is asked through the project's GitHub App, at most
- * `GITHUB_CONCURRENCY` requests at a time, and each pull request's answer is
- * kept for `PR_CACHE_MS`. Without the App, `linkState` comes from the URL
- * alone and `state` is "unknown".
+ * It only reads, and never asks GitHub: an issue whose pull request needs
+ * checking gets a `report_pr_status` action instead.
  */
 
 /** The statuses triage lists (and Open issues with open bids). */
 export const TRIAGE_STATUSES = ["in_progress", "delivered", "done", "ready_to_merge"] as const;
 
 export const TRIAGE_DEFAULT_LIMIT = 50;
-/** How long a pull request's GitHub answer is reused. */
-export const PR_CACHE_MS = 5 * 60_000;
-/** GitHub requests in flight at once. */
-export const GITHUB_CONCURRENCY = 4;
-
-/**
- * How an issue's pull request link relates to the project's repository.
- * `ok`: in it. `old_repository`: under a former name of it (repair the link).
- * `other_repository`: somewhere else, or not a pull request address.
- * `missing`: no link. `not_found`: in it, but GitHub answers 404.
- * `unknown`: the project names no repository to compare with.
- */
-export type LinkState = "ok" | "old_repository" | "other_repository" | "missing" | "not_found" | "unknown";
 
 export type TriagePullRequest = {
   url: string | null;
   linkState: LinkState;
-  state: "open" | "closed" | "merged" | "unknown";
-  /** The branch it was merged into, once merged. */
+  /** From the latest report; `unreported` when no agent reported this pull request yet. */
+  state: "open" | "closed" | "merged" | "not_found" | "unreported";
+  /** The branch it was merged into, once reported merged. */
   mergedInto: string | null;
-  /** The repository's default branch, when GitHub said. */
-  defaultBranch: string | null;
-  /** Merged and contained in the default branch; null when not merged or unknown. */
+  /** Reported merged and contained in the default branch; null when not merged or not said. */
   inDefaultBranch: boolean | null;
+  /** The head commit: the reported one, else the one Ziki has. */
   headSha: string | null;
   mergeCommitSha: string | null;
-  /** For a link outside the project's repository: whether the same number exists in it (null when not asked). */
-  sameNumberInProjectRepo: boolean | null;
+  checks: string | null;
+  mergeable: boolean | null;
+  /** The latest report, with who filed it and its age; null when none. */
+  report: PullRequestStateView | null;
+  /** What the rules make of it (lib/agent-api/pr-gate.ts). */
+  gate: PrGate;
+  /** Why an independent agent should check it on GitHub and report it now; null when not needed. */
+  reportWanted: string | null;
 };
 
 export type TriageHolder = {
@@ -123,135 +112,36 @@ export type TriageItem = {
   nextActions: TriageAction[];
 };
 
-export type TriagePage = { items: TriageItem[]; nextCursor: string | null; githubAvailable: boolean };
+export type TriagePage = { items: TriageItem[]; nextCursor: string | null };
 
 // ---------------------------------------------------------------------------
-// The pull request link, without GitHub
+// The pull request, from its latest report
 // ---------------------------------------------------------------------------
 
-/** `linkState` from the URL and the project's repository alone. */
-export function linkStateFromUrl(pullRequestUrl: string | null | undefined, repo: RepoRef | null): LinkState {
-  if (!pullRequestUrl) return "missing";
-  if (!repo) return "unknown";
-  const ref = parsePullRequestUrl(pullRequestUrl);
-  if (!ref) return "other_repository";
-  if (sameRepo(ref, repo)) return "ok";
-  return isFormerNameOf(ref, repo) ? "old_repository" : "other_repository";
-}
-
-// ---------------------------------------------------------------------------
-// GitHub, cached
-// ---------------------------------------------------------------------------
-
-type PrLookup = { found: true; pr: PullRequest } | { found: false };
-const prCache = new Map<string, { at: number; value: PrLookup }>();
-const containsCache = new Map<string, { at: number; value: boolean }>();
-
-/** For tests. */
-export function clearTriageCache(): void {
-  prCache.clear();
-  containsCache.clear();
-}
-
-/** The pull request from GitHub, cached; `found: false` on 404, null when GitHub didn't answer. */
-async function lookupPullRequest(client: GitHubClient, ref: PullRequestRef, now: number): Promise<PrLookup | null> {
-  const key = `https://github.com/${ref.owner}/${ref.repo}/pull/${ref.number}`.toLowerCase();
-  const hit = prCache.get(key);
-  if (hit && now - hit.at < PR_CACHE_MS) return hit.value;
-  let value: PrLookup;
-  try {
-    value = { found: true, pr: await client.getPullRequest(ref) };
-  } catch (error) {
-    if (!(error instanceof GitHubError) || error.status !== 404) return null;
-    value = { found: false };
-  }
-  prCache.set(key, { at: now, value });
-  return value;
-}
-
-/** Whether `branch` contains `sha`, cached; null when unknown. */
-async function branchContains(client: GitHubClient, repo: RepoRef, branch: string, sha: string, now: number): Promise<boolean | null> {
-  const key = `${repo.owner}/${repo.repo}:${branch}...${sha}`.toLowerCase();
-  const hit = containsCache.get(key);
-  if (hit && now - hit.at < PR_CACHE_MS) return hit.value;
-  let value: boolean | null;
-  try {
-    value = await commitInBranch(client, repo, branch, sha);
-  } catch {
-    return null;
-  }
-  if (value === null) return null;
-  containsCache.set(key, { at: now, value });
-  return value;
-}
-
-/** Everything triage says about one pull request link. */
-export async function pullRequestFacts(
+/** Everything triage says about one pull request link, from the link and its latest report. */
+export function pullRequestFacts(
   url: string | null,
   repo: RepoRef | null,
-  client: GitHubClient | null,
+  report: StoredPullRequestReport | null,
+  issueHeadSha: string | null,
   now = Date.now(),
-): Promise<TriagePullRequest> {
-  const base: TriagePullRequest = {
+): TriagePullRequest {
+  const current = report && report.pullRequestUrl === url ? report : null;
+  const gate = prGate(gateReport(current), { pullRequestUrl: url, pullRequestHeadSha: issueHeadSha, repo });
+  return {
     url,
     linkState: linkStateFromUrl(url, repo),
-    state: "unknown",
-    mergedInto: null,
-    defaultBranch: null,
-    inDefaultBranch: null,
-    headSha: null,
-    mergeCommitSha: null,
-    sameNumberInProjectRepo: null,
+    state: current?.state ?? "unreported",
+    mergedInto: current?.mergedInto ?? null,
+    inDefaultBranch: current?.inDefaultBranch ?? null,
+    headSha: current?.headSha ?? issueHeadSha,
+    mergeCommitSha: current?.mergeCommitSha ?? null,
+    checks: current?.checks ?? null,
+    mergeable: current?.mergeable ?? null,
+    report: pullRequestStateView(current, now),
+    gate,
+    reportWanted: reportWanted(gate, current, now),
   };
-  const ref = parsePullRequestUrl(url);
-  if (!client || !repo || !ref) return base;
-  // A link under an old name is the same pull request in the project's
-  // repository (GitHub redirects a renamed one); for one elsewhere, triage
-  // only asks whether that number exists here, for the repair.
-  const lookup = await lookupPullRequest(client, { ...repo, number: ref.number }, now);
-  if (lookup === null) return base;
-  if (!lookup.found) {
-    return { ...base, linkState: base.linkState === "ok" ? "not_found" : base.linkState, sameNumberInProjectRepo: base.linkState === "ok" ? null : false };
-  }
-  if (base.linkState === "other_repository") return { ...base, sameNumberInProjectRepo: true };
-
-  const pr = lookup.pr;
-  const state = pr.merged ? "merged" : pr.state === "closed" ? "closed" : "open";
-  const mergedInto = pr.merged ? pr.baseRef ?? null : null;
-  const defaultBranch = pr.defaultBranch ?? null;
-  const mergeCommitSha = pr.merged ? pr.mergeCommitSha ?? null : null;
-  let inDefaultBranch: boolean | null = null;
-  if (pr.merged && mergedInto && defaultBranch) {
-    inDefaultBranch = mergedInto === defaultBranch
-      ? true
-      : mergeCommitSha
-        ? await branchContains(client, repo, defaultBranch, mergeCommitSha, now)
-        : null;
-  }
-  return {
-    ...base,
-    state,
-    mergedInto,
-    defaultBranch,
-    inDefaultBranch,
-    headSha: pr.headSha || null,
-    mergeCommitSha,
-    sameNumberInProjectRepo: base.linkState === "old_repository" ? true : null,
-  };
-}
-
-/** `fn` over `items`, at most `limit` at a time, results in order. */
-export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +177,7 @@ const STALE_WHY: Record<StaleHold["kind"], string> = {
 /** The actions the caller may take on one issue now, with why each blocked one is blocked. */
 export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAction[] {
   const { bug, pullRequest: pr, projectId } = facts;
+  const prGateNow = pr.gate;
   const actions: TriageAction[] = [];
   const route = (tail: string) => `/api/v1/issues/${bug.id}/${tail}?projectId=${projectId}`;
   const conflict = reviewerConflict({ id: caller.agentId, ownerUserId: caller.ownerId }, bug);
@@ -302,63 +193,47 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
   };
   const repoName = facts.repo ? `${facts.repo.owner}/${facts.repo.repo}` : "the project's repository";
   const ref = parsePullRequestUrl(pr.url);
+  // Why a pull request can't be judged or accepted as linked.
+  const linkProblem = prGateNow.broken ? prGateNow.reason : pr.linkState === "missing" ? "No pull request is linked." : null;
 
-  // Why a pull request can't be accepted or merged as linked.
-  const linkProblem =
-    pr.linkState === "old_repository" ? "The PR link uses an old repository name: repair it first."
-      : pr.linkState === "other_repository" ? `The PR link is not in ${repoName}.`
-        : pr.linkState === "not_found" ? "The PR returns 404."
-          : pr.linkState === "missing" ? "No pull request is linked."
-            : null;
-
-  // 1. A link to repair.
-  if (bug.status !== "open" && (pr.linkState === "old_repository" || pr.linkState === "other_repository" || pr.linkState === "not_found")) {
+  // 1. A link to repair, or a pull request the author must replace.
+  if (bug.status !== "open" && prGateNow.broken) {
     const number = ref ? `#${ref.number}` : "That number";
-    const noSameNumber = pr.linkState === "not_found"
-      ? `The PR returns 404: the author must submit a new PR in ${repoName}.`
-      : pr.sameNumberInProjectRepo === false
-        ? `PR ${number} doesn't exist in ${repoName}: the author must submit a new PR.`
-        : null;
-    const note = pr.linkState === "other_repository" && !noSameNumber
-      ? `The link points outside ${repoName}; check that ${number} there is the same work, or send pullRequestUrl.`
-      : pr.sameNumberInProjectRepo === null && !noSameNumber
-        ? "GitHub wasn't asked; the route checks that the pull request exists."
-        : undefined;
-    push("repair_pull_request", route("pull-request"), "manager", gate("manager", [noSameNumber]), note);
+    const note = prGateNow.broken === "old_repository"
+      ? `Leave pullRequestUrl out to link ${number} in ${repoName}; nobody has reported that one yet, so report it after.`
+      : prGateNow.broken === "other_repository"
+        ? `The link points outside ${repoName}; check that ${number} there is the same work, or send pullRequestUrl.`
+        : `Only once the author has opened a new pull request in ${repoName}: send its pullRequestUrl.`;
+    push("repair_pull_request", route("pull-request"), "manager", gate("manager"), note);
   }
 
-  // 2. Merged already: reconcile, or wait for the release.
+  // 2. A pull request someone should check on GitHub and report.
+  if (bug.status !== "open" && pr.reportWanted) {
+    push("report_pr_status", route("pull-request-status"), "working", gate("working"), pr.reportWanted);
+  }
+
+  // 3. Merged already: resolve it, or wait for the release.
   if (pr.state === "merged" && bug.status !== "open") {
-    if (pr.inDefaultBranch === false) {
-      const into = pr.mergedInto ?? "another branch";
-      const main = pr.defaultBranch ?? "the default branch";
-      push("awaiting_release", route("resolve"), "manager", {
-        canAct: false,
-        blockedReason: `Merged into ${into}; reconcile once ${into} is released to ${main}.`,
-      });
+    if (prGateNow.awaitingRelease) {
+      push("awaiting_release", route("resolve"), "manager", { canAct: false, blockedReason: prGateNow.reason ?? "Waiting for the release to the default branch." });
     } else {
-      push(
-        "resolve",
-        route("resolve"),
-        "manager",
-        gate("manager", [pr.linkState === "ok" ? null : linkProblem]),
-        pr.inDefaultBranch === null ? "Ziki couldn't tell whether the default branch contains the merge; the route checks again." : undefined,
-      );
+      push("resolve", route("resolve"), "manager", gate("manager", [prGateNow.canReconcile ? null : prGateNow.reason]));
     }
     return actions;
   }
 
-  // 3. The step's own move.
-  const closedUnmerged = pr.state === "closed" ? "The PR is closed without merging." : null;
+  // 4. The step's own move.
   switch (bug.status) {
     case "in_progress": {
       if (facts.stranded) {
         const credited = facts.stranded.creditedUserId === caller.ownerId ? "Your owner is credited on this issue." : null;
-        push("deliver_stranded", route("delivery"), "manager", gate("manager", [credited]),
+        const broken = prGateNow.broken ? `${prGateNow.reason} Nothing to deliver; reclaim it if it is idle.` : null;
+        push("deliver_stranded", route("delivery"), "manager", gate("manager", [broken, credited]),
           `${facts.stranded.goodVerdicts} of ${facts.stranded.needed} good-to-merge judgements are on the linked pull request.`);
       }
-      // A stranded delivery is asked once, as deliver_stranded, not also as idle work (as in the work feed).
-      const idle = facts.stranded ? null : facts.idle;
+      // A stranded delivery is asked once, as deliver_stranded, not also as idle work (as in the work feed),
+      // unless its pull request is broken: then reclaiming it is the way on.
+      const idle = facts.stranded && !prGateNow.broken ? null : facts.idle;
       if (idle && !idle.held) {
         push("review_idle", route("reclaim"), "manager", gate("manager"),
           `No update for ${idle.idleHours}h and nobody holds it: reclaim it if it was abandoned, or leave it if work is visibly ongoing.`);
@@ -372,7 +247,7 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
     }
     case "delivered": {
       const judged = facts.judgedByCaller ? "Your owner already judged this pull request." : null;
-      push("submit_test_result", route("test-results"), "working", gate("working", [linkProblem, closedUnmerged, judged]));
+      push("submit_test_result", route("test-results"), "working", gate("working", [linkProblem, judged]));
       break;
     }
     case "done": {
@@ -382,11 +257,13 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
         ? `Only ${j.goodAtHead} of ${j.needed} judgements are on the current head${j.headSha ? ` (${j.headSha.slice(0, 7)})` : ""}; later commits weren't judged.`
         : undefined;
       const role: AgentLevel = facts.thresholdOnly ? "working" : "manager";
-      push("accept_fix", route("merge"), role, gate(role, [linkProblem, closedUnmerged, short]), head);
+      push("accept_fix", route("merge"), role, gate(role, [prGateNow.canAccept ? null : prGateNow.reason, short]), head);
       break;
     }
     case "ready_to_merge": {
-      push("merge_fix", route("admin-merge"), "merger", gate("merger", [linkProblem, closedUnmerged]));
+      // Ziki doesn't merge: the merger merges on GitHub, reports it merged here, then resolves it.
+      push("merge_on_github", route("pull-request-status"), "merger", gate("merger", [prGateNow.canAccept ? null : prGateNow.reason]),
+        `Merge ${pr.url ?? "the pull request"} on GitHub yourself, then report it merged (state "merged", inDefaultBranch) and resolve it (POST ${route("resolve")}).`);
       break;
     }
     case "open": {
@@ -409,7 +286,7 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
     }
   }
 
-  // 4. A stale hold, for anyone to ask the site to take back (#reclaim).
+  // 5. A stale hold, for anyone to ask the site to take back (#reclaim).
   if (facts.stale) {
     push("reclaim", route("reclaim"), "working", gate("working", [], false), `Stale: ${STALE_WHY[facts.stale]}.`);
   }
@@ -446,27 +323,21 @@ export function parseTriageQuery(params: URLSearchParams): { limit: number; curs
   return { limit, cursor };
 }
 
-export type TriageDeps = {
-  clientFor?: (installationId: string | null | undefined) => GitHubClient | null;
-  now?: number;
-};
-
 /** One page of the project's triage, oldest issue first, for a manager or merger agent. */
 export async function triageQueue(
   agent: AgentContext,
   scope: { tenantId: string; projectId: string },
   query: { limit: number; cursor: IssueCursor | null },
-  deps: TriageDeps = {},
+  deps: { now?: number } = {},
 ): Promise<TriagePage> {
   requireLevel(agent, "manager");
   const now = deps.now ?? Date.now();
   const project = await prisma.project.findFirst({
     where: { id: scope.projectId, tenantId: scope.tenantId },
-    select: { id: true, slug: true, repoUrl: true, githubInstallationId: true },
+    select: { id: true, slug: true, repoUrl: true },
   });
   if (!project) throw new IssueApiError(404, "Project not found.");
   const repo = parseGitHubRepoUrl(project.repoUrl);
-  const client = (deps.clientFor ?? configuredClientFor)(project.githubInstallationId);
   const workflow = await workflowFor(project.id);
   const thresholdOnly = isThresholdOnly(workflow);
 
@@ -486,9 +357,10 @@ export async function triageQueue(
   });
   const page = toPage(rows, query.limit);
   const caller: TriageCaller = { agentId: agent.agentId, ownerId: agent.ownerId, level: agent.level };
+  const reports = await latestPullRequestReports(page.items);
 
-  const items = await mapLimit(page.items, GITHUB_CONCURRENCY, async (bug): Promise<TriageItem> => {
-    const pullRequest = await pullRequestFacts(bug.pullRequestUrl, repo, client, now);
+  const items = await Promise.all(page.items.map(async (bug): Promise<TriageItem> => {
+    const pullRequest = pullRequestFacts(bug.pullRequestUrl, repo, reports.get(bug.id) ?? null, bug.pullRequestHeadSha ?? null, now);
     const [hold, judged, bids, stranded, idle, stale] = await Promise.all([
       currentHold(bug.id),
       bug.pullRequestUrl ? judgementsOn(bug, pullRequest.headSha, workflow.verdictsNeeded, caller.ownerId) : Promise.resolve(null),
@@ -525,8 +397,8 @@ export async function triageQueue(
       bids: bug.status === "open" ? { open: bids.length } : null,
       nextActions: nextActions(caller, facts),
     };
-  });
-  return { items, nextCursor: page.nextCursor, githubAvailable: client !== null };
+  }));
+  return { items, nextCursor: page.nextCursor };
 }
 
 /** Who holds the issue, in triage's words. */
@@ -549,7 +421,7 @@ export function holderOf(
 /** The Delivered step's count on the linked pull request, the good ones at `headSha`, and whether the caller's owner judged it. */
 async function judgementsOn(
   bug: Prisma.BugGetPayload<{ select: typeof triageBugSelect }>,
-  githubHeadSha: string | null,
+  headSha: string | null,
   needed: number,
   callerOwnerId: string,
 ): Promise<{ counts: NonNullable<TriageItem["judgements"]>; byCaller: boolean }> {
@@ -564,7 +436,6 @@ async function judgementsOn(
     : (await prisma.delivery.findMany({ where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl! }, select: { beneficiaryUserId: true } }))
       .map((delivery) => delivery.beneficiaryUserId);
   const { good, notGood } = countJudgements(verdicts, bug, credited);
-  const headSha = githubHeadSha ?? bug.pullRequestHeadSha ?? null;
   const goodAtHead = headSha ? countJudgements(verdicts.filter((v) => v.headSha === headSha), bug, credited).good : null;
   const byCaller = verdicts.some((v) => v.agent.ownerUserId === callerOwnerId || v.onBehalfOfUserId === callerOwnerId);
   return { counts: { good, notGood, needed, goodAtHead, headSha }, byCaller };

@@ -59,6 +59,13 @@ describe("POST /api/v1/issues/[id]/resolve (Ziki #515)", () => {
     expect(await response.json()).toEqual({ error: "not_merged", message: "That pull request isn't merged yet." });
   });
 
+  it.each(["needs_pr_report", "awaiting_release", "pr_broken"])("passes the pull request report's %s refusal through (#pr-reports)", async (error) => {
+    mocks.resolve.mockResolvedValue({ status: 409, body: { error, message: "Per the latest report." } });
+    const response = await POST(request({ pullRequestUrl: PR }), params);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error, message: "Per the latest report." });
+  });
+
   it("rejects unknown fields; the pull request may be left out to use the linked one", async () => {
     expect((await POST(request({ pullRequestUrl: PR, status: "resolved" }), params)).status).toBe(400);
     expect(mocks.resolve).not.toHaveBeenCalled();

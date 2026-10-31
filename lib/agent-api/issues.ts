@@ -28,6 +28,7 @@ import { notifyLater } from "@/lib/notify";
 import type { NotificationEvent } from "@/lib/notifications";
 import { logger } from "@/lib/logger";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
 
 export { IssueApiError };
 
@@ -138,7 +139,9 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true, closeReason: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true,
+  // #close-reasons: why, on what evidence and when a closed issue was closed.
+  closeReason: true, closeEvidence: true, closedAt: true,
   categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
   createdByAgentId: true, projectId: true, areaId: true, createdAt: true, updatedAt: true, proofLinks: true,
   voteCount: true,
@@ -266,6 +269,8 @@ export async function readAgentIssue(scope: Scope, id: string) {
     confirmed,
     // Who has the issue now (its claim), or null: the agent and the person it works for.
     holder: await currentHold(issue.id),
+    // #pr-reports: the latest independent report on the linked pull request, with who filed it and its age, or null.
+    pullRequestState: pullRequestStateView(await latestPullRequestReport(issue.id, issue.pullRequestUrl)),
   };
 }
 

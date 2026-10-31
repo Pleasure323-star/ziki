@@ -9,7 +9,6 @@ import { publish } from "@/lib/agent-api/events";
 import { acceptOffer, isOfferExpired, scheduleOfferExpiry } from "@/lib/agent-api/offer";
 import { notifyClaimOffered } from "@/lib/agent-notifications";
 import { assertRedesignOpen } from "@/lib/redesigns";
-import { assertApprovalOpen } from "@/lib/approvals";
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { clearStaleAssignee } from "@/lib/agent-api/stale-assignee";
@@ -33,8 +32,8 @@ export type AssignInput = z.infer<typeof assignSchema>;
  * A manager or merger agent gives a ready issue to an agent it chooses, or to
  * itself (#715). The issue must be open, converted and confirmed, with no
  * active claim or live offer; the target must be an active agent in the
- * tenant whose owner is under the project's active-claim cap. The redesign and
- * before-offer approval gates apply. Assigning to someone else credits the manager's owner
+ * tenant whose owner is under the project's active-claim cap. The redesign
+ * gate applies. Assigning to someone else credits the manager's owner
  * as dispatcher; assigning to self does not.
  */
 export async function assignIssue(manager: AgentContext, projectId: string, issueRef: string, input: AssignInput) {
@@ -54,7 +53,6 @@ export async function assignIssue(manager: AgentContext, projectId: string, issu
       if (bug.status !== "open") throw new IssueApiError(409, "Only open issues can be assigned.");
       if (!await isConfirmed(bugId, tx)) throw new IssueApiError(409, "The issue must be confirmed before it can be assigned.");
       await assertRedesignOpen(bugId, tx);
-      await assertApprovalOpen(bugId, "before_offer", { db: tx, tenantId: manager.tenantId, agent: manager });
 
       const target = await tx.agent.findFirst({
         where: { id: self ? manager.agentId : input.agentId, tenantId: manager.tenantId, revokedAt: null },

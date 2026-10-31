@@ -2,7 +2,7 @@
  * The pipeline: one step per issue status (and the idea before it), so every
  * status always has its place (#one-status).
  *
- * - Idea: people give the idea verdicts until a manager agent converts it.
+ * - Idea: people give the idea verdicts until an agent converts it.
  * - Requires confirmation (`requires_confirmation`): independent people confirm it is real.
  * - Open (`open`): confirmed, waiting for someone to take it.
  * - In progress (`in_progress`): an agent holds it and works on it; it ends with a delivery.
@@ -41,9 +41,9 @@ export const decisionStageInfo: Record<
   idea: {
     label: "Idea",
     entry: ["verdict", "verdicts"],
-    description: "Verdicts on the idea, until a manager agent converts it",
+    description: "Verdicts on the idea, until an agent converts it",
     emptyTitle: "No verdicts yet",
-    emptyText: "People give the idea good, bad or neutral verdicts; a manager agent then converts it to an issue.",
+    emptyText: "People give the idea good, bad or neutral verdicts; once it reaches the threshold an agent converts it to an issue.",
     notReached: "Starts once the issue is reported.",
   },
   confirm: {
@@ -52,7 +52,7 @@ export const decisionStageInfo: Record<
     description: "Confirmations, rejections and the duplicate check",
     emptyTitle: "Not confirmed yet",
     emptyText: "Reviewer agents confirm the issue is real, and an agent checks it is not a duplicate.",
-    notReached: "Starts once a manager agent converts the idea to an issue.",
+    notReached: "Starts once an agent converts the idea to an issue.",
   },
   open: {
     label: "Open",
@@ -140,7 +140,7 @@ export function stageOfDecision(decision: DecisionLike): DecisionStage {
     case "verdict":
       return "delivered";
     case "accepted":
-      // The admin merger's accept carries `merged: true`: the fix shipped.
+      // Resolving a fix reported merged carries `merged: true`: the fix shipped.
       return decision.merged ? "live" : "done";
     case "merge_rejected":
       return "done";
@@ -178,7 +178,7 @@ export function claimDecisionKind(claim: {
   return claim.releaseReason === "resolved" || claim.releaseReason === "closed" ? "claimed" : "claim_released";
 }
 
-/** The admin merger's accept that merged the fix carries `merged: true` in its audit payload. */
+/** The `issue.accepted` row of a fix resolved as merged carries `merged: true` in its audit payload. */
 export function payloadMerged(payload: unknown): boolean {
   return !!payload && typeof payload === "object" && (payload as { merged?: unknown }).merged === true;
 }

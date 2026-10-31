@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { pointSourceKey, roundPoints, type PointRole } from "./rules";
 import { calculateSolverPoints, type ProjectRewardConfig } from "./project-rewards";
 import { getPlatformRewardConfig, getProjectRewardConfig } from "./platform-rewards";
-import { isPullRequestClosedUnmerged } from "@/lib/github/merge-pr";
+import { reportedClosedUnmerged } from "@/lib/agent-api/pull-request-report";
 
 /**
  * Writes points to the ledger (#428). The backfill (#435), the merge gate
@@ -81,11 +81,9 @@ export function solverAward(issue: ResolvedIssue): PointAward | null {
 export async function awardSolver(db: Db, issue: ResolvedIssue): Promise<boolean> {
   if (!issue.assigneeId) return false;
 
-  // #642: a closed, unmerged pull request earns no solver points.
-  if (issue.pullRequestUrl) {
-    const isClosed = await isPullRequestClosedUnmerged(issue.pullRequestUrl);
-    if (isClosed) return false;
-  }
+  // #642: a pull request reported closed without merging earns no solver
+  // points (#pr-reports: the latest independent report, not GitHub).
+  if (issue.pullRequestUrl && (await reportedClosedUnmerged(issue.id, issue.pullRequestUrl, db))) return false;
 
   let rewardConfig = issue.rewardConfig;
   if (rewardConfig === undefined) {
@@ -94,19 +92,11 @@ export async function awardSolver(db: Db, issue: ResolvedIssue): Promise<boolean
       // Look up projectId and pullRequestUrl from the issue row if not supplied
       const bug = await (db as PrismaClient).bug.findUnique({
         where: { id: issue.id },
-        select: {
-          projectId: true,
-          pullRequestUrl: true,
-          project: { select: { githubInstallationId: true } },
-        },
+        select: { projectId: true, pullRequestUrl: true },
       });
       if (!projectId) projectId = bug?.projectId;
-      if (!issue.pullRequestUrl && bug?.pullRequestUrl) {
-        const isClosed = await isPullRequestClosedUnmerged(
-          bug.pullRequestUrl,
-          bug.project?.githubInstallationId,
-        );
-        if (isClosed) return false;
+      if (!issue.pullRequestUrl && bug?.pullRequestUrl && (await reportedClosedUnmerged(issue.id, bug.pullRequestUrl, db))) {
+        return false;
       }
     }
     // Always resolve through platform → hard-coded when projectId is missing.

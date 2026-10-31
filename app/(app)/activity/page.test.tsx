@@ -7,7 +7,6 @@ vi.mock("@/lib/tenant-context", () => ({ currentTenantIdFor: mocks.tenant }));
 vi.mock("@/lib/agent-center/queries", () => ({ loadAgentCenter: mocks.load }));
 vi.mock("@/lib/feature-flags", () => ({ isAgentPlatformEnabled: mocks.enabled }));
 vi.mock("@/components/local-time", () => ({ LocalTime: () => <time>Today</time> }));
-vi.mock("@/components/issue-approval-banner", () => ({ IssueApprovalBanner: ({ approval }: { approval: { id: string } }) => <div>Pipeline controls {approval.id}</div> }));
 vi.mock("@/app/(app)/inbox/escalation-controls", () => ({
   EscalationTypeBadge: ({ type }: { type: string }) => <span>{type}</span>,
   QuickResolveButtons: ({ escalationId }: { escalationId: string }) => <button>Respond {escalationId}</button>,
@@ -21,7 +20,7 @@ beforeEach(() => {
   mocks.tenant.mockResolvedValue("t1");
   mocks.enabled.mockReturnValue(true);
   const empty = { items: [], next: null };
-  mocks.load.mockResolvedValue({ isAdmin: false, questions: empty, approvals: empty, work: empty, events: empty });
+  mocks.load.mockResolvedValue({ isAdmin: false, questions: empty, work: empty, events: empty });
 });
 
 it("authenticates before querying, including when the feature is disabled", async () => {
@@ -39,19 +38,19 @@ it("passes only session identity and current tenant to the query", async () => {
 it("handles members without a workspace without showing activity", async () => {
   mocks.load.mockResolvedValue(null);
   const html = renderToStaticMarkup(await ActivityPage({ searchParams: Promise.resolve({}) }));
-  expect(html).not.toContain("Pipeline controls");
+  expect(html).not.toContain("Work History");
 });
 
-it("renders issue/PR links and pipeline approvals without inventing an agent", async () => {
+it("renders issue/PR links and paging for work history", async () => {
   mocks.load.mockResolvedValue({
-    isAdmin: true, questions: { items: [], next: null }, work: { items: [], next: null }, events: { items: [], next: null },
-    approvals: { items: [{ id: "approval1", stage: "before_offer", status: "pending", createdAt: new Date(), bug: { id: "bug1", number: 42, title: "Fix", pullRequestUrl: "https://github.com/org/repo/pull/1", project: { slug: "ziki" } } }], next: "older" },
+    isAdmin: true, questions: { items: [], next: null }, events: { items: [], next: null },
+    work: { items: [{ id: "c1", createdAt: new Date(), status: "active", agent: { name: "Ada's agent" }, deliverBy: null, waitingOnOwnerSince: null, releasedAt: null, releaseReason: null, lastHeartbeatAt: null, bug: { id: "bug1", number: 42, title: "Fix", status: "in_progress", pullRequestUrl: "https://github.com/org/repo/pull/1", project: { slug: "ziki" } } }], next: "older" },
   });
   const html = renderToStaticMarkup(await ActivityPage({ searchParams: Promise.resolve({}) }));
   expect(html).toContain('href="/ziki/42"');
   expect(html).toContain('https://github.com/org/repo/pull/1');
-  expect(html).toContain("Pipeline controls approval1");
-  expect(html).toContain("approvals=older");
+  expect(html).not.toContain("Pipeline approvals");
+  expect(html).toContain("work=older");
   expect(html).not.toContain("undefined");
 });
 
@@ -59,7 +58,7 @@ it("shows claim deadlines, owner blockers and audit timestamps with issue links"
   const at = new Date("2026-10-27T12:00:00Z");
   const bug = { id: "b1", number: 9, title: "Login", status: "in_progress", pullRequestUrl: null, project: { slug: "ziki" } };
   mocks.load.mockResolvedValue({
-    isAdmin: false, questions: { items: [], next: null }, approvals: { items: [], next: null },
+    isAdmin: false, questions: { items: [], next: null },
     work: { items: [{ id: "c1", createdAt: at, status: "active", agent: { name: "Ada's agent" }, bug, deliverBy: at, waitingOnOwnerSince: at, releasedAt: null, releaseReason: null, lastHeartbeatAt: at }], next: null },
     events: { items: [{ id: "e1", createdAt: at, action: "issue.claimed", agent: { name: "Ada's agent" }, bug, undoneAt: null }], next: null },
   });

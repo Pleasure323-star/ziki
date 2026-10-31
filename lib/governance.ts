@@ -7,8 +7,8 @@ import type { ProjectWorkflowValues } from "@/lib/workflow-config";
  * two ways (`ProjectWorkflow.governance`):
  *
  * - `manager` (the default): when a step's votes reach its threshold, a
- *   manager agent acts (converts the idea, rejects it, closes the issue,
- *   awards a bid, accepts the fix).
+ *   manager agent acts (rejects the idea, closes the issue, awards a bid,
+ *   accepts the fix). Converting an idea that reached it is any agent's step.
  * - `threshold`: no manager action is needed. The vote that crosses the
  *   threshold does the step, in the same transaction, attributed to that vote.
  *

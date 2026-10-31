@@ -12,14 +12,9 @@ import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
-import {
-  clientForInstallation,
-  parseGitHubRepoUrl,
-  parsePullRequestUrl,
-  sameRepo,
-  standingAcceptance,
-  type GitHubClient,
-} from "@/lib/github/merge-pr";
+import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { standingAcceptance } from "@/lib/accepted-fix";
+import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 
 /**
  * Work delivered (#delivered-step): the In progress step's entry. The agent
@@ -34,6 +29,11 @@ import {
  * again (a new commit or pull request, or after a manager sent it back)
  * replaces this agent's delivery and returns the issue to Delivered; only
  * judgements on the delivered pull request count.
+ *
+ * Ziki never calls GitHub (#pr-reports): the delivery records the pull request
+ * and the head commit the deliverer names. When an independent agent's latest
+ * report on that pull request says it is merged, closed or missing, it can't be
+ * delivered.
  */
 
 export const deliveryBodySchema = z
@@ -45,6 +45,8 @@ export const deliveryBodySchema = z
     description: entryDescription,
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
     testResults: z.union([z.string().trim().min(1).max(20_000), z.record(z.string(), z.unknown())]).optional(),
+    /** The pull request's head commit: what judgements and the accept bind to. */
+    headSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.").optional(),
   })
   .strict()
   .refine((body) => (body.screenshots?.length ?? 0) > 0 || body.testResults !== undefined, {
@@ -148,7 +150,6 @@ export async function deliverWork(
   agent: AgentContext,
   issueRef: string,
   rawBody: unknown,
-  deps: { client?: GitHubClient | null } = {},
 ): Promise<DeliverResult> {
   const parsed = deliveryBodySchema.safeParse(rawBody ?? {});
   if (!parsed.success) {
@@ -168,7 +169,7 @@ export async function deliverWork(
       projectId: true,
       status: true,
       pullRequestUrl: true,
-      project: { select: { repoUrl: true, githubInstallationId: true } },
+      project: { select: { repoUrl: true } },
     },
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue." };
@@ -245,22 +246,20 @@ export async function deliverWork(
     };
   }
 
-  // The pull request has to be open and have something in it; record its head commit.
-  let headSha: string | null = null;
-  const client = deps.client === undefined ? clientForInstallation(bug.project?.githubInstallationId) : deps.client;
-  if (client) {
-    const pullRequest = await client.getPullRequest(ref).catch(() => null);
-    if (pullRequest?.merged) {
-      return { status: 422, error: "pull_request_merged", message: "That pull request is already merged. Only an open pull request can be delivered." };
-    }
-    if (pullRequest?.state === "closed") {
-      return { status: 422, error: "pull_request_closed", message: "That pull request is closed. Reopen it or open a new one, then deliver." };
-    }
-    if (pullRequest?.changedFiles === 0) {
-      return { status: 422, error: "pull_request_empty", message: "That pull request changes no files. Push the work to it first." };
-    }
-    headSha = pullRequest?.headSha || null;
+  // The pull request has to be open: the latest independent report on it says
+  // so, or nobody has reported it yet (#pr-reports). Ziki doesn't ask GitHub.
+  const report = await latestPullRequestReport(bug.id, body.pullRequestUrl);
+  const reported = report ? ` (reported by ${report.agent.name} at ${report.createdAt.toISOString()}; report again if that changed)` : "";
+  if (report?.state === "merged") {
+    return { status: 422, error: "pull_request_merged", message: `That pull request is already merged${reported}. Only an open pull request can be delivered.` };
   }
+  if (report?.state === "closed") {
+    return { status: 422, error: "pull_request_closed", message: `That pull request is closed${reported}. Reopen it or open a new one, then deliver.` };
+  }
+  if (report?.state === "not_found") {
+    return { status: 422, error: "pull_request_not_found", message: `That pull request doesn't exist on GitHub${reported}. Open one, then deliver it.` };
+  }
+  const headSha = body.headSha ?? null;
 
   const testResults = body.testResults === undefined ? null : typeof body.testResults === "string" ? body.testResults : JSON.stringify(body.testResults);
   const screenshots = body.screenshots ?? [];

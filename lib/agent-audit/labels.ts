@@ -33,6 +33,7 @@ const ACTION_LABELS: Record<string, string> = {
   "issue.bid_voted": "Voted for a bid on",
   "issue.close_suggested": "Suggested closing",
   "issue.closed": "Closed",
+  "issue.reopened": "Reopened",
   "issue.comment_upvoted": "Upvoted a comment on",
   "issue.delivered": "Delivered work on",
   "issue.merge_rejected": "Had a merge rejected on",
@@ -52,6 +53,7 @@ const ACTION_LABELS: Record<string, string> = {
   "github.linked": "Linked to GitHub",
   "github.merged": "Merged",
   "github.merge_failed": "Couldn't merge",
+  "issue.pull_request_reported": "Reported the pull request on",
 };
 
 /** The action in plain words; an unknown one is spelled out, e.g. "goal.split" → "Goal split". */

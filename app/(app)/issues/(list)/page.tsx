@@ -518,7 +518,7 @@ export default async function BugsPage({
         number: true,
         title: true,
         status: true,
-        // A closed issue says why when agents closed it (#close-superseded).
+        // A closed issue says why it was closed (#close-reasons).
         closeReason: true,
         voteCount: true,
         projectId: true,

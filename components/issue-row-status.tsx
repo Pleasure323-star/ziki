@@ -1,8 +1,9 @@
 import type { IssueStage } from "@/lib/issue-stage";
 import type { MergePath } from "@/lib/merge-history";
 import { MergePathChips } from "@/components/merge-path";
-import { ElapsedTime } from "@/components/elapsed-time";
+import { ElapsedTime } from "@/components/elapsed-time";
 import { CountBadge, CountBadgeCheck } from "@/components/count-badge";
+import { closedLabel } from "@/lib/close-reasons";
 
 const icon = "h-3 w-3 shrink-0";
 
@@ -82,7 +83,7 @@ export function IssueRowStatus({
   closeReason = null,
 }: {
   status: string;
-  /** Why a closed issue was closed, when agents closed it (#close-superseded). */
+  /** Why a closed issue was closed (#close-reasons): shown as "Closed: not reproducible". */
   closeReason?: string | null;
   stage: IssueStage | undefined;
   botConfirmations: number;
@@ -103,7 +104,7 @@ export function IssueRowStatus({
   if (finished) {
     return (
       <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
-        <CheckIcon /> {status === "resolved" ? "Live" : closeReason === "superseded" ? "Closed · superseded" : "Closed"}
+        <CheckIcon /> {status === "resolved" ? "Live" : closedLabel(closeReason)}
       </span>
     );
   }
@@ -191,7 +192,7 @@ export function IssueRowStatus({
 
 /**
  * An idea's row status (#idea-table): its score; "Idea accepted" once it
- * reaches the threshold (a manager agent converts it); "Idea rejected" once a
+ * reaches the threshold (any agent converts it); "Idea rejected" once a
  * manager agent rejected it (#idea-rejected).
  */
 export function IdeaRowStatus({
@@ -241,12 +242,12 @@ export function IdeaRowStatus({
       </span>
     );
   }
-  // At the threshold a manager agent can convert it: say so plainly, in green.
+  // At the threshold any agent can convert it: say so plainly, in green.
   if (threshold !== null && score >= threshold) {
     return (
       <span
         className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-ok-fg"
-        title={`Score ${score} of ${threshold}: accepted, a manager agent converts it to an issue`}
+        title={`Score ${score} of ${threshold}: accepted, any agent can convert it to an issue`}
       >
         <CheckCircleIcon /> Idea accepted{" "}
         <span className="tabular-nums font-normal">

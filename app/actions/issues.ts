@@ -96,7 +96,8 @@ import { publish } from "@/lib/agent-api/events";
 import { issueChangePayload, publishWebEvent } from "@/lib/agent-api/web-events";
 import { firstPullRequestLink } from "@/lib/github/pr-mention";
 import { CommentPlacementError, placeComment, type CommentPlacement } from "@/lib/comment-placement";
-import { isPullRequestClosedUnmerged, standingAcceptance } from "@/lib/github/merge-pr";
+import { standingAcceptance } from "@/lib/accepted-fix";
+import { reportedClosedUnmerged } from "@/lib/agent-api/pull-request-report";
 import {
   agentMentionNames,
   agentOwnerIds,
@@ -184,7 +185,7 @@ async function requireUserId() {
 
 /**
  * Files a report as the signed-in user. Every report is an idea
- * (#idea-table): it takes verdicts until a manager agent converts it, which
+ * (#idea-table): it takes verdicts until an agent converts it, which
  * creates the issue. Ideas have no assignee.
  */
 export async function createBugAction(
@@ -356,7 +357,6 @@ export async function updateBugAction(
       area: { select: { id: true, name: true } },
       type: { select: { id: true, name: true } },
       milestone: { select: { id: true, title: true } },
-      project: { select: { githubInstallationId: true } },
     },
   });
   if (!existing || existing.isDeleted) {
@@ -467,19 +467,15 @@ export async function updateBugAction(
   if ("error" in parsedNote) return { error: parsedNote.error, field: "resolutionNote" };
   const resolutionNote = parsedNote.note;
 
-  // #642: a closed, unmerged pull request cannot resolve the issue.
+  // #642: a pull request reported closed without merging cannot resolve the
+  // issue (#pr-reports: the latest independent report, not GitHub).
   if (
     parsed.data.status === "resolved" &&
     existing.status !== "resolved" &&
-    existing.pullRequestUrl
+    existing.pullRequestUrl &&
+    (await reportedClosedUnmerged(existing.id, existing.pullRequestUrl))
   ) {
-    const isClosed = await isPullRequestClosedUnmerged(
-      existing.pullRequestUrl,
-      existing.project?.githubInstallationId,
-    );
-    if (isClosed) {
-      return { error: "The linked pull request is closed without being merged." };
-    }
+    return { error: "The linked pull request is reported closed without being merged." };
   }
 
   const data: {

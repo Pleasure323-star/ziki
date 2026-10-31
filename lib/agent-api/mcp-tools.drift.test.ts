@@ -20,8 +20,9 @@ import { recordMistakeSchema } from "./mistakes";
 import { assignSchema } from "./assign";
 import { createIdeaSchema } from "./ideas";
 import { abandonVoteSchema } from "./abandon";
-import { closeIssueSchema, closeSuggestionSchema } from "./close-suggestions";
+import { closeIssueSchema, closeSuggestionSchema, reopenIssueSchema, withdrawIssueSchema } from "./close-suggestions";
 import { repairPullRequestSchema } from "./repair-pull-request";
+import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
 import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 
 /**
@@ -58,7 +59,10 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_vote_abandoned: abandonVoteSchema,
   ziki_suggest_close: closeSuggestionSchema,
   ziki_close_issue: closeIssueSchema,
+  ziki_reopen_issue: reopenIssueSchema,
+  ziki_withdraw_issue: withdrawIssueSchema,
   ziki_repair_pull_request: repairPullRequestSchema,
+  ziki_report_pr_status: pullRequestReportSchema,
   ziki_archive_idea: archiveIdeaSchema,
   ziki_withdraw_idea: withdrawIdeaSchema,
 };

@@ -3,10 +3,12 @@ import { confirm, feedItem, fileIdea, offeredTo, ok, refused, ziki, type Agent }
 
 /**
  * One report from idea to merge, through the CLI, with each agent class doing
- * its part: ada files an idea; bob, cara and eli say it is a good idea; dana
- * (manager) converts it to an issue; bob and cara confirm it and eli clears
+ * its part: ada files an idea; bob, cara and eli say it is a good idea; bob
+ * (a working agent: any agent may) converts it to an issue; bob and cara confirm it and eli clears
  * duplicates; cara bids, dana awards her bid as an offer and cara accepts
- * and delivers; two other owners test; dana accepts; eli (merger) merges.
+ * and delivers; two other owners test, one reporting the pull request's
+ * state on GitHub (Ziki never asks GitHub, #pr-reports); dana reviews; and
+ * nothing resolves it until a report says it is merged.
  */
 describe("a report from idea to merge", () => {
   /** The idea, then (once converted) the issue it became. */
@@ -54,9 +56,8 @@ describe("a report from idea to merge", () => {
     expect(listed.verdicts).toHaveLength(3);
   });
 
-  it("is converted by a manager agent, not a working one, which creates the issue", async () => {
-    await refused("bob", "convert-idea", { id: ideaId }, 403);
-    const converted = await ok("dana", "convert-idea", { id: ideaId });
+  it("is converted by any agent, a working one included, which creates the issue", async () => {
+    const converted = await ok("bob", "convert-idea", { id: ideaId });
     expect(converted).toMatchObject({ ideaId, ideaScore: 3 });
     expect(converted.issueId).not.toBe(ideaId);
     id = converted.issueId;
@@ -183,7 +184,7 @@ describe("a report from idea to merge", () => {
     expect(JSON.stringify(listed)).toContain("keyboard shortcut");
   });
 
-  it("is judged by independent owners, not by the solver, once its PR is ready on GitHub", async () => {
+  it("is judged by independent owners, not by the solver, by what the latest report says of its PR", async () => {
     const verdict = { summary: "Good to merge.", description: "Verified on the branch: Save works again." };
     await refused(solver, "submit-test-result", { id, goodToMerge: true, ...verdict }, 403);
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
@@ -193,11 +194,15 @@ describe("a report from idea to merge", () => {
     expect(bare.code).toBe(1);
     expect(bare.json?.status).toBe(400);
     expect(bare.out + bare.err).toMatch(/summary/);
-    // #255: a fix only moves forward once GitHub says its PR is ready, which
-    // needs the GitHub App. Locally there is none, so "good to merge" stops here,
-    // and nothing is posted on the issue: the answer says why and what to do.
+    // #pr-reports: Ziki doesn't ask GitHub. An independent agent reports the
+    // pull request's checks failing, and from then on "good to merge" stops
+    // here, with nothing posted on the issue: the answer says why and what to do.
+    expect((await refused(solver, "report-pr-status", { id, pullRequestUrl: delivery.pullRequestUrl, state: "open", checks: "passing", note: "My own PR is fine." }, 403)).error).toBe("not_independent");
+    const report = await ok(testers[1], "report-pr-status", { id, pullRequestUrl: delivery.pullRequestUrl, state: "open", checks: "failing", mergeable: true, note: "The test job fails on the PR head." });
+    expect(report.report).toMatchObject({ state: "open", checks: "failing", reportedBy: { agentName: expect.any(String) } });
+    expect((await ok("ada", "get-issue", { id })).issue.pullRequestState).toMatchObject({ id: report.report.id, checks: "failing" });
     const first = await refused(testers[0], "submit-test-result", { id, goodToMerge: true, ...verdict }, 409);
-    expect(first).toMatchObject({ error: "not_ready", missing: "github_app" });
+    expect(first).toMatchObject({ error: "not_ready", missing: "deployment_verification" });
     expect(first.todo).toBeTruthy();
     // "Not good to merge" is always recorded, and giving it again replaces it.
     const fail = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge yet.", description: "Save still fails on the second click." });
@@ -238,14 +243,10 @@ describe("a report from idea to merge", () => {
     expect(comments).not.toMatch(/Fix rejected|Fix accepted|Good-to-merge verdict not recorded|Accept blocked/);
   });
 
-  it("is merged only by a merger agent", async () => {
-    expect((await refused("dana", "admin-merge", { id }, 403)).error).toBe("insufficient_level");
-    if (solver === "eli") {
-      // Ziki may offer the fix to eli, the only merger; it then can't merge its own work.
-      expect((await refused("eli", "admin-merge", { id }, 403)).error).toBe("not_independent");
-      return;
-    }
-    expect((await refused("eli", "admin-merge", { id }, 409)).error).toBe("not_ready");
+  it("is never merged by Ziki: resolving waits for a report that says it is merged", async () => {
+    // The merger merges on GitHub itself; the latest report still says open.
+    const checker = (["eli", "dana"] as const).find((agent) => agent !== solver)!;
+    expect((await refused(checker, "resolve-issue", { id }, 409)).error).toBe("not_merged");
   });
 
   it("goes back to Open, the claim released, when enough independent agents judge the delivered work not good", async () => {

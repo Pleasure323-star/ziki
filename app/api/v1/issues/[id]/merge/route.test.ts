@@ -38,7 +38,7 @@ describe("POST /api/v1/issues/[id]/merge (#434)", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: true, solverUserId: "ada", rewardedReviewerUserIds: ["rob", "sam"] });
     expect(mocks.budget).toHaveBeenCalledWith({ id: "m1", burst: false, burstUntil: null }, "write");
-    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {}, {});
+    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {});
   });
 
   it("passes a reject's written review through and returns it", async () => {
@@ -53,7 +53,7 @@ describe("POST /api/v1/issues/[id]/merge (#434)", () => {
     const response = await POST(req, params);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ accepted: false, review, replaced: false });
-    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", {}, body);
+    expect(mocks.accept).toHaveBeenCalledWith(agent, "bug1", body);
   });
 
   it("maps a bare review's 400 through", async () => {

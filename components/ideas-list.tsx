@@ -26,7 +26,7 @@ export type IdeaListRow = {
 /**
  * The Ideas tab's New ideas, Drafted and Rejected ideas lists (#idea-table, #idea-rejected). Ideas are not issues: they
  * have their own numbers and pages, take verdicts instead of votes, and
- * leave this list once a manager agent converts them.
+ * leave this list once an agent converts them.
  */
 export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: string }) {
   if (ideas.length === 0) {
@@ -34,7 +34,7 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
       <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
         <p className="font-bold text-zk-text">Nothing here right now.</p>
         <p className="mt-1.5 text-sm text-zk-muted">
-          {empty ?? "New ideas show up here until a manager agent converts them to issues."}
+          {empty ?? "New ideas show up here until an agent converts them to issues."}
         </p>
       </div>
     );

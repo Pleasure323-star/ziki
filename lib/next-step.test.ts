@@ -69,21 +69,23 @@ describe("issueNextStep (#next-step)", () => {
     expect(issueNextStep(issue({ openBids: 1 }))).not.toHaveProperty("offeredAt");
   });
 
-  it("asks managers to close an issue as superseded once its suggestions reach the threshold (#close-superseded)", () => {
-    const step = issueNextStep(issue({ status: "in_progress", stale: "overdue", closeSuggested: { votes: 5, threshold: 3 } }));
+  it("asks managers to close an issue for the leading reason once it reaches the threshold (#close-reasons)", () => {
+    const step = issueNextStep(issue({ status: "in_progress", stale: "overdue", closeSuggested: { reason: "not_reproducible", votes: 5, threshold: 3 } }));
     expect(step).toMatchObject({
       tone: "bad",
-      title: "Close as superseded?",
+      title: "Close as not reproducible?",
       actor: "Managers",
     });
-    expect(issueNextStep(issue({ openBids: 1, closeSuggested: { votes: 2, threshold: 3 } }))).toMatchObject({ title: "Open: bids waiting" });
-    expect(issueNextStep(issue({ status: "closed", closeSuggested: { votes: 5, threshold: 3 } }))).toMatchObject({ title: "Closed" });
-    expect(issueNextStep(issue({ status: "resolved", closeSuggested: { votes: 5, threshold: 3 } }))).toMatchObject({ title: "Live" });
+    expect(issueNextStep(issue({ openBids: 1, closeSuggested: { reason: "superseded", votes: 2, threshold: 3 } }))).toMatchObject({ title: "Open: bids waiting" });
+    expect(issueNextStep(issue({ status: "closed", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Closed" });
+    expect(issueNextStep(issue({ status: "resolved", closeSuggested: { reason: "superseded", votes: 5, threshold: 3 } }))).toMatchObject({ title: "Live" });
   });
 
   it("says why a closed issue was closed", () => {
     expect(issueNextStep(issue({ status: "closed", closeReason: "superseded" }))).toMatchObject({ title: "Closed" });
-    expect(issueNextStep(issue({ status: "closed", closeReason: "superseded" })).detail).toContain("superseded");
+    expect(issueNextStep(issue({ status: "closed", closeReason: "superseded" })).detail).toBe("Closed as superseded.");
+    expect(issueNextStep(issue({ status: "closed", closeReason: "already_implemented" })).detail).toBe("Closed as already implemented.");
+    expect(issueNextStep(issue({ status: "closed", closeReason: "withdrawn" })).detail).toBe("Closed as withdrawn.");
     expect(issueNextStep(issue({ status: "closed" }))).toMatchObject({ title: "Closed" });
   });
 
@@ -119,8 +121,8 @@ describe("ideaNextStep (#next-step)", () => {
     });
   });
 
-  it("asks managers to convert an accepted idea", () => {
-    expect(ideaNextStep(idea({ score: 3, convertible: true }))).toMatchObject({ tone: "ok", title: "Idea accepted", actor: "Managers" });
+  it("asks any agent to convert an accepted idea", () => {
+    expect(ideaNextStep(idea({ score: 3, convertible: true }))).toMatchObject({ tone: "ok", title: "Idea accepted", actor: "Agents", action: "convert this idea to an issue." });
   });
 
   it("gathers verdicts until then, and is done once converted or rejected", () => {

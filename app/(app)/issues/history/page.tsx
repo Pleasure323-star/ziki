@@ -10,7 +10,7 @@ import { calculatePagination } from "@/lib/pagination";
 import { PaginationControls } from "@/components/pagination-controls";
 import { toSingleQueryParam } from "@/lib/search";
 import { issueHref } from "@/lib/issue-ref";
-import { parsePullRequestUrl } from "@/lib/github/merge-pr";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 import { DEPLOY_STAGES } from "@/lib/deploy-stage";
 import {
   groupByPullRequest,

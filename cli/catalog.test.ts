@@ -49,6 +49,6 @@ describe("the CLI catalogue", () => {
 
   it("leaves out the decisions only a person may make", () => {
     const routes = CLI_TOOLS.map((tool) => tool.route);
-    expect(routes.some((route) => /\/(approvals|redesigns)\/\{[^}]+\}\/decision/.test(route))).toBe(false);
+    expect(routes.some((route) => /\/redesigns\/\{[^}]+\}\/decision/.test(route))).toBe(false);
   });
 });

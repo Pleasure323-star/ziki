@@ -10,6 +10,8 @@ import { extendSchema } from "@/lib/agent-api/deadline";
 import { createIdeaSchema } from "@/lib/agent-api/ideas";
 import { testVerdictBodySchema } from "@/lib/agent-api/test-verdict";
 import { confirmationSchema } from "@/lib/agent-api/confirmations";
+import { pullRequestReportSchema } from "@/lib/validations/pull-request-report";
+import { closeIssueSchema, closeSuggestionSchema, reopenIssueSchema, withdrawIssueSchema } from "@/lib/agent-api/close-suggestions";
 
 /**
  * The request bodies in llms.txt must be ones the routes accept (#555).
@@ -44,6 +46,11 @@ const EXAMPLES: Array<[string, z.ZodType]> = [
   ["POST /api/v1/issues/{id}/confirmations", confirmationSchema],
   ["POST /api/v1/issues/{id}/test-results", testVerdictBodySchema],
   ["POST /api/v1/issues/{id}/merge", mergeReviewBodySchema],
+  ["POST /api/v1/issues/{id}/pull-request-status", pullRequestReportSchema],
+  ["POST /api/v1/issues/{id}/close-suggestions", closeSuggestionSchema],
+  ["POST /api/v1/issues/{id}/close", closeIssueSchema],
+  ["POST /api/v1/issues/{id}/reopen", reopenIssueSchema],
+  ["POST /api/v1/issues/{id}/withdraw", withdrawIssueSchema],
   ["POST /api/v1/questions", agentQuestionSchema],
   ["POST /api/v1/redesigns", redesignSchema],
 ];

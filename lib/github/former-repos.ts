@@ -1,4 +1,4 @@
-import { parseGitHubRepoUrl, sameRepo, type RepoRef } from "@/lib/github/merge-pr";
+import { parseGitHubRepoUrl, sameRepo, type RepoRef } from "@/lib/github/pull-request-url";
 
 /**
  * Names a project's repository had before it was renamed on GitHub, keyed by

@@ -7,26 +7,19 @@ import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/inde
 import { publish } from "@/lib/agent-api/events";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { isFormerNameOf } from "@/lib/github/former-repos";
-import {
-  configuredClientFor,
-  GitHubError,
-  parseGitHubRepoUrl,
-  parsePullRequestUrl,
-  parseRepoFullName,
-  sameRepo,
-  type GitHubClient,
-  type PullRequest,
-} from "@/lib/github/merge-pr";
+import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
 
 /**
  * Repairing a stale pull request link (#repair-pr-link).
  *
  * Some issues link a pull request under a name the repository no longer has
  * (it was renamed from Zedu-Endor/issue-tracker and zeduchat/bug-tracker to
- * emerjent/ziki), and some links 404. An independent manager agent replaces
- * the link with a pull request GitHub confirms exists in the project's
- * repository: the one it names, or, when it names none, the same number in
- * the project's repository.
+ * emerjent/ziki), and some links are reported missing on GitHub. An
+ * independent manager agent replaces the link with a pull request in the
+ * project's repository, told from its URL: the one it names, or, when it names
+ * none, the same number in the project's repository. Ziki never asks GitHub
+ * (#pr-reports); the new link has no report yet, so an independent agent checks
+ * it on GitHub and reports it before anything that needs its state.
  *
  * Judgements (`TestVerdict`) and merge reviews count only on the linked pull
  * request. When the new link is the same pull request moved (the old link's
@@ -55,9 +48,6 @@ export type RepairError =
   | "no_repo"
   | "wrong_repository"
   | "already_current"
-  | "github_unavailable"
-  | "pr_not_found"
-  | "github_error"
   | "status_changed";
 
 export type RepairResult =
@@ -75,18 +65,17 @@ export type RepairResult =
         moved: { judgements: number; mergeReviews: number; deliveries: number; reviewOffers: number };
       };
     }
-  | { status: 403 | 404 | 409 | 422 | 502 | 503; body: { error: RepairError; message: string } };
+  | { status: 403 | 404 | 409 | 422; body: { error: RepairError; message: string } };
 
-const fail = (status: 403 | 404 | 409 | 422 | 502 | 503, error: RepairError, message: string): RepairResult =>
+const fail = (status: 403 | 404 | 409 | 422, error: RepairError, message: string): RepairResult =>
   ({ status, body: { error, message } });
 
-/** Replace issue `issueRef`'s linked pull request with a verified one. */
+/** Replace issue `issueRef`'s linked pull request with one in the project's repository. */
 export async function repairPullRequestLink(
   agent: AgentContext,
   scope: { tenantId: string; projectId: string },
   issueRef: string,
   input: Omit<RepairPullRequestInput, "projectId">,
-  clientFor: (installationId: string | null | undefined) => GitHubClient | null = configuredClientFor,
 ): Promise<RepairResult> {
   if (!hasLevel(agent.level, "manager")) {
     return fail(403, "insufficient_level", "Only a manager or merger agent can repair a pull request link.");
@@ -106,7 +95,7 @@ export async function repairPullRequestLink(
       beneficiaryUserId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      project: { select: { repoUrl: true, githubInstallationId: true } },
+      project: { select: { repoUrl: true } },
       claims: {
         select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } },
       },
@@ -121,7 +110,7 @@ export async function repairPullRequestLink(
   if (!previous) return fail(409, "no_pull_request", "This issue has no linked pull request to repair.");
 
   const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
-  if (!repo) return fail(422, "no_repo", "This project has no GitHub repository set, so a pull request can't be checked.");
+  if (!repo) return fail(422, "no_repo", "This project has no GitHub repository set, so a pull request link can't be checked against it.");
 
   const old = parsePullRequestUrl(previous);
   const target = named ?? (old ? { owner: repo.owner, repo: repo.repo, number: old.number } : null);
@@ -134,29 +123,12 @@ export async function repairPullRequestLink(
   const next = `https://github.com/${repo.owner}/${repo.repo}/pull/${target.number}`;
   if (next === previous) return fail(409, "already_current", "The issue already links that pull request.");
 
-  const client = clientFor(bug.project?.githubInstallationId);
-  if (!client) {
-    return fail(503, "github_unavailable", "Ziki can't ask GitHub about this project: the GitHub App isn't configured or installed for it.");
-  }
-  let pullRequest: PullRequest;
-  try {
-    pullRequest = await client.getPullRequest({ owner: repo.owner, repo: repo.repo, number: target.number });
-  } catch (error) {
-    if (error instanceof GitHubError && error.status === 404) {
-      return fail(422, "pr_not_found", `GitHub has no pull request #${target.number} in ${repo.owner}/${repo.repo}.`);
-    }
-    return fail(502, "github_error", "GitHub didn't answer. Try again in a minute.");
-  }
-  const baseRepo = parseRepoFullName(pullRequest.baseRepo);
-  if (baseRepo && !sameRepo(baseRepo, repo)) {
-    return fail(422, "wrong_repository", "GitHub says that pull request belongs to a different repository.");
-  }
-
   // The same pull request moved: same number, under a former name of this
   // repository (or this one, spelled differently).
   const samePullRequest = Boolean(old && old.number === target.number && (sameRepo(old, repo) || isFormerNameOf(old, repo)));
-  // The same pull request keeps the head its judgements were given on.
-  const headSha = samePullRequest ? bug.pullRequestHeadSha ?? (pullRequest.headSha || null) : pullRequest.headSha || null;
+  // The same pull request keeps the head its judgements were given on; a
+  // different one's head is unknown until someone reports it.
+  const headSha = samePullRequest ? bug.pullRequestHeadSha : null;
 
   const moved = await prisma.$transaction(async (tx) => {
     // Only from the link read above: someone may have linked another since.

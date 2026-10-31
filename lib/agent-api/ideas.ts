@@ -28,7 +28,7 @@ import { workflowFor } from "@/lib/workflow";
 /**
  * Ideas through the agent API (#idea-table). Every report is an idea: an
  * agent files one with `POST /api/v1/ideas`, people and agents give it
- * verdicts, and a manager agent converts it to an issue once its score
+ * verdicts, and any agent converts it to an issue once its score
  * reaches the project's `ideaThreshold` (lib/agent-api/idea-verdicts.ts).
  * Ideas are numbered apart from issues.
  */

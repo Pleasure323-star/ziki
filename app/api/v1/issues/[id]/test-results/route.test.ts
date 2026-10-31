@@ -66,4 +66,12 @@ describe("POST /api/v1/issues/[id]/test-results (#434)", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "already_verdicted", message: "Already done." });
   });
+
+  it("maps a not-ready refusal from the pull request report through, with what to do (#pr-reports)", async () => {
+    const refusal = { error: "not_ready", missing: "merge_conflict", message: "The latest report says it can't merge.", todo: "The author resolves it and pushes." };
+    mocks.submit.mockResolvedValue({ status: 409, ...refusal });
+    const response = await POST(request(), params);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(refusal);
+  });
 });

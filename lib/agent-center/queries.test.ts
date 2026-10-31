@@ -4,7 +4,6 @@ import { ACTIVITY_PAGE_SIZE, activityBefore, activityFilters, activityHref, acti
 const db = vi.hoisted(() => ({
   membership: { findUnique: vi.fn() },
   agentQuestion: { findMany: vi.fn() },
-  issueApproval: { findMany: vi.fn() },
   issueClaim: { findMany: vi.fn() },
   agentAuditEvent: { findMany: vi.fn() },
 }));
@@ -14,7 +13,7 @@ import { loadAgentCenter } from "./queries";
 beforeEach(() => {
   vi.clearAllMocks();
   db.membership.findUnique.mockResolvedValue({ role: "member" });
-  for (const table of [db.agentQuestion, db.issueApproval, db.issueClaim, db.agentAuditEvent]) table.findMany.mockResolvedValue([]);
+  for (const table of [db.agentQuestion, db.issueClaim, db.agentAuditEvent]) table.findMany.mockResolvedValue([]);
 });
 
 describe("activity authorization and privacy", () => {
@@ -24,13 +23,12 @@ describe("activity authorization and privacy", () => {
     db.membership.findUnique.mockResolvedValue(null);
     expect(await loadAgentCenter("u1", "foreign")).toBeNull();
     expect(db.membership.findUnique).toHaveBeenCalledWith({ where: { tenantId_userId: { tenantId: "foreign", userId: "u1" } }, select: { role: true } });
-    for (const table of [db.agentQuestion, db.issueApproval, db.issueClaim, db.agentAuditEvent]) expect(table.findMany).not.toHaveBeenCalled();
+    for (const table of [db.agentQuestion, db.issueClaim, db.agentAuditEvent]) expect(table.findMany).not.toHaveBeenCalled();
   });
 
   it("scopes ordinary members' work and audit to their own agents", async () => {
     const data = await loadAgentCenter("u1", "t1");
     expect(data?.isAdmin).toBe(false);
-    expect(db.issueApproval.findMany).not.toHaveBeenCalled();
     const work = db.issueClaim.findMany.mock.calls[0][0];
     expect(work.where.AND[0]).toEqual({ agent: { tenantId: "t1", ownerUserId: "u1" }, bug: { tenantId: "t1", isDeleted: false } });
     const audit = db.agentAuditEvent.findMany.mock.calls[0][0];
@@ -38,16 +36,12 @@ describe("activity authorization and privacy", () => {
     expect(audit.where.AND[0]).toEqual({ tenantId: "t1", NOT: { payload: { path: ["request"], equals: true } } });
   });
 
-  it.each(["admin", "owner"])("allows %s workspace history and approvals but keeps escalations private", async (role) => {
+  it.each(["admin", "owner"])("allows %s workspace history but keeps escalations private", async (role) => {
     db.membership.findUnique.mockResolvedValue({ role });
     const data = await loadAgentCenter("u1", "t1");
     expect(data?.isAdmin).toBe(true);
     expect(db.issueClaim.findMany.mock.calls[0][0].where.AND[0].agent).toEqual({ tenantId: "t1" });
     expect(db.agentQuestion.findMany.mock.calls[0][0].where.AND[0]).toEqual({ ownerUserId: "u1", agent: { tenantId: "t1" }, answeredAt: null });
-    const approval = db.issueApproval.findMany.mock.calls[0][0];
-    expect(approval.where.AND[0]).toEqual({ status: "pending", bug: { tenantId: "t1", isDeleted: false } });
-    // Approval records do not claim a requesting/assigned agent.
-    expect(approval.select.agent).toBeUndefined();
   });
 
   it("never selects private answers, raw audit payloads or key material", async () => {
@@ -64,7 +58,7 @@ describe("activity authorization and privacy", () => {
   it("applies issue filters to every list and claim state only to work", async () => {
     db.membership.findUnique.mockResolvedValue({ role: "admin" });
     await loadAgentCenter("u1", "t1", { issue: "#123", state: "released" });
-    for (const table of [db.agentQuestion, db.issueApproval, db.issueClaim, db.agentAuditEvent]) {
+    for (const table of [db.agentQuestion, db.issueClaim, db.agentAuditEvent]) {
       const query = table.findMany.mock.calls[0][0];
       expect(JSON.stringify(query.where)).toContain('"number":123');
       expect(query.take).toBe(ACTIVITY_PAGE_SIZE + 1);

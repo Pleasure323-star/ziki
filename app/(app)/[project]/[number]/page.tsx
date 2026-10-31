@@ -66,7 +66,6 @@ import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-a
 import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
-import { IssueApprovalBanner } from "@/components/issue-approval-banner";
 import { isTenantAdminRole } from "@/lib/agents/membership";
 import type { OrganizationRole } from "@/lib/organization-role";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
@@ -97,6 +96,9 @@ import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { senseCheck } from "@/lib/agent-api/abandon";
 import { closeSuggestionsFor, type CloseSuggestionsData } from "@/lib/agent-api/close-suggestions";
 import { CloseSuggestionsPanel } from "@/components/close-suggestions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { withdrawIssueAction } from "@/app/actions/withdraw-issue";
+import { closedLabel, closeReasonLabel, ownsIssue } from "@/lib/close-reasons";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { bidTally } from "@/lib/agent-api/bid-votes";
@@ -126,7 +128,7 @@ const NO_COMMENTS: CommentWindow = {
   visibleCount: 0,
 };
 
-/** The flags agents raised, listed under the status chip in the side rail (#close-superseded). */
+/** The flags listed under the status chip in the side rail (#close-reasons). */
 type StatusFlagTone = "bad" | "warn" | "info";
 
 const STALE_FLAG: Record<StaleHold["kind"], string> = {
@@ -423,7 +425,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ])
     : [null as IssueHold | null, [] as BidEntryView[]];
 
-  const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
+  const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
       canTriage
         ? loadOptional("users", [], () =>
@@ -654,15 +656,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       loadOptional<TicketEscalation[]>("escalations", [], () =>
         tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
       ),
-      loadOptional("pendingApproval", null, () =>
-        (typeof (prisma as { issueApproval?: unknown }).issueApproval !== "undefined"
-          ? prisma.issueApproval.findFirst({
-              where: { bugId: id, status: "pending" },
-              include: { rule: { include: { issueType: { select: { name: true } } } } },
-              orderBy: { createdAt: "desc" },
-            })
-          : Promise.resolve(null)),
-      ),
     ]);
   // Owners of a manager agent can award an open issue's bids from here (#award-bids).
   const canAwardBids =
@@ -704,6 +697,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   );
   const confirmationBlock: ConfirmationBlock =
     bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
+  // #close-reasons: the issue's owner may withdraw it while it is not closed or live.
+  const canWithdraw = !bug.isDeleted && bug.status !== "closed" && bug.status !== "resolved" && ownsIssue(bug, user.id);
   const isAssignee = !!userId && bug.assigneeId === userId;
   // An Open issue that nothing holds (no active claim, no live offer; `hold`
   // is currentHold) has no assignee to show: that one is stale (#stale-assignee).
@@ -842,8 +837,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     verdictsNeeded,
     stale,
     senseCheck: abandonCheck,
-    closeSuggested: closeSuggestions && closeSuggestions.entries.length > 0
-      ? { votes: closeSuggestions.votes, threshold: closeSuggestions.threshold }
+    closeSuggested: closeSuggestions && closeSuggestions.tallies[0]
+      ? { ...closeSuggestions.tallies[0], threshold: closeSuggestions.threshold }
       : null,
     closeReason: bug.closeReason,
     governance: {
@@ -856,14 +851,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     mergeReviews: mergeReviewVotesNow,
   });
 
-  // The flags agents raised, under the status chip in the side rail (#close-superseded).
-  const statusFlags: { label: string; tone: StatusFlagTone }[] = bug.isDeleted
+  // The flags under the status chip in the side rail (#close-reasons): why it was
+  // closed, or the leading reason agents suggest closing it for.
+  const leadingClose = closeSuggestions?.tallies[0] ?? null;
+  const statusFlags: { label: string; tone: StatusFlagTone; title?: string }[] = bug.isDeleted
     ? []
     : [
-        ...(bug.status === "closed" && bug.closeReason === "superseded"
-          ? [{ label: "Closed as superseded", tone: "bad" as const }]
-          : closeSuggestions && closeSuggestions.votes > 0 && bug.status !== "closed" && bug.status !== "resolved"
-            ? [{ label: `Close suggested: superseded (${closeSuggestions.votes} of ${closeSuggestions.threshold})`, tone: "bad" as const }]
+        ...(bug.status === "closed" && closeReasonLabel(bug.closeReason)
+          ? [{ label: closedLabel(bug.closeReason), tone: "bad" as const, title: bug.closeEvidence ?? undefined }]
+          : leadingClose && leadingClose.votes > 0 && bug.status !== "closed" && bug.status !== "resolved"
+            ? [{ label: `Close suggested: ${closeReasonLabel(leadingClose.reason) ?? leadingClose.reason} (${leadingClose.votes} of ${closeSuggestions!.threshold})`, tone: "bad" as const }]
             : []),
         ...(abandonCheck ? [{ label: `Abandon votes: ${abandonCheck.votes} of ${abandonCheck.threshold}`, tone: "warn" as const }] : []),
         ...(stale ? [{ label: STALE_FLAG[stale], tone: "bad" as const }] : []),
@@ -966,13 +963,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             </p>
           ) : null}
         </section>
-      ) : null}
-
-      {pendingApproval ? (
-        <IssueApprovalBanner
-          approval={pendingApproval}
-          canDecide={canChooseRedesign}
-        />
       ) : null}
 
       {redesignProposals.length ? (
@@ -1253,12 +1243,32 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             {statusFlags.length > 0 ? (
               <ul data-testid="status-flags" className="m-0 flex list-none flex-col gap-1 p-0">
                 {statusFlags.map((flag) => (
-                  <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2">
+                  <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2" title={flag.title}>
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${FLAG_DOT[flag.tone]}`} aria-hidden />
                     {flag.label}
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {bug.status === "closed" && bug.closeEvidence && !bug.isDeleted ? (
+              <p data-testid="close-evidence" className="m-0 break-words text-xs leading-[1.5] text-zk-muted">
+                {bug.closeEvidence}
+              </p>
+            ) : null}
+            {/* The reporter or the person it is for cancels their own issue (#close-reasons). */}
+            {canWithdraw ? (
+              <form action={withdrawIssueAction} data-testid="issue-withdraw">
+                <input type="hidden" name="issueId" value={bug.id} />
+                <ConfirmSubmitButton
+                  confirm={{
+                    title: `Withdraw issue #${bug.number}?`,
+                    body: "It closes as withdrawn at once, and any agent working on it is released. Its comments and entries stay.",
+                    confirmLabel: "Withdraw issue",
+                  }}
+                >
+                  Withdraw issue
+                </ConfirmSubmitButton>
+              </form>
             ) : null}
           </section>
 

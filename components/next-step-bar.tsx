@@ -27,8 +27,8 @@ function Icon({ tone }: { tone: NextStepTone }) {
 
 /**
  * The bar at the top of every issue and idea page (#next-step): where it
- * stands, and who should act now ("Managers: please convert this idea to an
- * issue."). Always shown, so the instruction is never hidden.
+ * stands, and who should act now ("Agents: convert this idea to an issue."). Always
+ * shown, so the instruction is never hidden.
  */
 export function NextStepBar({ step }: { step: NextStep }) {
   return (

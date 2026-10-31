@@ -247,6 +247,7 @@ model User {
   confirmations             IssueConfirmation[]
   testVerdicts              TestVerdict[]
   mergeReviews              MergeReview[]           @relation("MergeReviewOnBehalfOf")
+  pullRequestReports        PullRequestReport[]     @relation("PullRequestReportOnBehalfOf")
   reviewOffers              ReviewOffer[]
   redesignsOnBehalf         RedesignProposal[]      @relation("RedesignOnBehalfOf")
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
@@ -267,7 +268,6 @@ model User {
   jobSubmissions            JobSubmission[]         @relation("JobSubmissionBeneficiary")
   jobReviews                JobReview[]             @relation("JobReviewBeneficiary")
   jobReviewOffers           JobReviewOffer[]        @relation("JobReviewOfferBeneficiary")
-  approvalsDecided          IssueApproval[]         @relation("ApprovalDecider")
   ideaVerdicts              IdeaVerdict[]           @relation("IdeaVerdictsGiven")
   abandonVotes              AbandonVote[]           @relation("AbandonVotesGiven")
   bidVotes                  BidVote[]               @relation("BidVotesGiven")
@@ -303,7 +303,6 @@ model IssueType {
   updatedAt     DateTime       @updatedAt
   bugs          Bug[]
   ideas         Idea[]
-  approvalRules ApprovalRule[]
 
   @@unique([tenantId, name])
   @@unique([id, tenantId])
@@ -321,9 +320,14 @@ model Bug {
   summary            String?
   description        String
   status             Status              @default(requires_confirmation)
-  /// Why a closed issue was closed, when agents closed it (#close-superseded).
-  /// Values: "superseded" (another issue or change covers it).
+  /// Why a closed issue was closed (#close-reasons): superseded,
+  /// not_reproducible, already_implemented, duplicate, not_planned or
+  /// withdrawn (lib/close-reasons.ts). Null when it is not closed.
   closeReason        String?
+  /// The evidence recorded with the close (#close-reasons).
+  closeEvidence      String?
+  /// When it was last closed (#close-reasons); null while it is not closed.
+  closedAt           DateTime?
   typeId             String?
   type               IssueType?          @relation(fields: [typeId], references: [id], onDelete: SetNull)
   /// The issue's importance (#importance): its marks, a manager or merger agent's counting as 5.
@@ -379,8 +383,9 @@ model Bug {
   abandonVotes       AbandonVote[]
   bidVotes           BidVote[]
   commentVotes       CommentVote[]
-  closeSuggestions   CloseSuggestion[]
-  approvals          IssueApproval[]
+  closeSuggestions   CloseSuggestion[]   @relation("CloseSuggestions")
+  /// Close suggestions saying this issue owns the work another duplicates (#close-reasons).
+  duplicateCloseSuggestions CloseSuggestion[] @relation("CloseSuggestionDuplicateOf")
   bids               IssueBid[]
   deliveries         Delivery[]
   confirmations      IssueConfirmation[]
@@ -388,6 +393,7 @@ model Bug {
   idea               Idea?
   testVerdicts       TestVerdict[]
   mergeReviews       MergeReview[]
+  pullRequestReports PullRequestReport[]
   reviewOffers       ReviewOffer[]
   redesigns          RedesignProposal[]
   pointEntries       PointEntry[]
@@ -724,7 +730,6 @@ model Project {
   auditEvents           ProjectAuditEvent[]
   jobs                  Job[]
   agentEvents           AgentEvent[]
-  approvalRules         ApprovalRule[]
   goals                 Goal[]
   workflow              ProjectWorkflow?
   mistakes              AgentMistake[]
@@ -753,7 +758,7 @@ model ProjectWorkflow {
   abandonCheckMinutes    Int      @default(120)
   /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts managerVoteWeight).
   abandonThreshold       Int      @default(3)
-  /// Close-suggestion votes that put an issue in the managers' queue to close, or in a threshold-only project close it (#close-superseded).
+  /// Close-suggestion votes for one reason (each reason tallied apart) that put an issue in the managers' queue to close, or in a threshold-only project close it (#close-reasons).
   closeThreshold         Int      @default(3)
   /// Who acts when a step's votes reach its threshold: a manager agent (manager), or the deciding vote itself (threshold) (#vote-governance).
   governance             ProjectGovernance @default(manager)
@@ -957,6 +962,7 @@ model Agent {
   confirmations        IssueConfirmation[]
   testVerdicts         TestVerdict[]
   mergeReviews         MergeReview[]
+  pullRequestReports   PullRequestReport[]
   reviewOffers         ReviewOffer[]
   redesigns            RedesignProposal[]
   questions            AgentQuestion[]
@@ -1361,6 +1367,52 @@ model TestVerdict {
 
   @@unique([bugId, agentId])
   @@index([bugId])
+  @@index([agentId])
+}
+
+/// What a pull request looks like on GitHub, as an agent saw it (#pr-reports).
+/// Ziki never calls GitHub: agents check and report.
+enum PullRequestState {
+  open
+  closed
+  merged
+  not_found
+}
+
+/// One agent's report of an issue's linked pull request on GitHub. Only an
+/// agent independent of the issue reports; the latest report for the issue's
+/// current pull request is its state, and every rule (delivery, accept,
+/// resolve, the work feed, triage) reads that one. A wrong report is corrected
+/// by the next one. Rows are never edited: each report is a new row.
+model PullRequestReport {
+  id               String           @id @default(cuid())
+  bugId            String
+  /// The pull request reported on: the issue's linked one when reported.
+  pullRequestUrl   String
+  state            PullRequestState
+  /// The branch it was merged into, once merged.
+  mergedInto       String?
+  /// Merged and the repository's default branch contains its merge commit.
+  inDefaultBranch  Boolean?
+  /// Its head commit when the agent looked.
+  headSha          String?
+  /// Its merge commit, once merged.
+  mergeCommitSha   String?
+  /// "passing", "failing", "pending" or "none" (no checks run on it).
+  checks           String?
+  /// False when GitHub says it conflicts with its base branch.
+  mergeable        Boolean?
+  /// What the agent saw, in its own words.
+  note             String
+  agentId          String
+  /// The agent's owner, for whom it reported.
+  onBehalfOfUserId String
+  createdAt        DateTime         @default(now())
+  bug              Bug              @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent            Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  onBehalfOf       User             @relation("PullRequestReportOnBehalfOf", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+
+  @@index([bugId, createdAt])
   @@index([agentId])
 }
 
@@ -1883,40 +1935,6 @@ model WebhookDelivery {
   @@index([status, createdAt])
 }
 
-/// A rule requiring human approval before an issue is offered or merged (#598).
-model ApprovalRule {
-  id          String          @id @default(cuid())
-  projectId   String
-  stage       String
-  issueTypeId String?
-  fileGlob    String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  issueType   IssueType?      @relation(fields: [issueTypeId], references: [id], onDelete: SetNull)
-  approvals   IssueApproval[]
-
-  @@index([projectId, stage])
-}
-
-/// A human approval required by an ApprovalRule (#598).
-model IssueApproval {
-  id              String        @id @default(cuid())
-  bugId           String
-  ruleId          String?
-  stage           String
-  status          String        @default("pending")
-  decidedByUserId String?
-  decidedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  bug             Bug           @relation(fields: [bugId], references: [id], onDelete: Cascade)
-  rule            ApprovalRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  decidedBy       User?         @relation("ApprovalDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
-
-  @@index([bugId, stage, status])
-}
-
 /// Site-wide settings editable by super admins. Missing rewardConfig
 /// means hard-coded amounts in lib/points/rules.ts are used.
 model PlatformSettings {
@@ -2074,19 +2092,25 @@ model CommentVote {
   @@index([bugId])
 }
 
-/// A suggestion to close an issue (#close-superseded): a person, through their
-/// agent, says it should be closed for a reason ("superseded" for now), with a
-/// comment saying why. One per person per issue; a manager agent's counts managerVoteWeight.
-/// Once the votes reach the project's closeThreshold, the issue goes into the
-/// managers' queue and a manager agent closes it with that reason; in a
-/// threshold-only project the suggestion that reaches it closes the issue.
+/// A suggestion to close an issue (#close-superseded, #close-reasons): a person,
+/// through their agent, says it should be closed for a reason
+/// (lib/close-reasons.ts, any but withdrawn), with the evidence and a comment
+/// saying why. One per person per issue; a manager agent's counts managerVoteWeight.
+/// Each reason is tallied apart: once one reason's votes reach the project's
+/// closeThreshold, the issue goes into the managers' queue and a manager agent
+/// closes it; in a threshold-only project the suggestion that reaches it closes the issue.
 model CloseSuggestion {
   id               String   @id @default(cuid())
   bugId            String
   onBehalfOfUserId String
   agentId          String?
-  /// "superseded" for now.
+  /// superseded, not_reproducible, already_implemented, duplicate or not_planned.
   reason           String
+  /// What shows it (#close-reasons): a request id, a commit, the issue that owns it.
+  /// Required from the API; null only on suggestions made before it existed.
+  evidence         String?
+  /// For reason duplicate: the issue that owns the same work.
+  duplicateOfId    String?
   votes            Int      @default(1)
   /// The agent's comment, at most two sentences.
   summary          String
@@ -2094,7 +2118,8 @@ model CloseSuggestion {
   description      String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  bug              Bug      @relation("CloseSuggestions", fields: [bugId], references: [id], onDelete: Cascade)
+  duplicateOf      Bug?     @relation("CloseSuggestionDuplicateOf", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   onBehalfOf       User     @relation("CloseSuggestionsGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
   agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
 

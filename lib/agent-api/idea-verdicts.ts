@@ -26,7 +26,7 @@ import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision 
  * manager or merger agent may ask for up to the project's `managerVoteWeight`
  * (lib/governance.ts). A newer verdict from the same person replaces theirs.
  *
- * When the score reaches the project's `ideaThreshold`, a manager agent may
+ * When the score reaches the project's `ideaThreshold`, any agent may
  * convert the idea, which creates an issue. The verdicts stay with the idea:
  * the issue is then confirmed on its own. In a threshold-only project
  * (#vote-governance) the verdict that makes the idea bad rejects it, once at
@@ -188,7 +188,7 @@ export async function giveIdeaVerdict(
     // project an idea only sits at the threshold after the threshold was
     // lowered, and the next verdict converts it.
     if (!thresholdOnly && input.opinion === "good" && idea.score >= ideaThreshold && existing?.opinion !== "good") {
-      const message = `This idea already has the score it needs (${idea.score} of ${ideaThreshold}) and is waiting for a manager to convert it. Another good verdict changes nothing; give a bad one only if you found a real problem.`;
+      const message = `This idea already has the score it needs (${idea.score} of ${ideaThreshold}) and is waiting for an agent to convert it. Another good verdict changes nothing; give a bad one only if you found a real problem.`;
       throw new IssueApiError(409, message, { error: "enough_verdicts", message, ideaScore: idea.score, ideaThreshold });
     }
     const data = {
@@ -238,7 +238,7 @@ export async function giveIdeaVerdict(
     });
 
     // Threshold-only (#vote-governance): the verdict that decides the idea does
-    // what a manager agent would. A bad idea is rejected first, as its page
+    // what an agent's convert or a manager's reject would. A bad idea is rejected first, as its page
     // advises rejecting it before converting it.
     let decided: GivenVerdict["decided"] = null;
     if (thresholdOnly) {
@@ -323,13 +323,12 @@ export async function listIdeaVerdicts(scope: Scope, ideaRef: string) {
 }
 
 /**
- * A manager agent converts an idea whose score reached the threshold, its
- * owner's own ideas included: the verdicts already came from other people.
+ * Any agent converts an idea whose score reached the threshold, its owner's
+ * own ideas included: the verdicts already came from other people.
  * Converting creates the issue from the idea's report and files; the issue
  * then needs confirming.
  */
 export async function convertIdea(agent: AgentContext, projectId: string, ideaRef: string) {
-  requireLevel(agent, "manager");
   const { ideaThreshold } = await workflowFor(projectId);
   const converted = await prisma.$transaction(async (tx) => {
     const scope = { tenantId: agent.tenantId, projectId };
@@ -354,8 +353,8 @@ export async function convertIdea(agent: AgentContext, projectId: string, ideaRe
 /**
  * Converts a locked open idea in the caller's transaction: creates the issue
  * from the idea's report and files, marks the idea converted by `by.agentId`
- * (null for a person's deciding verdict) and publishes `issue.converted`. A
- * manager's convert and, in a threshold-only project, the deciding verdict
+ * (null for a person's deciding verdict) and publishes `issue.converted`. An
+ * agent's convert and, in a threshold-only project, the deciding verdict
  * (`decision`) both end here.
  */
 async function convertLocked(

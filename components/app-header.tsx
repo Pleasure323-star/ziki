@@ -516,7 +516,7 @@ export function AppHeader({
                 <AccountThemeSelector />
                 <div className="mx-2 h-px bg-zk-divider" />
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
-                  Activity &amp; Approvals
+                  Activity
                 </MenuLink>
                 {organizationAdmin ? (
                   <MenuLink href={ORGANIZATION_HREF} active={isNavItemActive(pathname, ORGANIZATION_HREF)}>

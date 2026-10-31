@@ -1,4 +1,5 @@
 import { AUTO_REJECT_MIN_PEOPLE } from "@/lib/idea-rejection";
+import { closeReasonLabel } from "@/lib/close-reasons";
 
 /**
  * The next step on an issue or idea (#next-step): where it stands, and who
@@ -16,7 +17,7 @@ export type NextStep = {
   detail: string | null;
   /** Who should act now, e.g. "Managers"; null when nobody needs to. */
   actor: string | null;
-  /** What they should do, e.g. "please convert this idea to an issue." */
+  /** What they should do, e.g. "convert this idea to an issue." */
   action: string | null;
   /** When the pending offer was made, shown after the detail as "offered 5 mins ago". */
   offeredAt?: Date | string | null;
@@ -54,9 +55,9 @@ export type IssueNextStepInput = {
   stale?: "offer_expired" | "overdue" | "silent" | null;
   /** In progress with no update for the sense-check window, and its Abandoned votes (#abandon). */
   senseCheck?: { votes: number; threshold: number } | null;
-  /** Agents' suggestions to close it as superseded, and the project's closeThreshold (#close-superseded). */
-  closeSuggested?: { votes: number; threshold: number } | null;
-  /** Why a closed issue was closed, when agents closed it: "superseded". */
+  /** Agents' leading reason to close it, its votes and the project's closeThreshold (#close-reasons). */
+  closeSuggested?: { reason: string; votes: number; threshold: number } | null;
+  /** Why a closed issue was closed (lib/close-reasons.ts). */
   closeReason?: string | null;
   governance?: NextStepGovernance | null;
   /** Threshold-only: the leading open bid's weighted votes. */
@@ -76,25 +77,26 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
     return { tone: "neutral", title: "Deleted", detail: "This issue was deleted.", actor: null, action: null };
   }
   const governance = input.governance?.thresholdOnly ? input.governance : null;
-  // Enough agents say another issue or change covers it: that comes first (#close-superseded).
+  // Enough agents give one reason to close it: that comes first (#close-reasons).
   const closing = input.closeSuggested;
   if (closing && closing.votes >= closing.threshold && input.status !== "closed" && input.status !== "resolved") {
+    const label = closeReasonLabel(closing.reason) ?? closing.reason;
     // Threshold-only: it sits here only after the threshold was lowered; the next suggestion closes it.
     if (governance) {
       return {
         tone: "bad",
-        title: "Close as superseded?",
-        detail: `${closing.votes} of ${closing.threshold} votes to close it; ${weightNote(governance)}.`,
+        title: `Close as ${label}?`,
+        detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}; ${weightNote(governance)}.`,
         actor: "Agents",
         action: "suggest closing it if you agree; the next suggestion closes it.",
       };
     }
     return {
       tone: "bad",
-      title: "Close as superseded?",
-      detail: `${closing.votes} of ${closing.threshold} votes to close it: agents say another issue or change covers it.`,
+      title: `Close as ${label}?`,
+      detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}.`,
       actor: "Managers",
-      action: "close it as superseded if the suggestions hold up.",
+      action: `close it as ${label}, with the evidence, if the suggestions hold up.`,
     };
   }
   if (input.stale) {
@@ -214,7 +216,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       return {
         tone: "neutral",
         title: "Closed",
-        detail: input.closeReason === "superseded" ? "Closed as superseded." : "Stopped without shipping.",
+        detail: closeReasonLabel(input.closeReason) ? `Closed as ${closeReasonLabel(input.closeReason)}.` : "Stopped without shipping.",
         actor: null,
         action: null,
       };
@@ -312,8 +314,8 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       tone: "ok",
       title: "Idea accepted",
       detail: `Its score of ${input.score} reached the threshold of ${input.threshold}.`,
-      actor: "Managers",
-      action: "please convert this idea to an issue.",
+      actor: "Agents",
+      action: "convert this idea to an issue.",
     };
   }
   return {

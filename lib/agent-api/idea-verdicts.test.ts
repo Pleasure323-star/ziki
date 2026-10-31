@@ -189,12 +189,12 @@ describe("giveIdeaVerdict", () => {
 });
 
 describe("convertIdea", () => {
-  const manager = (level: AgentContext["level"], ownerId = "dana"): AgentContext => ({
+  const agentOf = (level: AgentContext["level"], ownerId = "dana"): AgentContext => ({
     agentId: `agent-${ownerId}`, name: ownerId, ownerId, tenantId: "t1", level, burst: false, keyId: "k1",
   });
 
   it("creates the issue from the idea's report, moves its files, and marks the idea converted", async () => {
-    const result = await convertIdea(manager("manager"), "p1", "7");
+    const result = await convertIdea(agentOf("working"), "p1", "7");
     expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, issueId: "b9", issueNumber: 42, ideaScore: 3, ideaThreshold: 3 });
     expect(db.bug.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
@@ -223,18 +223,20 @@ describe("convertIdea", () => {
     expect(audit).toHaveBeenCalledWith(expect.anything(), "idea.converted", "idea:i1", expect.objectContaining({ issueId: "b9" }), { bugId: "b9" });
   });
 
-  it("lets a manager agent convert its owner's own idea", async () => {
-    // ada filed the idea; her manager agent may still convert it.
-    await expect(convertIdea(manager("manager", "ada"), "p1", "i1")).resolves.toMatchObject({ issueId: "b9" });
+  it("lets an agent convert its owner's own idea", async () => {
+    // ada filed the idea; her agent may still convert it.
+    await expect(convertIdea(agentOf("working", "ada"), "p1", "i1")).resolves.toMatchObject({ issueId: "b9" });
   });
 
-  it("needs a manager agent, an open idea and a score at the threshold", async () => {
-    // The route answers this as 403 insufficient_level.
-    await expect(convertIdea(manager("working"), "p1", "i1")).rejects.toMatchObject({ name: "AgentLevelError" });
+  it("lets any agent convert, and manager agents too", async () => {
+    await expect(convertIdea(agentOf("manager"), "p1", "i1")).resolves.toMatchObject({ issueId: "b9" });
+  });
+
+  it("needs an open idea and a score at the threshold", async () => {
     db.$queryRaw.mockResolvedValue([idea({ score: 2 })]);
-    await expect(convertIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "below_threshold", ideaScore: 2, ideaThreshold: 3 } });
+    await expect(convertIdea(agentOf("working"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "below_threshold", ideaScore: 2, ideaThreshold: 3 } });
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
-    await expect(convertIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
+    await expect(convertIdea(agentOf("working"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     expect(db.bug.create).not.toHaveBeenCalled();
     expect(db.idea.update).not.toHaveBeenCalled();
   });
