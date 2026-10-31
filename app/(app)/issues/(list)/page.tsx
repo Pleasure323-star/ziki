@@ -87,6 +87,7 @@ import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/
 import { issueHref } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { CountBadge } from "@/components/count-badge";
+import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Issues" };
@@ -100,6 +101,8 @@ const REJECTED_IDEAS_STATUS = "rejected_ideas";
 
 /** The filters under the Ideas tab: new ideas (no `?ideas=`), or `?ideas=drafts`. */
 const IDEAS_PARAM = "ideas";
+/** `?ideaSort=good|bad`: order the Ideas lists by their good or bad votes (#724). */
+const IDEA_SORT_PARAM = "ideaSort";
 type IdeasView = "new" | "drafts" | "rejected";
 /** Most ideas a list shows, highest score first. */
 const IDEAS_LIMIT = 100;
@@ -236,6 +239,9 @@ export default async function BugsPage({
     toSingleQueryParam(params.status) ??
     (toSingleQueryParam(params.deleted) === "true" ? undefined : toSingleQueryParam(params.q)?.trim() ? ALL_STATUS : IDEAS_STATUS);
   const sortParam = toSingleQueryParam(params.sort);
+  // #724: the Ideas lists sort by their good or bad votes.
+  const ideaSortParam = toSingleQueryParam(params[IDEA_SORT_PARAM]);
+  const ideaSort: "good" | "bad" | null = ideaSortParam === "good" || ideaSortParam === "bad" ? ideaSortParam : null;
   const pageParam = toSingleQueryParam(params.page);
   const deletedParam = toSingleQueryParam(params.deleted);
   const mineFilter = parseMineFilter(params.mine);
@@ -468,6 +474,18 @@ export default async function BugsPage({
       console.error("[bugs] platform tab counts failed", error);
     }
   }
+  // #724: the Ideas lists' column sort links keep every other parameter.
+  const ideaSortHref = (sort: "good" | "bad" | null) => {
+    const next = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (key === "page" || key === IDEA_SORT_PARAM) continue;
+      const single = toSingleQueryParam(value);
+      if (single) next.set(key, single);
+    }
+    if (sort) next.set(IDEA_SORT_PARAM, sort);
+    const qs = next.toString();
+    return qs ? `/issues?${qs}` : "/issues";
+  };
   const platformHref = (id: string | null) => {
     const next = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
@@ -622,19 +640,15 @@ export default async function BugsPage({
         for (const id of new Set(rows.map((row) => row.projectId))) {
           thresholds.set(id, await workflowFor(id).then((w) => w.ideaThreshold).catch(() => null));
         }
-        // Each idea's votes, to mark the bad ones red (lib/idea-rejection.ts).
-        const voteRows = rows.length
-          ? await prisma.ideaVerdict.groupBy({
-              by: ["ideaId", "opinion"],
-              where: { ideaId: { in: rows.map((row) => row.id) } },
-              _sum: { votes: true },
-            })
-          : [];
-        const votesByIdea = new Map<string, { opinion: string; votes: number }[]>();
-        for (const row of voteRows) {
-          votesByIdea.set(row.ideaId, [...(votesByIdea.get(row.ideaId) ?? []), { opinion: row.opinion, votes: row._sum.votes ?? 0 }]);
-        }
-        return rows.map((row) => ({
+        // Each idea's weighted votes (#724): the good and bad columns, and to mark the bad ones red (lib/idea-rejection.ts).
+        const totals = await ideaVoteTotals(prisma, rows.map((row) => row.id));
+        const listed = rows.map((row) => {
+          const votes = totals.get(row.id) ?? NO_VOTES;
+          return { row, votes };
+        });
+        // #724: sort by the good or bad column; score order otherwise.
+        if (ideaSort) listed.sort((a, b) => b.votes[ideaSort] - a.votes[ideaSort] || b.row.score - a.row.score);
+        return listed.map(({ row, votes }) => ({
           id: row.id,
           number: row.number,
           title: row.title,
@@ -646,8 +660,10 @@ export default async function BugsPage({
           verdicts: row._count.verdicts,
           rejected: ideasView === "rejected",
           archived: row.status === "archived" ? archiveReasonLabel(row.archiveReason, row.archiveDuplicateOf) : null,
+          good: votes.good,
+          badVotes: votes.bad,
           bad: ideasView !== "rejected" && (thresholds.get(row.projectId) ?? null) !== null
-            && isBadIdea(ideaVotes(votesByIdea.get(row.id) ?? []), thresholds.get(row.projectId)!),
+            && isBadIdea(ideaVotes([{ opinion: "good", votes: votes.good }, { opinion: "bad", votes: votes.bad }, { opinion: "neutral", votes: votes.neutral }]), thresholds.get(row.projectId)!),
         }));
       }, [] as IdeaListRow[])
     : [];
@@ -887,6 +903,8 @@ export default async function BugsPage({
         {isIdeasView ? (
           <IdeasList
             ideas={ideaRows}
+            sort={ideaSort}
+            sortHref={ideaSortHref}
             empty={
               ideasView === "drafts"
                 ? "No unstructured draft ideas are waiting to be structured."

@@ -24,6 +24,7 @@ import { extractMentionedUserIds, normalizeMentions } from "@/lib/mentions";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 
 /**
  * Ideas through the agent API (#idea-table). Every report is an idea: an
@@ -130,7 +131,9 @@ export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
     select: ideaSelect,
   });
   const page = toPage(rows, limit);
-  return { ...page, items: page.items.map((row) => ideaJson(row, ideaThreshold)) };
+  // #724: each idea's weighted good, bad and neutral votes, as the Ideas list shows them.
+  const totals = await ideaVoteTotals(prisma, page.items.map((row) => row.id));
+  return { ...page, items: page.items.map((row) => ({ ...ideaJson(row, ideaThreshold), votes: totals.get(row.id) ?? NO_VOTES })) };
 }
 
 function ideaCursorWhere(cursor: IssueCursor): Prisma.IdeaWhereInput {
@@ -167,7 +170,8 @@ export async function readAgentIdea(scope: Scope, ref: string) {
     }),
     workflowFor(scope.projectId),
   ]);
-  return ideaJson(idea, ideaThreshold) as ReturnType<typeof ideaJson> & { attachments: typeof idea.attachments };
+  const votes = (await ideaVoteTotals(prisma, [idea.id])).get(idea.id) ?? NO_VOTES;
+  return { ...(ideaJson(idea, ideaThreshold) as ReturnType<typeof ideaJson> & { attachments: typeof idea.attachments }), votes };
 }
 
 async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: string, body: string) {

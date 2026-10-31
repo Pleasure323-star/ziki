@@ -21,6 +21,9 @@ export type IdeaListRow = {
   archived?: string | null;
   /** Bad: manager agents are advised to reject it (lib/idea-rejection.ts). */
   bad?: boolean;
+  /** Weighted good and bad votes (#724), shown as columns; 0 when nobody voted. */
+  good: number;
+  badVotes: number;
 };
 
 /**
@@ -28,7 +31,43 @@ export type IdeaListRow = {
  * have their own numbers and pages, take verdicts instead of votes, and
  * leave this list once an agent converts them.
  */
-export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: string }) {
+/** A column heading that sorts the list by it (#724), and back to score order when it already does. */
+function SortHeading({ label, column, sort, sortHref, className }: {
+  label: React.ReactNode;
+  column: "good" | "bad";
+  sort?: "good" | "bad" | null;
+  sortHref?: (sort: "good" | "bad" | null) => string;
+  className: string;
+}) {
+  if (!sortHref) return <span className={className}>{label}</span>;
+  const active = sort === column;
+  return (
+    <Link href={sortHref(active ? null : column)} aria-sort={active ? "descending" : undefined} className={`${className} hover:text-zk-text ${active ? "text-zk-text" : ""}`}>
+      {label}
+    </Link>
+  );
+}
+
+/** The good and bad vote counts on a row (#724), with names a screen reader reads. */
+function VoteCounts({ good, bad }: { good: number; bad: number }) {
+  return (
+    <>
+      <span className="w-[44px] shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-ok-fg" title={`${good} good`} data-testid="idea-good-votes">
+        <span className="sr-only">Good votes: </span>{good}
+      </span>
+      <span className="w-[44px] shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-bad-fg" title={`${bad} bad`} data-testid="idea-bad-votes">
+        <span className="sr-only">Bad votes: </span>{bad}
+      </span>
+    </>
+  );
+}
+
+export function IdeasList({ ideas, empty, sort, sortHref }: {
+  ideas: IdeaListRow[];
+  empty?: string;
+  sort?: "good" | "bad" | null;
+  sortHref?: (sort: "good" | "bad" | null) => string;
+}) {
   if (ideas.length === 0) {
     return (
       <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
@@ -46,6 +85,8 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
           <div className="issues-table-heading">
             <span className="w-[52px]">Score</span>
             <span className="min-w-0 flex-1">Idea</span>
+            <SortHeading label={<><span aria-hidden="true">✓ </span>Good</>} column="good" sort={sort} sortHref={sortHref} className="hidden w-[44px] shrink-0 text-center md:inline" />
+            <SortHeading label={<><span aria-hidden="true">✕ </span>Bad</>} column="bad" sort={sort} sortHref={sortHref} className="hidden w-[44px] shrink-0 text-center md:inline" />
             <span className="issues-status-cell">Status</span>
           </div>
           <ul>
@@ -71,6 +112,8 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                     <span>
                       {idea.verdicts} verdict{idea.verdicts === 1 ? "" : "s"}
                     </span>
+                    {/* Phones: the counts in the meta line; wider screens have the columns. */}
+                    <span className="md:hidden">✓ {idea.good} · ✕ {idea.badVotes}</span>
                     {idea.platform ? <span>{idea.platform}</span> : null}
                     <LocalTime date={idea.createdAt} />
                     <span className="inline-flex min-w-0 md:sr-only">
@@ -78,6 +121,9 @@ export function IdeasList({ ideas, empty }: { ideas: IdeaListRow[]; empty?: stri
                     </span>
                   </span>
                 </Link>
+                <span className="hidden items-center md:flex">
+                  <VoteCounts good={idea.good} bad={idea.badVotes} />
+                </span>
                 <span className="issues-status-cell" aria-hidden="true">
                   <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                 </span>
