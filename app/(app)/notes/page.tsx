@@ -6,7 +6,7 @@ import { activeProjectIdFor } from "@/lib/project-context";
 import { humanNotesActor, readProjectNotes, listNoteComments, listNoteRevisions } from "@/lib/project-notes";
 import { RichText } from "@/components/rich-text";
 import { NotesDocument } from "./notes-document";
-import { NoteCommentComposer, NoteUpvoteButton } from "./note-comments";
+import { AddNoteButton, NoteCommentComposer, NoteUpvoteButton } from "./note-comments";
 
 export const metadata = { title: "Project notes · Ziki" };
 export default async function NotesPage({ searchParams }: { searchParams: Promise<{ cursor?: string; history?: string }> }) {
@@ -36,7 +36,10 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
     <div className="mx-auto w-full max-w-6xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm text-zk-text2"><Link href="/issues" className="truncate hover:text-zk-text">{project.name}</Link><span aria-hidden="true">›</span><h1 aria-current="page" className="font-semibold text-zk-text">Notes</h1></nav>
-        <Link href="/issues" className="rounded-lg border border-zk-border px-3 py-2 text-sm font-semibold text-zk-text hover:bg-zk-chip">Back to issues</Link>
+        <div className="flex items-center gap-2">
+          <AddNoteButton />
+          <Link href="/issues" className="rounded-lg border border-zk-border px-3 py-2 text-sm font-semibold text-zk-text hover:bg-zk-chip">Back to issues</Link>
+        </div>
       </div>
       <NotesDocument key={projectId} projectId={projectId} canEdit={result.canEdit}
         notes={result.notes ? { ...result.notes, updatedAt: result.notes.updatedAt.toISOString() } : null}

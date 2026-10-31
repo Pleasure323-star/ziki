@@ -89,3 +89,22 @@ export function NoteUpvoteButton({ projectId, commentId, upvotes, upvoted }: { p
     </span>
   );
 }
+
+/**
+ * The Notes page's Add note button (#740): it takes you to the note composer
+ * with the cursor in its text field. Every member may add a note, so it always
+ * shows; it doesn't edit the official notes.
+ */
+export function AddNoteButton() {
+  const focusComposer = () => {
+    const field = document.getElementById(NOTE_COMPOSER_FIELD_ID);
+    if (!field) return;
+    field.scrollIntoView({ behavior: "smooth", block: "center" });
+    field.focus({ preventScroll: true });
+  };
+  return (
+    <button type="button" onClick={focusComposer} className="rounded-lg bg-electric-blue-strong px-3 py-2 text-sm font-semibold text-white hover:brightness-110">
+      Add note
+    </button>
+  );
+}
