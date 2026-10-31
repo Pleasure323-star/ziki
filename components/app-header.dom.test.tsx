@@ -176,11 +176,11 @@ describe("account menu role switch", () => {
     renderHeader();
     const nav = screen.getByRole("navigation", { name: "Workspace" });
     expect(nav.closest("header")).not.toBeNull();
-    expect([...nav.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["/issues", "/marketing", "/security"]);
+    expect([...nav.querySelectorAll("a")].map((a) => a.getAttribute("href"))).toEqual(["/issues", "https://amp.ziki.dev", "/security"]);
     const product = screen.getByRole("link", { name: "Product" });
     expect(product.getAttribute("href")).toBe("/issues");
     expect(product.getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("link", { name: "Marketing" }).getAttribute("href")).toBe("/marketing");
+    expect(screen.getByRole("link", { name: "Marketing" }).getAttribute("href")).toBe("https://amp.ziki.dev");
     expect(screen.getByRole("link", { name: "Security" }).getAttribute("href")).toBe("/security");
     expect(screen.getByRole("link", { name: "Ziki" }).getAttribute("href")).toBe("/dashboard");
   });
