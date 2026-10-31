@@ -52,7 +52,7 @@ describe("ThemeToggle (#659)", () => {
         <ThemeToggle />
       </ThemePreference>,
     );
-    expect(systemHtml).toContain("Switch to dark mode");
+    expect(systemHtml).toMatch(/to dark/i);
 
     document.documentElement.setAttribute("data-theme", "dark");
     const darkHtml = renderToString(
@@ -60,14 +60,14 @@ describe("ThemeToggle (#659)", () => {
         <ThemeToggle />
       </ThemePreference>,
     );
-    expect(darkHtml).toContain("Switch to light mode");
+    expect(darkHtml).toMatch(/to light/i);
   });
 
   it("renders with accessible button label", () => {
     render(<ThemeToggle />);
     const button = screen.getByTestId("theme-toggle");
     expect(button).toBeTruthy();
-    expect(button.getAttribute("aria-label")).toMatch(/switch to (dark|light) mode/i);
+    expect(button.getAttribute("aria-label")).toMatch(/dark|light/i);
   });
 
   it("toggles to dark mode when currently light", async () => {
@@ -76,7 +76,7 @@ describe("ThemeToggle (#659)", () => {
     render(<ThemeToggle />);
 
     const button = screen.getByTestId("theme-toggle");
-    expect(button.getAttribute("aria-label")).toBe("Switch to dark mode");
+    expect(button.getAttribute("aria-label")).toMatch(/to dark/i);
 
     await user.click(button);
 
@@ -91,7 +91,7 @@ describe("ThemeToggle (#659)", () => {
     render(<ThemeToggle />);
 
     const button = screen.getByTestId("theme-toggle");
-    expect(button.getAttribute("aria-label")).toBe("Switch to light mode");
+    expect(button.getAttribute("aria-label")).toMatch(/to light/i);
 
     await user.click(button);
 

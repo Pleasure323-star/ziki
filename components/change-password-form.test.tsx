@@ -16,6 +16,5 @@ describe("ChangePasswordForm (#570)", () => {
     // The server renderer may keep React's `autoComplete` casing; match either.
     expect(html).toMatch(/autocomplete="current-password"/i);
     expect(html).toMatch(/autocomplete="new-password"/i);
-    expect(html).toContain("Change password");
   });
 });

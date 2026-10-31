@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/tenant-context", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/tenant-context")>()),
+vi.mock("@/lib/tenant-viewer", () => ({
+  viewerBugScope: vi.fn(async () => ({ tenantId: "tenant-zedu" })),
+}));
+vi.mock("@/lib/tenant-context", () => ({
   currentTenantIdFor: vi.fn(async () => "tenant-zedu"),
 }));
-vi.mock("@/lib/tenant-access", () => ({
-  currentTenantAccess: vi.fn(async () => ({ tenantId: "tenant-zedu", membershipRole: "member", admin: false })),
-}));
-vi.mock("@/lib/auth-helpers", () => ({
-  requireUser: vi.fn(async () => ({ id: "user-123", role: "user" })),
+vi.mock("@/lib/session-user", () => ({
+  resolveSessionUserId: vi.fn(async () => ({ userId: "user-123" })),
 }));
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
@@ -18,32 +17,46 @@ vi.mock("next/navigation", () => ({
     throw new Error(`REDIRECT ${to}`);
   }),
 }));
+// The tenant-switch notice is not under test here.
+vi.mock("@/components/issue-tenant-hint", () => ({ IssueTenantSwitch: () => null }));
 vi.mock("@/lib/prisma", () => ({
-  prisma: { bug: { findUnique: vi.fn(), findFirst: vi.fn() } },
+  prisma: {
+    bug: { findFirst: vi.fn(), findUnique: vi.fn() },
+    idea: { findFirst: vi.fn() },
+    membership: { findFirst: vi.fn() },
+  },
 }));
 
 import { prisma } from "@/lib/prisma";
-import IssueHistoryPage from "./page";
+import LegacyIssueHistoryPage from "./page";
 
-describe("issue history readable addresses (#457)", () => {
+const bugFindFirst = vi.mocked(prisma.bug.findFirst);
+
+describe("legacy /issues/<ref>/history links (#project-urls)", () => {
   beforeEach(() => {
-    vi.mocked(prisma.bug.findUnique).mockReset();
+    vi.clearAllMocks();
+    bugFindFirst.mockResolvedValue(null);
+    vi.mocked(prisma.idea.findFirst).mockResolvedValue(null);
   });
 
-  it("redirects an old internal-id link to the numbered history, keeping the query", async () => {
-    vi.mocked(prisma.bug.findUnique).mockResolvedValueOnce({ id: "cmlegacy0001", number: 7 } as never);
+  it("permanently redirects an old internal-id link to the project's history, keeping the query", async () => {
+    bugFindFirst.mockResolvedValueOnce({ number: 7, project: { slug: "ziki" } } as never);
     await expect(
-      IssueHistoryPage({
+      LegacyIssueHistoryPage({
         params: Promise.resolve({ id: "cmlegacy0001" }),
         searchParams: Promise.resolve({ from: "email", tag: ["a", "b"] }),
       }),
-    ).rejects.toThrow("REDIRECT /issues/7/history?from=email&tag=a&tag=b");
+    ).rejects.toThrow(/^REDIRECT \/ziki\/7\/history\?from=email&tag=a&tag=b$/);
   });
 
-  it("redirects without a trailing ? when there is no query", async () => {
-    vi.mocked(prisma.bug.findUnique).mockResolvedValueOnce({ id: "cmlegacy0001", number: 7 } as never);
-    await expect(
-      IssueHistoryPage({ params: Promise.resolve({ id: "cmlegacy0001" }) }),
-    ).rejects.toThrow(/^REDIRECT \/issues\/7\/history$/);
+  it("redirects a number without a trailing ? when there is no query", async () => {
+    bugFindFirst.mockResolvedValueOnce({ number: 7, project: { slug: "ziki" } } as never);
+    await expect(LegacyIssueHistoryPage({ params: Promise.resolve({ id: "7" }) })).rejects.toThrow(
+      /^REDIRECT \/ziki\/7\/history$/,
+    );
+  });
+
+  it("is a 404 when nothing has that reference", async () => {
+    await expect(LegacyIssueHistoryPage({ params: Promise.resolve({ id: "999" }) })).rejects.toThrow("NOT_FOUND");
   });
 });

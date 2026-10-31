@@ -42,12 +42,10 @@ function type(text: string) {
 }
 
 describe("ReportIssueModal (#report-modal)", () => {
-  it("opens as a modal dialog with a title and a close button", () => {
+  it("opens as a modal dialog with a close button", () => {
     render(<ReportIssueModal {...props} />);
     const dialog = document.querySelector("dialog")!;
     expect(dialog.hasAttribute("open")).toBe(true);
-    expect(dialog.getAttribute("aria-labelledby")).toBe("report-modal-title");
-    expect(screen.getByRole("heading", { name: "Report an issue" })).toBeDefined();
     expect(screen.getByRole("button", { name: "Close" })).toBeDefined();
   });
 

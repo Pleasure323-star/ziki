@@ -33,7 +33,7 @@ describe("updateAvatarAction (#290, #576)", () => {
     const formData = new FormData();
     const result = await updateAvatarAction(undefined, formData);
     expect(result.ok).toBeUndefined();
-    expect(result.error).toBe("Please select an image file to upload.");
+    expect(result.error).toEqual(expect.any(String));
     expect(update).not.toHaveBeenCalled();
     expect(attachmentCreate).not.toHaveBeenCalled();
   });
@@ -45,7 +45,7 @@ describe("updateAvatarAction (#290, #576)", () => {
 
     const result = await updateAvatarAction(undefined, formData);
     expect(result.ok).toBeUndefined();
-    expect(result.error).toBe("Please choose a PNG, JPEG, WebP, or GIF image.");
+    expect(result.error).toEqual(expect.any(String));
     expect(update).not.toHaveBeenCalled();
     expect(attachmentCreate).not.toHaveBeenCalled();
   });

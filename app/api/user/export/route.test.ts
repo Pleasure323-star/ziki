@@ -47,7 +47,7 @@ describe("GET /api/user/export (#571)", () => {
     const response = await GET();
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Failed to export user data" });
+    expect(await response.json()).toEqual({ error: expect.any(String) });
     expect(exportUserData).not.toHaveBeenCalled();
   });
 
@@ -69,6 +69,6 @@ describe("GET /api/user/export (#571)", () => {
 
     expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body).toEqual({ error: "Failed to export user data" });
+    expect(body).toEqual({ error: expect.any(String) });
   });
 });

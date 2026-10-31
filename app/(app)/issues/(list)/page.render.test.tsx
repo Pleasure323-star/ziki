@@ -97,6 +97,7 @@ const BUG = {
   assignee: { name: "Bob Builder", role: "user", image: null },
   category: { id: "cat-web", name: "Web" },
   area: null,
+  project: { slug: "acme" },
   votes: [],
   _count: { comments: 3, attachments: 1 },
 };
@@ -139,12 +140,13 @@ beforeEach(() => {
 });
 
 describe("issue list layout", () => {
-  it("renders Issues as the page title with a page-level Add Idea CTA", async () => {
+  it("links each row to its project address and offers a new-issue link", async () => {
     const html = await renderList({ status: "all" });
     expect(html).toContain("Login button does nothing");
-    expect(html).toMatch(/<h1[^>]*>Issues<\/h1>/);
+    // #project-urls: a row opens the issue at /<project-slug>/<number>.
+    expect(html).toContain('href="/acme/7"');
+    expect(html).not.toContain('href="/issues/7"');
     expect(html).toContain('href="/issues/new?from=%2Fissues"');
-    expect(html).toContain("Add Idea");
   });
 
   it("keeps New issue on the empty filter state", async () => {
@@ -152,7 +154,7 @@ describe("issue list layout", () => {
     count.mockImplementation(async (args: { where?: { OR?: unknown } }) => (args?.where?.OR ? 0 : 5));
     findMany.mockResolvedValue([]);
     const html = await renderList({ q: "nothing matches", status: "all" });
-    expect(html).toContain("No issues match these filters.");
+    expect(html).toMatch(/no issues match/i);
     expect(html).toContain('href="/issues/new?from=%2Fissues"');
   });
 
@@ -163,8 +165,8 @@ describe("issue list layout", () => {
     );
     findMany.mockResolvedValue([]);
     const html = await renderList({ status: "all" });
-    expect(html).toContain("No issues yet");
-    expect(html).not.toContain("No issues match these filters.");
+    expect(html).toMatch(/no issues yet/i);
+    expect(html).not.toMatch(/no issues match/i);
     const firstRunCount = count.mock.calls.find(
       ([args]) =>
         args?.where?.isDeleted === false &&
@@ -184,33 +186,29 @@ describe("issue list layout", () => {
     });
     findMany.mockResolvedValue([]);
     const html = await renderList({ project: "all", q: "nothing", status: "all" });
-    expect(html).toContain("No issues match these filters.");
-    expect(html).not.toContain("No issues yet");
+    expect(html).toMatch(/no issues match/i);
+    expect(html).not.toMatch(/no issues yet/i);
     const firstRunCount = count.mock.calls.find(
       ([args]) => args?.where?.isDeleted === false && !args?.where?.OR && !args?.where?.status,
     );
     expect(firstRunCount?.[0].where.projectId).toBeUndefined();
   });
 
-  it("names the tab when only a status tab is picked and it is empty, with no Clear filters link", async () => {
+  it("offers no Clear filters link when only a status tab is picked and it is empty", async () => {
     count.mockImplementation(async (args: { where?: { status?: unknown } }) => (args?.where?.status === "requires_confirmation" ? 0 : 3));
     findMany.mockResolvedValue([]);
     const html = await renderList({ status: "requires_confirmation" });
-    expect(html).toContain("No issues in Requires confirmation.");
-    expect(html).not.toContain("No issues match these filters.");
+    expect(html).not.toMatch(/no issues match/i);
     expect(html).not.toContain("Clear filters");
-    expect(html).not.toContain("Try clearing filters");
   });
 
   it("says no issues match when the project has issues but the filters hide them", async () => {
     count.mockImplementation(async (args: { where?: { assigneeId?: unknown } }) => (args?.where?.assigneeId ? 0 : 3));
     findMany.mockResolvedValue([]);
     const html = await renderList({ mine: "assigned", status: "all" });
-    expect(html).toContain("No issues match these filters.");
-    expect(html).toContain('data-testid="whimsical-empty-state"');
-    expect(html).toContain("Create a new issue");
+    expect(html).toMatch(/no issues match/i);
     expect(html).toContain("Clear filters");
-    expect(html).not.toContain("No issues yet");
+    expect(html).not.toMatch(/no issues yet/i);
   });
 
   it("lists ideas under Ideas' New ideas, from the Idea table, with their score and no importance button (#idea-table)", async () => {
@@ -265,10 +263,7 @@ describe("issue list layout", () => {
     const html = await renderList({ status: "all" });
     expect(html).not.toContain('data-testid="idea-score-badge"');
     expect(html).not.toMatch(/click to mark important/);
-    // The same CountBadge as the idea score and the confirmations.
-    expect(html).toMatch(new RegExp(`data-testid="importance-count"[^>]*aria-label="Importance ${BUG.voteCount}"[^>]*><span>${BUG.voteCount}</span></span>`));
-    expect(html).toContain('<span class="w-[76px] shrink-0 text-center">Importance</span>');
-    expect(html).not.toContain(">Imp.</abbr>");
+    expect(html).toContain(`aria-label="Importance ${BUG.voteCount}"`);
     // A number to read: no vote button, so no voters or the viewer's own votes are fetched.
     expect(html).not.toMatch(/<button[^>]*aria-label="[^"]*[Ii]mportan/);
     expect(fetchVoterSummaries).not.toHaveBeenCalled();
@@ -278,7 +273,6 @@ describe("issue list layout", () => {
   it("has no Priority column and no severity anywhere in the list", async () => {
     const html = await renderList({ status: "all" });
     expect(html).not.toContain("Priority");
-    expect(html).not.toContain("issues-priority");
     expect(html).not.toMatch(/severity|Most severe/i);
     expect(findMany.mock.calls.at(-1)![0].select).not.toHaveProperty("severity");
   });
@@ -286,13 +280,11 @@ describe("issue list layout", () => {
   it("has no bulk-select checkboxes", async () => {
     const html = await renderList({ status: "all" });
     expect(html).not.toContain('type="checkbox"');
-    expect(html).not.toContain("issues-selection");
   });
 
   it("has no stage sidebar beside the list (#1054)", async () => {
     const html = await renderList();
     expect(html).not.toContain('aria-label="Issue stages"');
-    expect(html).not.toContain("lg:w-56");
   });
 
   it("still filters by ?stage= from old links (#1054)", async () => {
@@ -315,10 +307,9 @@ describe("issue list layout", () => {
     // so its staged count query is no longer made.
   });
 
-  it("is one centred list column without the stats card (#1056)", async () => {
+  it("has no stats card (#1056)", async () => {
     const html = await renderList();
     expect(html).not.toContain("Total issues");
-    expect(html).toContain('<div class="issues-page mx-auto w-full max-w-6xl space-y-5">');
     // The four stats counts are no longer queried.
     const statusOnly = count.mock.calls.filter(([args]) => args?.where?.status === "in_progress");
     expect(statusOnly).toHaveLength(0);
@@ -333,7 +324,7 @@ describe("issue list layout", () => {
     expect(statusCount?.[0].where).toMatchObject({ tenantId: "tenant-acme", projectId: "project-acme", categoryId: "cat-web" });
     expect(statusCount?.[0].where).not.toHaveProperty("status");
   });
-  it("puts the platforms behind an icon beside the notes, above the panel, with counts (#1055)", async () => {
+  it("offers the platforms behind a menu, with counts (#1055)", async () => {
     groupBy.mockResolvedValue([
       { categoryId: "cat-web", _count: { _all: 4 } },
       { categoryId: "cat-mobile", _count: { _all: 2 } },
@@ -341,14 +332,9 @@ describe("issue list layout", () => {
     ] as never);
     const html = await renderList({ platform: "cat-web", page: "2", q: "login" });
 
-    // It sits in the stage row, with Project notes, not in the panel.
-    const row = html.slice(0, html.indexOf('<div class="issues-page'));
-    expect(row).toContain('aria-label="Project notes"');
-    expect(row).toMatch(/<nav [^>]*aria-label="Platforms"/);
-    // An icon named for the chosen platform; the list stays hidden until opened.
-    expect(row).toContain('aria-label="Platform: Web"');
-    expect(row).not.toContain("Platform: <span");
-    const nav = row.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
+    // The menu is named for the chosen platform; the list stays hidden until opened.
+    expect(html).toContain('aria-label="Platform: Web"');
+    const nav = html.match(/<nav [^>]*aria-label="Platforms"[\s\S]*?<\/nav>/)?.[0] ?? "";
     expect(nav).toMatch(/<nav [^>]*aria-label="Platforms" hidden=""/);
     const tabs = [...nav.matchAll(/<a [^>]*><span[^>]*>([^<]+)<\/span><span[^>]*>(\d+)<\/span><\/a>/g)].map((m) => `${m[1].trim()} ${m[2]}`);
     // Active platforms only (not the inactive Desktop).
@@ -411,7 +397,7 @@ describe("issue list layout", () => {
     }
   });
 
-  it("shows the three stages above the panel, Ideas picked, and lists New ideas and Rejected ideas on the left", async () => {
+  it("shows the three stages, Ideas picked, and lists New ideas and Rejected ideas", async () => {
     const html = await renderList();
     expect(labels(stages(html))).toEqual(["Ideas", "Working", "Delivered"]);
     expect(current(stages(html))).toEqual(["Ideas"]);
@@ -420,7 +406,6 @@ describe("issue list layout", () => {
     expect(stages(html)).toContain('href="/issues?status=delivered"');
     expect(labels(statusList(html))).toEqual(["New ideas", "Rejected ideas"]);
     expect(current(statusList(html))).toEqual(["New ideas"]);
-    expect(html.indexOf('aria-label="Stages"')).toBeLessThan(html.indexOf('<div class="issues-page'));
   });
 
   it("puts Requires confirmation, Open, In progress and Closed under Working, and Delivered, Done, Ready to merge and Live under Delivered", async () => {
@@ -439,39 +424,22 @@ describe("issue list layout", () => {
     expect(findMany.mock.calls.at(-1)![0].where.status).toBe("requires_confirmation");
   });
 
-  it("counts confirmations on the left on the Requires confirmation tab, and puts importance at the row end", async () => {
+  it("counts confirmations on the Requires confirmation tab", async () => {
     const html = await renderList({ status: "requires_confirmation" });
-    expect(html).toContain('title="Confirmations">Conf.</abbr>');
-    expect(html).toContain('<span class="issues-vote-end">Importance</span>');
-    expect(html).not.toContain("Priority");
     expect(html).toContain('aria-label="1 of 2 confirmations so far"');
-    // Just the count: no "of 2" and no check while it is not confirmed.
-    expect(html).toMatch(/data-testid="confirmation-count"[^>]*><span[^>]*>1<\/span><\/span>/);
-    expect(html).not.toMatch(/data-testid="confirmation-count"[\s\S]*?>of 2</);
     expect(clean(html)).toContain("Not confirmed");
-    expect(html).not.toContain("Requires confirmation…");
-    // The importance number comes after the status cell, at the end of the row.
-    const row = html.slice(html.indexOf('class="issues-row'));
-    expect(row.indexOf("issues-vote issues-vote-end")).toBeGreaterThan(row.indexOf("issues-status-cell"));
-    expect(row).toMatch(/issues-vote issues-vote-end[^>]*><span data-testid="importance-count"/);
-    expect(row).not.toContain('class="issues-vote w-[76px]');
   });
 
-  it("turns the confirmations badge green with a check, and the row says Confirmed, at the threshold", async () => {
+  it("shows the issue as confirmed at the threshold", async () => {
     vi.mocked(openIssueConfirmations).mockResolvedValueOnce(new Map([["bug-1", { stage: "confirming", accepts: 2, rejects: 0, needed: 2, confirmed: true }]]));
     const html = await renderList({ status: "requires_confirmation" });
     expect(html).toContain('aria-label="Confirmed: 2 of 2 confirmations"');
-    expect(html).toMatch(/data-testid="confirmation-count"[^>]*bg-zk-ok-bg[^>]*><span[^>]*>2<\/span><span[^>]*><svg/);
-    expect(clean(html)).toMatch(/class="issue-row-status[^"]*text-zk-ok-fg"[^>]*>[\s\S]*?Confirmed<\/span>/);
     expect(clean(html)).not.toContain("Not confirmed");
   });
 
-  it("keeps importance on the left, with no Priority column, on the other tabs", async () => {
+  it("shows no confirmation count and no Priority column on the other tabs", async () => {
     const html = await renderList({ status: "open" });
-    expect(html).toContain('<span class="w-[76px] shrink-0 text-center">Importance</span>');
-    expect(html).not.toContain(">Imp.</abbr>");
     expect(html).not.toContain("Priority");
-    expect(html).not.toContain("issues-vote-end");
     expect(html).not.toContain("confirmation-count");
   });
 
@@ -480,7 +448,6 @@ describe("issue list layout", () => {
     for (const gone of ['aria-label="Issue status"', 'aria-label="Filter ideas"', 'aria-label="Filter all issues"', 'aria-label="Breadcrumb"', "Merge history", "View deleted issues", "Sort issues"]) {
       expect(html).not.toContain(gone);
     }
-    expect(html).toContain('<h1 class="sr-only">Issues</h1>');
   });
   it("drops ?ideas= when moving to another stage", async () => {
     const html = await renderList({ ideas: "drafts" });
@@ -521,7 +488,6 @@ describe("issue list layout", () => {
   it("shows a Filter by row under All: All, Rejected and Duplicates (Closed has its own tab)", async () => {
     const html = await renderList({ status: "all" });
     const filters = html.match(/<nav aria-label="Filter all issues"[\s\S]*?<\/nav>/)?.[0] ?? "";
-    expect(filters).toContain("Filter by:");
     const labels = [...filters.matchAll(/<a [^>]*>([A-Za-z]+)<span/g)].map((m) => m[1]);
     expect(labels).toEqual(["All", "Rejected", "Duplicates"]);
     expect(filters).toContain('href="/issues?status=rejected"');
@@ -605,26 +571,21 @@ describe("issue list layout", () => {
     expect(findMany.mock.calls.at(-1)![0].select).not.toHaveProperty("proofLinks");
   });
 
-  it("shows the assignee as a face only, and a short updated date (#1061)", async () => {
+  it("names the assignee and dates rows by when they were updated (#1061)", async () => {
     const html = await renderList({ status: "all" });
-    // The name is only in the tooltip and for screen readers.
-    expect(html).toContain('title="Assigned to Bob Builder"');
-    expect(html).toContain('<span class="sr-only">Assigned to Bob Builder</span>');
-    expect(html).not.toContain("max-w-[10rem] truncate");
+    expect(html).toContain("Bob Builder");
     // "Updated" means updatedAt (Oct 20), not when it was opened (Oct 1).
-    expect(html).toMatch(/<time dateTime="2026-10-20T10:00:00.000Z" title="Updated Oct 20, 2026/);
-    expect(html).not.toContain(">updated<");
+    expect(html).toContain('<time dateTime="2026-10-20T10:00:00.000Z"');
   });
 
   it("dates rows by when they were opened when sorted by newest (#1061)", async () => {
     const html = await renderList({ sort: "newest", status: "all" });
-    expect(html).toMatch(/<time dateTime="2026-10-01T10:00:00.000Z" title="Opened /);
+    expect(html).toContain('<time dateTime="2026-10-01T10:00:00.000Z"');
   });
 
-  it("keeps the row unwatch action visible in the compact mobile layout", async () => {
+  it("offers an unwatch action on watched rows", async () => {
     const html = await renderList({ mine: "watching", status: "all" });
 
-    expect(html).toContain('class="w-10 shrink-0 items-center justify-end gap-2 flex"');
     expect(html).toMatch(/aria-label="Unwatch [^"]*Login button does nothing"/);
   });
 });

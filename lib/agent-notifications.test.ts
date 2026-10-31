@@ -28,6 +28,7 @@ describe("agent and platform notifications (#443)", () => {
         bugTitle: "Header overlaps",
       }),
       SITE,
+      null,
     );
     expect(planned).toHaveLength(1);
     expect(planned[0]).toMatchObject({
@@ -62,6 +63,7 @@ describe("agent and platform notifications (#443)", () => {
         reminder: true,
       }),
       SITE,
+      null,
     );
     expect(planned).toMatchObject({
       userId: "owner",
@@ -82,6 +84,7 @@ describe("agent and platform notifications (#443)", () => {
         agent: { name: "GPT" },
       }),
       SITE,
+      null,
     );
     expect(planned.map((p) => [p.userId, p.kind, p.url])).toEqual([
       ["bob", "approval_needed", "/redesigns/r1"],
@@ -96,24 +99,25 @@ describe("agent and platform notifications (#443)", () => {
       tenantName: "Acme",
       invitedBy: { id: "alice", name: "Alice" },
     };
-    const planned = planNotifications(tenantInviteEvent({ ...invite, inviteeUserId: "cara" }), SITE);
+    const planned = planNotifications(tenantInviteEvent({ ...invite, inviteeUserId: "cara" }), SITE, null);
     expect(planned.map((p) => [p.userId, p.url])).toEqual([["cara", "/tenants?invite=inv%201"]]);
     expect(planned[0]?.title).toBe("Alice invited you to Acme");
 
-    expect(planNotifications(tenantInviteEvent({ ...invite, inviteeUserId: "alice" }), SITE)).toEqual([]);
+    expect(planNotifications(tenantInviteEvent({ ...invite, inviteeUserId: "alice" }), SITE, null)).toEqual([]);
   });
 
   it("tells the person named on an offer, linking to the issue", () => {
     const planned = planNotifications(
       claimOfferedEvent({ id: "c1", bugId: "b9", bugTitle: "Crash on save", beneficiaryUserId: "dan" }),
       SITE,
+      "/ziki/9",
     );
-    expect(planned.map((p) => [p.userId, p.kind, p.url])).toEqual([["dan", "claim_offered", "/issues/b9"]]);
+    expect(planned.map((p) => [p.userId, p.kind, p.url])).toEqual([["dan", "claim_offered", "/ziki/9"]]);
     expect(planned[0]?.text).toContain("a minute to accept");
   });
 
   it("links only to paths inside the app", () => {
-    for (const url of ["/questions/q1", "/redesigns/r1", "/tenants?invite=i1", "/issues/b1"]) {
+    for (const url of ["/questions/q1", "/redesigns/r1", "/tenants?invite=i1", "/issues/b1", "/ziki/9"]) {
       expect(safeNotificationPath(url)).toBe(url);
     }
   });

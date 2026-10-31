@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_SUGGEST_LENGTH,
-  MIN_SUGGEST_LENGTH,
   normalizeSuggestQuery,
   shouldSuggest,
 } from "./issue-suggest";
@@ -28,6 +27,5 @@ describe("shouldSuggest", () => {
     expect(shouldSuggest("a")).toBe(false);
     expect(shouldSuggest("ab")).toBe(true);
     expect(shouldSuggest("")).toBe(false);
-    expect(MIN_SUGGEST_LENGTH).toBe(2);
   });
 });

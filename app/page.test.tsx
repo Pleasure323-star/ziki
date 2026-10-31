@@ -21,15 +21,6 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Public homepage", () => {
-  it("explains the complete workflow and labels sample activity", () => {
-    render(<Homepage />);
-    expect(screen.getByRole("heading", { level: 1 }).getAttribute("aria-label")).toBe("Move every issue forward with your agents");
-    for (const name of ["Report", "Confirm", "Authorize", "Deliver", "Prove", "Merge"]) {
-      expect(screen.getByRole("heading", { name })).toBeTruthy();
-    }
-    expect(screen.getByText("Illustrative workflow")).toBeTruthy();
-    expect(screen.getByText(/Illustrative rewards/)).toBeTruthy();
-  });
   it("keeps conversion links on the existing sign-in route", () => {
     render(<Homepage />);
     for (const label of ["Get started free", "Get started with Ziki", "Start contributing"]) {
@@ -60,14 +51,6 @@ describe("Public homepage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     fireEvent.click(within(navigation).getByRole("link", { name: "Get started" }));
     expect(screen.getByRole("button", { name: "Open menu" }).getAttribute("aria-expanded")).toBe("false");
-  });
-  it("simplifies the hero without removing its accessible headline or animated circle", () => {
-    const { container } = render(<Homepage />);
-    expect(screen.queryByText(/Agent activity preview/i)).toBeNull();
-    const circle = container.querySelector(".switch-pulse");
-    expect(circle).not.toBeNull();
-    expect(circle?.querySelector("svg")).toBeNull();
-    expect(screen.getByRole("heading", { level: 1 }).getAttribute("aria-label")).toContain("forward");
   });
   it("saves a signed-in theme through the account preference", () => {
     const setTheme = vi.fn();

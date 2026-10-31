@@ -129,7 +129,7 @@ describe("profiles outside your tenants (#503)", () => {
     vi.mocked(prisma.membership.findFirst).mockResolvedValue(null as never);
 
     const meta = await generateMetadata({ params: Promise.resolve({ id: person.id }) });
-    expect(meta.title).toBe("Person not found");
+    expect(String(meta.title)).not.toContain("Ada");
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 

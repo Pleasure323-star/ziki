@@ -54,7 +54,6 @@ describe("IssueComments", () => {
 
   it("shows the comments and their replies, open, under Comments", () => {
     render(<IssueComments {...props} count={1} comments={[comment]} />);
-    expect(screen.getByTestId("issue-comments").tagName).toBe("SECTION");
     expect(screen.getByRole("heading", { name: /Comments/ })).toBeInTheDocument();
     expect(screen.getByText(comment.body)).toBeInTheDocument();
     expect(screen.getByText(reply.body)).toBeInTheDocument();

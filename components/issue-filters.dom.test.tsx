@@ -121,7 +121,7 @@ describe("IssueFilters milestone filters (#728)", () => {
       render(<IssueFilters milestones={milestones} />);
 
       const remove = screen.getByRole("button", { name: "Remove milestone filter" });
-      expect(remove.parentElement).toHaveTextContent(`Milestone: ${label}`);
+      expect(remove.parentElement).toHaveTextContent(label);
       expect(screen.getByRole("button", { name: "Clear all filters" })).toBeInTheDocument();
       fireEvent.click(remove);
       expect(nav.push).toHaveBeenCalledWith("/issues");
@@ -210,7 +210,7 @@ describe("IssueFilters live search (#671)", () => {
     fetchMock.mockResolvedValue({
       ok: true,
       json: async () => ({
-        issues: [{ id: "i1", number: 4, title: "Login button broken", status: "open" }],
+        issues: [{ id: "i1", number: 4, title: "Login button broken", status: "open", path: "/ziki/4" }],
       }),
     });
     render(<IssueFilters tagTypes={tagTypes} />);
@@ -222,8 +222,8 @@ describe("IssueFilters live search (#671)", () => {
     expect(option).toBeInTheDocument();
 
     fireEvent.click(option);
-    // #457: the picked issue opens at its readable number.
-    expect(nav.push).toHaveBeenCalledWith("/issues/4");
+    // #project-urls: the picked issue opens at its project address.
+    expect(nav.push).toHaveBeenCalledWith("/ziki/4");
   });
 
   it("puts the real search back when a tag is picked", async () => {
@@ -486,7 +486,7 @@ describe("IssueFilters stage filter (#1054)", () => {
     render(<IssueFilters />);
     expect(screen.getByRole("button", { name: /filter \(1 active\)/i })).toBeInTheDocument();
     const remove = screen.getByRole("button", { name: "Remove stage filter" });
-    expect(remove.parentElement).toHaveTextContent("Kind: Requires confirmation");
+    expect(remove.parentElement).toHaveTextContent(/requires confirmation/i);
     fireEvent.click(remove);
     expect(nav.push).toHaveBeenCalledWith("/issues");
   });
@@ -515,7 +515,7 @@ describe("IssueFilters without a platform select (#1055)", () => {
     render(<IssueFilters platforms={platforms} />);
     expect(screen.getByRole("button", { name: /filter \(1 active\)/i })).toBeInTheDocument();
     const remove = screen.getByRole("button", { name: "Remove platform filter" });
-    expect(remove.parentElement).toHaveTextContent("Platform: No platform");
+    expect(remove.parentElement).toHaveTextContent(/no platform/i);
     fireEvent.click(remove);
     expect(nav.push).toHaveBeenCalledWith("/issues");
   });

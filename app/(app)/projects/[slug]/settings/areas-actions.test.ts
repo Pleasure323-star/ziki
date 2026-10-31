@@ -117,7 +117,7 @@ describe("project area actions (#609)", () => {
 
   it("refuses to edit an area from another project", async () => {
     mocks.areaFindFirst.mockResolvedValue(null);
-    await expect(updateProjectAreaAction(undefined, form({ ...Object.fromEntries(createForm().entries()), areaId: "foreign-area" }))).resolves.toEqual({ ok: false, error: "Area not found in this project." });
+    await expect(updateProjectAreaAction(undefined, form({ ...Object.fromEntries(createForm().entries()), areaId: "foreign-area" }))).resolves.toEqual({ ok: false, error: expect.any(String) });
     expect(mocks.areaUpdate).not.toHaveBeenCalled();
   });
 

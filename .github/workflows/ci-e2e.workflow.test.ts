@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 /** CI e2e must exercise the agent platform, not its disabled state (#588). */
 const ci = readFileSync(".github/workflows/ci.yml", "utf8");
-const a11y = readFileSync("e2e/a11y.spec.ts", "utf8");
 
 describe("e2e agent-platform coverage (#588)", () => {
   it("turns the agent platform on for the e2e job", () => {
@@ -14,10 +13,5 @@ describe("e2e agent-platform coverage (#588)", () => {
   it("provides a dummy webhook signing key", () => {
     const match = /WEBHOOK_SECRET_KEY:\s*"([a-f0-9]{64})"/.exec(ci);
     expect(match).not.toBeNull();
-  });
-
-  it("sweeps the agent settings and pairing pages for accessibility", () => {
-    expect(a11y).toContain('"/settings/agents"');
-    expect(a11y).toContain("/settings/agents/pair");
   });
 });

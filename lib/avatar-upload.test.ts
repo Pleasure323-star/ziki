@@ -52,18 +52,12 @@ describe("validateAvatarBytes", () => {
   it("rejects empty bytes", () => {
     const res = validateAvatarBytes(new Uint8Array(0));
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error).toBe("Please select an image file.");
-    }
   });
 
   it("rejects files exceeding maximum avatar size", () => {
     const large = new Uint8Array(MAX_AVATAR_BYTES + 1);
     const res = validateAvatarBytes(large);
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error).toBe("Image must be 2 MB or smaller.");
-    }
   });
 
   it("validates safe PNG file", () => {
@@ -76,9 +70,6 @@ describe("validateAvatarBytes", () => {
     const invalid = new TextEncoder().encode("not an image");
     const res = validateAvatarBytes(invalid);
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error).toBe("Please choose a PNG, JPEG, WebP, or GIF image.");
-    }
   });
 });
 

@@ -28,20 +28,10 @@ const base = {
 };
 
 describe("EditableIssueDescription heading row", () => {
-  it("shows no date; the opened date is in the Status box", () => {
-    const { container } = render(<EditableIssueDescription {...base} />);
+  it("offers editing to people who can edit", () => {
+    const { getByRole } = render(<EditableIssueDescription {...base} />);
 
-    expect(container.querySelector("time")).toBeNull();
-  });
-
-  it("offers editing as an icon button on the heading row", () => {
-    const { container, getByRole } = render(<EditableIssueDescription {...base} />);
-
-    const headingRow = container.querySelector("section > div");
-    const edit = getByRole("button", { name: "Edit description" });
-
-    expect(headingRow).toContainElement(edit);
-    expect(edit).toHaveTextContent("");
+    expect(getByRole("button", { name: "Edit description" })).toBeInTheDocument();
   });
 
   it("hides the edit button from people who can't edit", () => {

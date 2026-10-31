@@ -65,7 +65,7 @@ test("an Open issue says it is waiting for bids and takes comments and replies; 
   await page.reload();
 
   // Nobody has it: the next-step bar says so, and there is no award box.
-  await expect(page.getByTestId("next-step-bar")).toContainText("Open: waiting for bids");
+  await expect(page.getByTestId("next-step-bar")).toContainText(/bids/i);
   await expect(page.getByTestId("award-box")).toHaveCount(0);
 
   const comments = page.getByTestId("issue-comments");

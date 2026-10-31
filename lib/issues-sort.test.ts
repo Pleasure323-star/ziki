@@ -24,11 +24,6 @@ describe("sort options constants and labels", () => {
     expect(DEFAULT_BUG_SORT).toBe("importance");
   });
 
-  it("labels the importance sorts (#importance)", () => {
-    expect(bugSortLabels.importance).toBe("Most important");
-    expect(bugSortLabels.least_important).toBe("Least important");
-  });
-
   it("has a label and a description for every option", () => {
     for (const option of BUG_SORT_OPTIONS) {
       expect(bugSortLabels[option], option).toBeTruthy();

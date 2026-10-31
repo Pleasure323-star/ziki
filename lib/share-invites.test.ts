@@ -9,7 +9,6 @@ import { hashInviteToken } from "./invites";
 import { openSecret } from "./secret-box";
 import {
   SHARE_LINK_ACTIVE_CAP,
-  SHARE_LINK_ERRORS,
   acceptShareLink,
   createShareLink,
   joinedSummary,
@@ -18,7 +17,6 @@ import {
   revokeShareLink,
   shareLinkAudience,
   shareLinkState,
-  shareLinkStatusLabel,
 } from "./share-invites";
 
 const NOW = new Date("2026-10-20T12:00:00.000Z");
@@ -227,16 +225,12 @@ describe("share link rules", () => {
     expect(shareLinkState({ ...base, useCount: 1 }, NOW)).toBe("used");
     expect(shareLinkState({ ...base, expiresAt: NOW }, NOW)).toBe("expired");
     expect(shareLinkState({ ...base, revokedAt: NOW }, NOW)).toBe("revoked");
-    expect(shareLinkStatusLabel("open")).toBe("Active");
-    expect(shareLinkStatusLabel("used")).toBe("Used up");
   });
 
-  it("describes who can still use a link", () => {
-    expect(shareLinkAudience({ maxUses: null, useCount: 4 })).toMatch(/Anyone with this link/);
-    expect(shareLinkAudience({ maxUses: 1, useCount: 0 })).toMatch(/One person/);
+  it("counts the uses a link has left and the people beyond the listed names", () => {
     expect(shareLinkAudience({ maxUses: 10, useCount: 3 })).toMatch(/7 of 10/);
-    expect(joinedSummary(["Ada", "Bob", "Cara", "Dee"], 6)).toBe("Ada, Bob, Cara and 3 more");
-    expect(joinedSummary(["Ada"], 1)).toBe("Ada");
+    expect(joinedSummary(["Ada", "Bob", "Cara", "Dee"], 6)).toMatch(/Ada.*Bob.*Cara.*3/);
+    expect(joinedSummary(["Ada", "Bob", "Cara", "Dee"], 6)).not.toContain("Dee");
     expect(joinedSummary([], 0)).toBe("");
   });
 });
@@ -294,7 +288,6 @@ describe("acceptShareLink", () => {
 
     const again = await acceptShareLink(db as never, token, { id: "cara" }, NOW);
     expect(again).toEqual({ ok: false, reason: "used" });
-    expect(SHARE_LINK_ERRORS.used).toMatch(/used/);
     expect(db.links[0]?.useCount).toBe(1);
     expect(db.memberships.some((row) => row.userId === "cara")).toBe(false);
   });

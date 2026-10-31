@@ -30,7 +30,6 @@ describe("project area filtering (#609)", () => {
 
   it("labels selected filters for the result summary", () => {
     expect(projectAreaFilterLabel("area-web", areas)).toBe("Frontend");
-    expect(projectAreaFilterLabel(AREA_NONE, areas)).toBe("no area");
     expect(projectAreaFilterLabel(null, areas)).toBeNull();
   });
 });

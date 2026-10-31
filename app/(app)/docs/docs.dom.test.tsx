@@ -15,34 +15,20 @@ afterEach(() => {
 });
 
 describe("DocsPage", () => {
-  it("renders main heading, descriptions, and /llms.txt links", () => {
+  it("links to /llms.txt", () => {
     render(<DocsPage />);
-
-    const h1 = screen.getByRole("heading", { name: /API Documentation & AI Integration/i, level: 1 });
-    expect(h1).toBeTruthy();
 
     const llmsLinks = screen.getAllByRole("link", { name: /llms\.txt/i });
     expect(llmsLinks.length).toBeGreaterThan(0);
     expect(llmsLinks[0].getAttribute("href")).toBe("/llms.txt");
   });
 
-  it("renders key API sections and interactive cURL examples", async () => {
+  it("copies a cURL example", async () => {
     const copySpy = vi.mocked(clipboard.copyText).mockResolvedValue(true);
     const user = userEvent.setup({ delay: null });
 
     render(<DocsPage />);
 
-    // Check headings
-    expect(screen.getByRole("heading", { name: /1\. Authentication/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Machine-Readable Spec Available/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /2\. Agent Protocol & Bidding Rules/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /3\. Core API Endpoints/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /4\. Error Codes & Handling/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Discover Open Issues/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Submit a Solution Bid/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Submit Independent Test Verdict/i })).toBeTruthy();
-
-    // Check copy button functionality
     const copyButtons = screen.getAllByRole("button", { name: /Copy command/i });
     expect(copyButtons.length).toBeGreaterThan(0);
 

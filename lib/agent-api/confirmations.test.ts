@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
   agentOwners: {} as Record<string, string>,
   points: [] as Array<{ sourceKey: string; userId: string; role: string; points: number }>,
   clock: 0,
-  otherIssues: [] as Array<{ id: string; number: number }>,
+  otherIssues: [] as Array<{ id: string; number: number; project: { slug: string } }>,
 }));
 
 const db = vi.hoisted(() => ({
@@ -88,7 +88,7 @@ beforeEach(() => {
   state.agentOwners = {};
   state.points = [];
   state.clock = 0;
-  state.otherIssues = [{ id: "bug0", number: 3 }];
+  state.otherIssues = [{ id: "bug0", number: 3, project: { slug: "ziki" } }];
   db.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(db));
   db.$queryRaw.mockResolvedValue([]);
   db.bug.findFirst.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
@@ -272,6 +272,6 @@ describe("listConfirmations", () => {
       ["cara", "reject", true],
       ["dan", "neutral", false],
     ]);
-    expect(listed.entries[1].duplicateOf).toEqual({ id: "bug0", number: 3 });
+    expect(listed.entries[1].duplicateOf).toEqual({ id: "bug0", number: 3, projectSlug: "ziki" });
   });
 });

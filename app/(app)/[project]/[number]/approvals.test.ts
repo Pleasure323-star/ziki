@@ -36,6 +36,15 @@ vi.mock("@/lib/session-user", () => ({
   resolveSessionUserId: vi.fn(),
 }));
 
+// #project-urls: /<project-slug>/<number> is looked up in lib/project-issue.ts.
+vi.mock("@/lib/project-issue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/project-issue")>()),
+  findProjectIssue: vi.fn(async () => ({
+    kind: "found" as const,
+    issue: { id: "bug-1", number: 1, projectSlug: "zedu", isDeleted: false },
+  })),
+}));
+
 vi.mock("@/lib/auth-helpers", () => ({
   requireUser: vi.fn(),
 }));
@@ -97,7 +106,7 @@ vi.mock("@/lib/platforms", () => ({
 
 const mockDb = vi.hoisted(() => ({
   membership: { findUnique: vi.fn().mockResolvedValue({ role: "admin", userId: "user-123" }), findMany: vi.fn().mockResolvedValue([]) },
-  bug: { findUnique: vi.fn(), findFirst: vi.fn(async () => ({ id: "bug-1", number: 1 })) },
+  bug: { findUnique: vi.fn(), findFirst: vi.fn() },
   redesignProposal: { findMany: vi.fn().mockResolvedValue([]) },
   issueBid: { findMany: vi.fn().mockResolvedValue([]) },
   issueApproval: { findFirst: vi.fn() },
@@ -155,6 +164,7 @@ describe("Issue page human approval banner (#598)", () => {
       comments: [],
       activities: [],
       votes: [],
+      project: { slug: "zedu" },
       isDeleted: false,
     });
   });
@@ -173,13 +183,13 @@ describe("Issue page human approval banner (#598)", () => {
     });
 
     const page = await BugDetailPage({
-      params: Promise.resolve({ id: "1" }),
+      params: Promise.resolve({ project: "zedu", number: "1" }),
     });
 
     render(page);
-    expect(screen.getByText("Human approval required")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.getByText(/human approval/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /reject/i })).toBeInTheDocument();
   });
 
   it("shows banner without action buttons for non-admins", async () => {
@@ -193,23 +203,23 @@ describe("Issue page human approval banner (#598)", () => {
     });
 
     const page = await BugDetailPage({
-      params: Promise.resolve({ id: "1" }),
+      params: Promise.resolve({ project: "zedu", number: "1" }),
     });
 
     render(page);
-    expect(screen.getByText("Human approval required")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Waiting for workspace owner or admin decision/i)).toBeInTheDocument();
+    expect(screen.getByText(/human approval/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reject/i })).not.toBeInTheDocument();
   });
 
   it("does not render banner when no approval is pending", async () => {
     mockDb.issueApproval.findFirst.mockResolvedValue(null);
 
     const page = await BugDetailPage({
-      params: Promise.resolve({ id: "1" }),
+      params: Promise.resolve({ project: "zedu", number: "1" }),
     });
 
     render(page);
-    expect(screen.queryByText("Human approval required")).not.toBeInTheDocument();
+    expect(screen.queryByText(/human approval/i)).not.toBeInTheDocument();
   });
 });

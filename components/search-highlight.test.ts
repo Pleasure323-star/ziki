@@ -18,14 +18,13 @@ describe("Highlighted", () => {
 });
 
 describe("SearchSnippet", () => {
-  it("labels the snippet for screen readers and shows ellipses where cut", () => {
+  it("shows ellipses where the snippet is cut", () => {
     const snippet = matchSnippet(
       "a long description where the word export appears somewhere in the middle of it all",
       "export",
       10,
     )!;
     const html = renderToStaticMarkup(createElement(SearchSnippet, { snippet }));
-    expect(html).toContain("Matched in description");
     expect(html.match(/…/g)).toHaveLength(2);
     expect(html).toMatch(/<mark[^>]*>export<\/mark>/);
   });

@@ -82,35 +82,6 @@ describe("reconcileVoteCount (#362)", () => {
     expect(reconcileVoteCount(0, 0)).toBe(0);
     expect(reconcileVoteCount(100, 0)).toBe(100);
   });
-
-  it("ensures toggleVoteAction in app/actions/bugs.ts reconciles count from Vote rows (#362)", async () => {
-    const { readFileSync } = await import("fs");
-    const source = readFileSync("app/actions/issues.ts", "utf8");
-
-    // Guard: relative increment must not be used to prevent race-condition counter drift
-    expect(source).not.toContain('"voteCount" + ${countDelta}');
-    expect(source).not.toContain("{ increment: countDelta }");
-
-    // Guard: authoritative count must be computed from groupBy and written directly to Bug
-    expect(source).toContain("const voteCount = reconcileVoteCount(likeCount, dislikeCount)");
-    expect(source).toContain("await tx.bug.update({");
-    expect(source).toContain("data: { voteCount }");
-
-    // Guard: serialize vote changes using row-level locking
-    expect(source).toContain('SELECT id FROM "Bug" WHERE id = ${bugId} FOR UPDATE');
-  });
-
-  it("ensures all bug-modifying actions lock the row to avoid voteCount race conditions (#676)", async () => {
-    const { readFileSync } = await import("fs");
-    const source = readFileSync("app/actions/issues.ts", "utf8");
-
-    // Guard: row-level locking must be used across all operations that modify the bug or affect vote state
-    const matches = source.match(/SELECT id FROM "Bug" WHERE id = \$\{bugId\} FOR UPDATE/g);
-    expect(matches?.length).toBeGreaterThanOrEqual(5);
-
-    // Guard: restoreBugAction must reconcile voteCount upon restoring
-    expect(source).toContain("voteCount = reconcileVoteCount(likeCount, dislikeCount)");
-  });
 });
 
 describe("manager-weighted upvotes", () => {

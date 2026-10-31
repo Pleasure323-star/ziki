@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  WEEKLY_POINTS_TARGET,
   addUtcDays,
   buildPointsSeries,
   captionFor,
@@ -18,10 +17,6 @@ const entry = (iso: string, points: number) => ({
 
 describe("points history buckets", () => {
   const now = new Date("2026-10-22T15:00:00Z");
-
-  it("exposes the 500-pt weekly target", () => {
-    expect(WEEKLY_POINTS_TARGET).toBe(500);
-  });
 
   it("starts ISO weeks on Monday UTC", () => {
     expect(startOfIsoWeek(now).toISOString()).toBe("2026-10-19T00:00:00.000Z");

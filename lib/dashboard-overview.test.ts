@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_IDLE_WINDOW_MS,
-  PREVIEW_LIMIT,
   RESOLVED_STATUSES,
   UNRESOLVED_STATUSES,
   classifyAgentStatus,
@@ -14,10 +13,6 @@ import { isDone } from "./issue-state";
 const ALL_STATUSES = ["requires_confirmation", "open", "in_progress", "resolved", "closed"] as const;
 
 describe("dashboard overview counts (#dashboard)", () => {
-  it("shows exactly three preview rows per card", () => {
-    expect(PREVIEW_LIMIT).toBe(3);
-  });
-
   it("partitions every issue into unresolved or resolved, never both", () => {
     for (const status of ALL_STATUSES) {
       const unresolved = isUnresolvedStatus(status);

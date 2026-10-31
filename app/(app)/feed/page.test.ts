@@ -39,6 +39,7 @@ describe("FeedPage (#542)", () => {
         title: "Test bug",
         status: "open",
         createdAt,
+        project: { slug: "ziki" },
       },
     ] as unknown as Awaited<ReturnType<typeof prisma.bug.findMany>>);
 

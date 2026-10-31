@@ -38,9 +38,8 @@ describe("AgentRowKey", () => {
     });
   });
 
-  it("tells the owner to regenerate a key that was not sealed", () => {
+  it("offers no copy for a key that was not sealed", () => {
     render(<AgentRowKey apiKey={null} prefix="ziki_old1" projectId="project-1" projectName="Web" />);
-    expect(screen.getByText(/Regenerate it/)).toBeDefined();
     expect(screen.queryByRole("button", { name: "Copy key" })).toBeNull();
   });
 });

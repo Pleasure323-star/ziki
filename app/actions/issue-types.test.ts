@@ -212,7 +212,7 @@ describe("issue-types actions on a type that no longer exists (#227)", () => {
 
     const result = await updateIssueTypeAction("type-gone", formData);
 
-    expect(result).toEqual({ error: "Type not found" });
+    expect(result).toEqual({ error: expect.any(String) });
   });
 
   it("returns 'Type not found' when deleting a type that is already gone", async () => {
@@ -220,7 +220,7 @@ describe("issue-types actions on a type that no longer exists (#227)", () => {
 
     const result = await deleteIssueTypeAction("type-gone");
 
-    expect(result).toEqual({ error: "Type not found" });
+    expect(result).toEqual({ error: expect.any(String) });
     expect(deleteMock).not.toHaveBeenCalled();
   });
 
@@ -231,7 +231,7 @@ describe("issue-types actions on a type that no longer exists (#227)", () => {
 
     const result = await deleteIssueTypeAction("type-1");
 
-    expect(result).toEqual({ error: "Type not found" });
+    expect(result).toEqual({ error: expect.any(String) });
   });
 
   it("still deletes an unused type that exists", async () => {

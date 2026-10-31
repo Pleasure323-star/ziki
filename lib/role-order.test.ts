@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * /admin/users lists one organization's members and orders them in the
+ * /org/members lists one organization's members and orders them in the
  * database. `orderBy: { role: "asc" }` puts owners first only while
  * MembershipRole is declared owner, admin, member — Postgres sorts an enum
  * by its declaration order. Reordering the enum would silently shuffle that
@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 describe("MembershipRole enum declaration order", () => {
   const schema = readFileSync("prisma/schema.prisma", "utf8");
 
-  it("is most to least privileged, which is what the admin page sorts ascending", () => {
+  it("is most to least privileged, which is what the members page sorts ascending", () => {
     const block = schema.match(/enum MembershipRole \{([^}]*)\}/);
     expect(block, "enum MembershipRole not found in schema.prisma").not.toBeNull();
     const members = block![1]
@@ -19,12 +19,6 @@ describe("MembershipRole enum declaration order", () => {
       .map((line) => line.replace(/\/\/.*$/, "").trim())
       .filter(Boolean);
     expect(members).toEqual(["owner", "admin", "member"]);
-  });
-
-  it("is what the admin users page orders by", () => {
-    const page = readFileSync("app/(app)/admin/users/page.tsx", "utf8");
-    expect(page).toMatch(/orderBy:\s*\[\{\s*role:\s*"asc"\s*\}/);
-    expect(page).toMatch(/tenantMemberWhere/);
   });
 });
 

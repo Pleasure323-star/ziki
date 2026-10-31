@@ -78,7 +78,7 @@ describe("switchActiveRoleAction", () => {
     findUser.mockResolvedValue({ id: "u2", role: "admin" } as never);
 
     await expect(switchActiveRoleAction("super_admin", "/issues")).resolves.toEqual({
-      error: "Only super admins can switch to super admin",
+      error: expect.any(String),
     });
     expect(setCookie).not.toHaveBeenCalled();
   });

@@ -9,25 +9,25 @@ describe("inUseText", () => {
   });
 
   it("explains the refusal with the real count", () => {
-    expect(inUseText({ kind: "platform", name: "Desktop", total: 3, deleted: 0 }).reason).toBe(
-      "The platform “Desktop” can't be deleted because 3 issues use it.",
-    );
-    expect(inUseText({ kind: "type", name: "Fix", total: 1, deleted: 0 }).reason).toBe(
-      "The issue type “Fix” can't be deleted because 1 issue uses it.",
-    );
+    const platform = inUseText({ kind: "platform", name: "Desktop", total: 3, deleted: 0 }).reason;
+    expect(platform).toContain("Desktop");
+    expect(platform).toMatch(/\b3 issues\b/);
+    const type = inUseText({ kind: "type", name: "Fix", total: 1, deleted: 0 }).reason;
+    expect(type).toContain("Fix");
+    expect(type).toMatch(/\b1 issue\b/);
   });
 
   it("labels the live link with only the issues the list will show", () => {
     // Deleted issues block deletion but are hidden from the normal list.
     const text = inUseText({ kind: "platform", name: "Web", total: 5, deleted: 2 });
-    expect(text.liveLink).toBe("View the 3 issues");
-    expect(text.deletedLink).toBe("2 deleted issues");
+    expect(text.liveLink).toMatch(/\b3 issues\b/);
+    expect(text.deletedLink).toMatch(/\b2 deleted issues\b/);
   });
 
   it("offers no live link when every issue using it is deleted", () => {
     const text = inUseText({ kind: "type", name: "Old", total: 1, deleted: 1 });
     expect(text.liveLink).toBeNull();
-    expect(text.deletedLink).toBe("1 deleted issue");
+    expect(text.deletedLink).toMatch(/\b1 deleted issue\b/);
   });
 
   it("offers no deleted link when none are deleted", () => {

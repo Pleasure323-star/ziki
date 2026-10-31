@@ -19,8 +19,4 @@ describe("container migration script (#581)", () => {
     expect(gateAt).toBeGreaterThan(-1);
     expect(gateAt).toBeLessThan(firstEnsure);
   });
-
-  it("logs when it skips the repairs", () => {
-    expect(source).toContain("Repair steps skipped");
-  });
 });

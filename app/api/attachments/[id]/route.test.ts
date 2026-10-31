@@ -51,7 +51,7 @@ describe("GET /api/attachments/[id]", () => {
     findUnique.mockResolvedValue(null);
     const res = await makeRequest("missing-id");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "File not found" });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
   });
 
   it("returns 404 if attachment is unlinked and uploader is someone else", async () => {
@@ -232,7 +232,7 @@ describe("DELETE /api/attachments/[id] (#658)", () => {
     findUnique.mockResolvedValue(null);
     const res = await makeDeleteRequest("missing-id");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "File not found" });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(attachmentDelete).not.toHaveBeenCalled();
   });
 

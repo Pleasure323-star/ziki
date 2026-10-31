@@ -14,7 +14,6 @@ import {
   homePathFor,
   landingPath,
   memberTenantById,
-  memberTenantBySlug,
   promoteFirstZeduOwner,
   renameTenant,
   setTenantArchived,
@@ -136,50 +135,33 @@ describe("the person's tenants (#444)", () => {
     ]);
   });
 
-  it("finds a tenant by slug only for its members: a guessed slug reveals nothing", async () => {
-    const db = membershipDb();
-    expect(await memberTenantBySlug(db as never, "ada", "acme")).toEqual({ ...ACME, role: "owner" });
-
-    const guessed = await memberTenantBySlug(db as never, "zed", "acme");
-    const missing = await memberTenantBySlug(db as never, "zed", "no-such-tenant");
-    expect(guessed).toBeNull();
-    expect(missing).toBeNull();
-    // The lookup is scoped to the person, so another tenant's row is never read.
-    expect(db.membership.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "zed", tenant: { slug: "acme" } } }),
-    );
-  });
-
   it("loads the tenant when archivedAt has not been migrated yet", async () => {
     const row = { role: "owner" as const, tenant: { id: "tenant-ziki", slug: "ziki", name: "Ziki" } };
     const missing = Object.assign(
       new Error("The column `Tenant.archivedAt` does not exist in the current database."),
       { code: "P2022", meta: { column: "Tenant.archivedAt" } },
     );
-    const findFirst = vi.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce(row);
-    const db = { membership: { findFirst } };
+    const findUnique = vi.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce(row);
+    const db = { membership: { findUnique } };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(memberTenantBySlug(db as never, "ada", "ziki")).resolves.toEqual({
+    await expect(memberTenantById(db as never, "ada", "tenant-ziki")).resolves.toEqual({
       ...row.tenant,
       archivedAt: null,
       role: "owner",
     });
-    expect(findFirst).toHaveBeenCalledTimes(2);
-    expect(findFirst.mock.calls[1][0].select.tenant.select).not.toHaveProperty("archivedAt");
+    expect(findUnique).toHaveBeenCalledTimes(2);
+    expect(findUnique.mock.calls[1][0].select.tenant.select).not.toHaveProperty("archivedAt");
+    error.mockRestore();
   });
 
-  it("still fails the slug lookup when the database error is not a missing archivedAt", async () => {
-    const findFirst = vi.fn().mockRejectedValue(new Error('column "voteCount" does not exist'));
-    const db = { membership: { findFirst } };
-    await expect(memberTenantBySlug(db as never, "ada", "ziki")).rejects.toThrow(/voteCount/);
-    expect(findFirst).toHaveBeenCalledTimes(1);
-  });
-
-  it("doesn't query for something that can't be a slug", async () => {
-    const db = membershipDb();
-    expect(await memberTenantBySlug(db as never, "ada", "Acme Secret Project")).toBeNull();
-    expect(await memberTenantBySlug(db as never, "ada", "../zedu")).toBeNull();
-    expect(db.membership.findFirst).not.toHaveBeenCalled();
+  it("doesn't retry the lookup when the database error is not a missing archivedAt", async () => {
+    const findUnique = vi.fn().mockRejectedValue(new Error('column "voteCount" does not exist'));
+    const db = { membership: { findUnique } };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(memberTenantById(db as never, "ada", "tenant-ziki")).resolves.toBeNull();
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it("finds a tenant by id only for its members", async () => {

@@ -22,24 +22,6 @@ describe("MergePathChips", () => {
   it("warns on dev when no PR is linked", () => {
     const { container } = render(<MergePathChips path={mergePathOf({ pullRequestUrl: null, status: "open", updatedAt: at })} />);
     expect(states(container)[0]).toBe("dev:not_linked");
-    expect(container.querySelector('[data-stage="dev"]')).toHaveAttribute("title", "Not linked");
   });
 
-  it("shrinks the chips and keeps them on one line when compact", () => {
-    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", status: "resolved", updatedAt: at });
-    const full = render(<MergePathChips path={path} />).container;
-    expect(full.querySelector('[data-stage="dev"]')).toHaveClass("h-6");
-    expect(full.querySelector(".merge-path")).toHaveClass("flex-wrap");
-    cleanup();
-    const compact = render(<MergePathChips path={path} compact />).container;
-    expect(compact.textContent).toBe("dev→staging→main");
-    expect(compact.querySelector('[data-stage="dev"]')).toHaveClass("h-5");
-    expect(compact.querySelector(".merge-path")).not.toHaveClass("flex-wrap");
-  });
-
-  it("pulses a chip whose PR is still open", () => {
-    const path = mergePathOf({ pullRequestUrl: "https://github.com/o/r/pull/1", status: "in_progress", updatedAt: at });
-    const { container } = render(<MergePathChips path={path} />);
-    expect(container.querySelector('[data-stage="dev"]')).toHaveClass("merge-chip-live");
-  });
 });

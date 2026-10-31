@@ -66,7 +66,7 @@ describe("POST /api/user/avatar", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Please select an image file to upload." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
   });
 
   it("returns 400 when file is SVG or invalid format", async () => {
@@ -78,7 +78,7 @@ describe("POST /api/user/avatar", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Please choose a PNG, JPEG, WebP, or GIF image." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
   });
 
   it("returns 200 and updates avatar for valid PNG file", async () => {

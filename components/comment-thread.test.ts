@@ -15,7 +15,7 @@ import { CommentThread } from "./comment-thread";
 import type { CommentNode } from "@/lib/comments";
 
 describe("CommentThread permalinks (#142)", () => {
-  it("renders comment id, scroll-mt-24, and timestamp permalink anchor", () => {
+  it("renders comment id and a permalink anchor", () => {
     const comments: CommentNode[] = [
       {
         id: "c1",
@@ -45,10 +45,7 @@ describe("CommentThread permalinks (#142)", () => {
     );
 
     expect(html).toContain('id="comment-c1"');
-    expect(html).toContain("scroll-mt-24");
     expect(html).toContain('href="#comment-c1"');
-    // A permalink copy control beside the timestamp, with a real name (#279).
-    expect(html).toContain('aria-label="Copy link to this comment"');
   });
 });
 

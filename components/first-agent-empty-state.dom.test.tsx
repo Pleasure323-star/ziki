@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { FirstAgentEmptyState } from "./first-agent-empty-state";
 
@@ -11,19 +11,6 @@ afterEach(() => {
 });
 
 describe("FirstAgentEmptyState (#434)", () => {
-  it("renders the prominent guided headline", () => {
-    render(<FirstAgentEmptyState />);
-    expect(screen.getByText("Connect your first agent")).toBeTruthy();
-    expect(document.querySelector('[aria-labelledby="first-agent-heading"]')).toBeTruthy();
-  });
-
-  it("walks the user through four concrete steps", () => {
-    render(<FirstAgentEmptyState />);
-    for (let i = 1; i <= 4; i++) {
-      expect(document.querySelector(`[data-testid="first-agent-step-${i}"]`)).toBeTruthy();
-    }
-  });
-
   it("links to the connect flow, the approval page, and the agent API docs", () => {
     render(<FirstAgentEmptyState />);
     const cta = document.querySelector('[data-testid="first-agent-cta"]');

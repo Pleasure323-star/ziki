@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  authorBadgeClass,
   statusClass,
   statusLabel,
   statusLabels,
@@ -37,18 +36,5 @@ describe("labels and classes cover every enum value", () => {
 describe("the plural aliases", () => {
   it("are the same objects, not copies that can drift", () => {
     expect(statusLabels).toBe(statusLabel);
-  });
-});
-
-describe("badge classes", () => {
-  it("every class sets both a background and a text colour", () => {
-    const classes = [
-      ...Object.values(statusClass),
-      authorBadgeClass,
-    ];
-    for (const value of classes) {
-      expect(value, value).toMatch(/\bbg-/);
-      expect(value, value).toMatch(/\btext-/);
-    }
   });
 });

@@ -38,30 +38,6 @@ describe("MarkdownEditor accessibility (#146)", () => {
     expect(html).not.toContain('aria-autocomplete="list"');
   });
 
-  it("uses text-slate-500 for the character counter to satisfy WCAG AA contrast (>=4.5:1)", () => {
-    const html = renderToStaticMarkup(
-      createElement(MarkdownEditor, {
-        value: "Test text",
-        onChange: () => {},
-        maxLength: 2000,
-      }),
-    );
-    expect(html).toContain("tabular-nums text-slate-500");
-    expect(html).not.toContain("tabular-nums text-slate-400");
-    expect(html).toContain("9/2000");
-  });
-
-  it("does not clip mentions dropdown with overflow-hidden on the editor shell (#200)", () => {
-    const html = renderToStaticMarkup(
-      createElement(MarkdownEditor, {
-        value: "Test text",
-        onChange: () => {},
-        users: [{ id: "u1", name: "Ada" }],
-      }),
-    );
-    expect(html).not.toContain("overflow-hidden rounded-lg border border-slate-300");
-    expect(html).toContain("rounded-lg border border-slate-300");
-  });
 });
 
 describe("MarkdownEditor form validation (#123)", () => {

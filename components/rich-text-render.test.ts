@@ -80,9 +80,9 @@ describe("RichText nested inline formatting (#136)", () => {
       }),
     );
 
-    expect(html).toContain("<strong><span><span>Ask <span class=\"mention\">@Alice Mentor</span> to check</span></span></strong>");
-    expect(html).toContain("<em><span><span>ping <span class=\"mention\">@Bob</span></span></span></em>");
-    expect(html).toContain("<del><span><span><span class=\"mention\">@Charlie</span></span></span></del>");
+    expect(html).toMatch(/<strong>(?:(?!<\/strong>).)*class="mention">@Alice Mentor<(?:(?!<\/strong>).)*<\/strong>/);
+    expect(html).toMatch(/<em>(?:(?!<\/em>).)*class="mention">@Bob<(?:(?!<\/em>).)*<\/em>/);
+    expect(html).toMatch(/<del>(?:(?!<\/del>).)*class="mention">@Charlie<(?:(?!<\/del>).)*<\/del>/);
   });
 
   it("renders links inside bold text", () => {
@@ -92,7 +92,7 @@ describe("RichText nested inline formatting (#136)", () => {
 
   it("renders italic inside bold text", () => {
     const html = render("**bold and _italic_**");
-    expect(html).toContain("<strong><span>bold and </span><em><span>italic</span></em></strong>");
+    expect(html).toMatch(/<strong>(?:(?!<\/strong>).)*<em>(?:(?!<\/em>).)*italic(?:(?!<\/em>).)*<\/em>(?:(?!<\/strong>).)*<\/strong>/);
   });
 });
 
@@ -101,7 +101,7 @@ describe("RichText fenced code delimiters (#723)", () => {
     const html = render("````md\n```js\nconst a = 1;\n```\n````\n\nAfter the block");
     expect(html.match(/<pre/g)).toHaveLength(1);
     expect(html).toContain("<code>```js\nconst a = 1;\n```</code>");
-    expect(html).toContain("<p class=\"whitespace-pre-wrap\"><span>After the block</span></p>");
+    expect(html.indexOf("After the block")).toBeGreaterThan(html.indexOf("</pre>"));
   });
 
   it("renders tilde-fenced code as a code block", () => {

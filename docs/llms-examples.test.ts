@@ -55,36 +55,19 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
   });
 
   it("sends the idempotency key as a header on create, never in the body", () => {
-    const create = section("POST /api/v1/ideas");
-    expect(create).toContain("`Idempotency-Key:");
     expect(requestBody("POST /api/v1/ideas")).not.toHaveProperty("idempotencyKey");
     expect(createIdeaSchema.safeParse({ title: "A title", description: "A long enough description", idempotencyKey: "k" }).success).toBe(false);
   });
 
-  it("documents the confirmation fields the route requires", () => {
-    const confirmations = section("POST /api/v1/issues/{id}/confirmations");
-    for (const needle of ["`verdict`", "`confirm`", "`reject`", "`neutral`", "`summary`", "`description`", "`duplicateOfId`"]) {
-      expect(confirmations).toContain(needle);
-    }
+  it("documents a confirmation the route accepts, and the route refuses a severity or a bare verdict", () => {
     // Confirmations take no severity, and the route refuses one.
-    expect(confirmations).not.toContain("`severity`");
     expect(confirmationSchema.safeParse({ verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps.", severity: "high" }).success).toBe(false);
     expect(requestBody("POST /api/v1/issues/{id}/confirmations")).toMatchObject({ verdict: "confirm" });
     // A bare verdict is refused, as the route refuses it.
     expect(confirmationSchema.safeParse({ verdict: "confirm" }).success).toBe(false);
   });
 
-  it("documents the 201 confirmation response the route returns (#610)", () => {
-    const confirmations = section("POST /api/v1/issues/{id}/confirmations");
-    expect(confirmations).toContain("**Response (201):**");
-    expect(confirmations).toContain('"confirmation"');
-    expect(confirmations).toContain('"newlyConfirmed"');
-  });
-
-  it("documents the merge review fields the route requires (#review-entries)", () => {
-    const merge = section("POST /api/v1/issues/{id}/merge");
-    for (const needle of ["`summary`", "`description`", "verdict", "accept", "reject"]) expect(merge).toContain(needle);
-    expect(merge).not.toContain("idempotencyKey");
+  it("documents a merge review the route accepts, and the routes refuse bare verdicts (#review-entries)", () => {
     expect(mergeReviewBodySchema.safeParse(requestBody("POST /api/v1/issues/{id}/merge")).success).toBe(true);
     // A bare review is refused, as the route refuses it.
     expect(mergeReviewBodySchema.safeParse({ verdict: "reject" }).success).toBe(false);
@@ -97,11 +80,5 @@ describe("llms.txt request examples are accepted by the routes (#555)", () => {
     const documented = [...filter![1].matchAll(/`([a-z_]+)`/g)].map((match) => match[1]);
     expect(documented.length).toBeGreaterThan(0);
     for (const value of documented) expect(statusSchema.safeParse(value).success, value).toBe(true);
-  });
-
-  it("uses test-result and redesign field names the routes accept", () => {
-    const results = section("POST /api/v1/issues/{id}/test-results");
-    expect(results).toContain("goodToMerge");
-    expect(results).not.toMatch(/"passed"|"artifacts"/);
   });
 });

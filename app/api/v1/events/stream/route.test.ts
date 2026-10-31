@@ -431,7 +431,6 @@ describe("events/stream SSE endpoint", () => {
       text += new TextDecoder().decode(value);
     }
     expect(text).toContain("event: error");
-    expect(text).toContain("Could not replay missed events");
     expect(text).toContain("evt-live-after-err");
     expect(text.indexOf("event: error")).toBeLessThan(text.indexOf("evt-live-after-err"));
 

@@ -41,16 +41,16 @@ describe("IssueEscalations (#763)", () => {
 
     render(<IssueEscalations escalations={escalations} />);
 
-    expect(screen.getByText(/Escalations \(2\)/i)).toBeTruthy();
-    expect(screen.getByText("1 unresolved")).toBeTruthy();
+    expect(screen.getByText(/\(2\)/)).toBeTruthy();
+    expect(screen.getByText(/1 unresolved/i)).toBeTruthy();
 
     expect(screen.getByText("Agent Alpha")).toBeTruthy();
-    expect(screen.getByText("Blocker")).toBeTruthy();
-    expect(screen.getByText("✓ Approve & Unblock")).toBeTruthy();
-    expect(screen.getByText("Authorize Work")).toBeTruthy();
+    expect(screen.getByText(/blocker/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /authori[sz]e/i })).toBeTruthy();
 
     expect(screen.getByText("Agent Beta")).toBeTruthy();
-    expect(screen.getByText("Human Approval")).toBeTruthy();
+    expect(screen.getByText(/human approval/i)).toBeTruthy();
     expect(screen.getByText("Looks good, approved.")).toBeTruthy();
   });
 });

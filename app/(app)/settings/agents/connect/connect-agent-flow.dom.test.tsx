@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkAgentConnectedAction, startAgentConnectAction } from "./actions";
@@ -46,7 +46,7 @@ async function reachCopyStep(user = userEvent.setup({ delay: null })) {
   await user.click(screen.getByRole("button", { name: "Connect agent" }));
   await user.type(screen.getByLabelText("Agent name"), "Claude");
   await user.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByRole("heading", { name: "Copy this into Claude" });
+  await screen.findByRole("button", { name: "Copy" });
   return user;
 }
 
@@ -70,8 +70,10 @@ describe("ConnectAgentFlow", () => {
 
     await user.click(screen.getByRole("button", { name: "Copy" }));
     expect(copyText).toHaveBeenCalledWith(SETUP);
-    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "I've pasted it" }).hasAttribute("disabled")).toBe(false);
+    // Copying is what unlocks the next step.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "I've pasted it" }).hasAttribute("disabled")).toBe(false),
+    );
   });
 
   it("shows the registry's error and stays on the name step", async () => {
@@ -90,13 +92,13 @@ describe("ConnectAgentFlow", () => {
     const user = await reachCopyStep(userEvent.setup({ advanceTimers: vi.advanceTimersByTime }));
     await user.click(screen.getByRole("button", { name: "Copy" }));
     await user.click(screen.getByRole("button", { name: "I've pasted it" }));
-    expect(await screen.findByRole("heading", { name: "Waiting for Claude…" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /waiting/i })).toBeTruthy();
 
     vi.mocked(checkAgentConnectedAction).mockResolvedValue({ connected: true });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(screen.getByRole("heading", { name: "Agent Successfully Connected" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /connected/i })).toBeTruthy();
     expect(checkAgentConnectedAction).toHaveBeenCalledWith("agent_1");
 
     await act(async () => {

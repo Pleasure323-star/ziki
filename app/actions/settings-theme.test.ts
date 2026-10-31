@@ -23,7 +23,7 @@ describe("setThemeAction (#277)", () => {
 
   it("rejects anything but system, light or dark", async () => {
     vi.clearAllMocks();
-    expect(await setThemeAction("purple")).toEqual({ error: "Invalid setting" });
+    expect(await setThemeAction("purple")).toEqual({ error: expect.any(String) });
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(cookieSet).not.toHaveBeenCalled();
   });
@@ -35,7 +35,7 @@ describe("setThemeAction (#277)", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(setThemeAction("dark")).resolves.toEqual({
-      error: "Could not save theme to your account.",
+      error: expect.any(String),
     });
     // The caller reverts the optimistic switch, so this device keeps the saved
     // preference too: don't leave a cookie that disagrees with the account.

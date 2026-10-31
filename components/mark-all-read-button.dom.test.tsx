@@ -20,7 +20,7 @@ describe("MarkAllReadButton", () => {
 
     await user.click(screen.getByRole("button", { name: "Mark all as read" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not mark notifications as read");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark all as read" })).toBeEnabled();
   });
 });

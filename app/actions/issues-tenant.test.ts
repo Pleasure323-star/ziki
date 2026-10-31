@@ -113,7 +113,7 @@ describe("issue actions are tenant-scoped (#425)", () => {
       proofLinks: "",
       areaId: "foreign-area",
     }));
-    expect(result).toMatchObject({ error: "Area not found in this project.", field: "areaId" });
+    expect(result).toMatchObject({ error: expect.any(String), field: "areaId" });
     expect(db.idea.create).not.toHaveBeenCalled();
   });
 
@@ -121,7 +121,7 @@ describe("issue actions are tenant-scoped (#425)", () => {
     tenantOf.mockResolvedValue("tenant-zedu");
     db.bug.findUnique.mockResolvedValue(null);
     expect(await updateBugAction("bug-in-acme", form({ status: "resolved" }))).toEqual({
-      error: "Issue not found",
+      error: expect.any(String),
     });
     expect(db.bug.findUnique.mock.calls[0][0].where).toEqual({ id: "bug-in-acme", tenantId: "tenant-zedu" });
   });

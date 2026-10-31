@@ -12,7 +12,7 @@ function db(counts: { projects: number; issues: number; members: number; invites
 
 describe("getting-started checklist (#641)", () => {
   it("starts a brand-new workspace with only the workspace (and its first project) done", async () => {
-    const { steps, complete } = await gettingStartedFor(db({ projects: 1, issues: 0, members: 1, invites: 0 }) as never, "t1", { tenantSlug: "acme" });
+    const { steps, complete } = await gettingStartedFor(db({ projects: 1, issues: 0, members: 1, invites: 0 }) as never, "t1");
     expect(steps.map((s) => [s.id, s.done])).toEqual([
       ["workspace", true],
       ["project", true],
@@ -20,18 +20,19 @@ describe("getting-started checklist (#641)", () => {
       ["invite", false],
     ]);
     expect(complete).toBe(false);
-    expect(steps.find((s) => s.id === "invite")?.href).toBe("/tenants/acme");
+    expect(steps.find((s) => s.id === "invite")?.href).toBe("/org/invites");
+    expect(steps.find((s) => s.id === "project")?.href).toBe("/org/projects");
   });
 
   it("counts a pending invite as inviting a teammate, and finishes when all are done", async () => {
-    const result = await gettingStartedFor(db({ projects: 2, issues: 3, members: 1, invites: 1 }) as never, "t1", { tenantSlug: "acme" });
+    const result = await gettingStartedFor(db({ projects: 2, issues: 3, members: 1, invites: 1 }) as never, "t1");
     expect(result.complete).toBe(true);
   });
 
   it("only counts live invites and this workspace's issues", async () => {
     const fake = db({ projects: 1, issues: 0, members: 1, invites: 0 });
     const now = new Date("2026-10-21T00:00:00Z");
-    await gettingStartedFor(fake as never, "t1", { tenantSlug: "acme", now });
+    await gettingStartedFor(fake as never, "t1", { now });
     expect(fake.tenantInvite.count).toHaveBeenCalledWith({ where: { tenantId: "t1", acceptedAt: null, expiresAt: { gt: now } } });
     expect(fake.bug.count).toHaveBeenCalledWith({ where: { tenantId: "t1", isDeleted: false } });
   });
