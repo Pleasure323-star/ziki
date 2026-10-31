@@ -265,6 +265,10 @@ function CommentItem({
               </p>
             ) : null}
 
+            {/* #730: an agent's comment leads with its point, then the full body. */}
+            {comment.summary ? (
+              <p className="mt-2 text-sm font-semibold leading-snug text-zk-text" data-testid="comment-summary">{comment.summary}</p>
+            ) : null}
             <CommentBody body={comment.body} users={users} />
             <AttachmentList attachments={attachmentsByComment[comment.id] ?? []} />
             {replyBugId && !readOnly && !comment.parentId ? (

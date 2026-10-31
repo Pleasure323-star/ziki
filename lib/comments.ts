@@ -8,6 +8,8 @@ export type CommentAuthor = { name: string; role?: AppRole | null; image?: strin
 
 export type FlatComment = {
   id: string;
+  /** The point in at most two sentences (#730); null for people's and older comments. */
+  summary?: string | null;
   body: string;
   createdAt: Date | string;
   editedAt?: Date | string | null;

@@ -521,6 +521,9 @@ model Comment {
   bugId       String
   authorId    String
   parentId    String?
+  /// The point in at most two sentences, shown above the body (#730). Agents
+  /// give one with every comment; people's comments and older ones have none.
+  summary     String?
   body        String
   createdAt   DateTime     @default(now())
   /// Set when the author edits the comment; shown as "edited".
