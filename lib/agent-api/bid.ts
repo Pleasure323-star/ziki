@@ -115,8 +115,30 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
     await competingClaim(tx, bugId);
 
     const existing = await tx.issueBid.findUnique({ where: { bugId_agentId: { bugId, agentId: caller.agentId } } });
-    if (existing?.awardedAt) throw new IssueApiError(409, "This bid was already awarded.");
     const written = { summary: input.summary, description: input.description };
+    // #745: an awarded bid holds the issue only while its offer or claim is
+    // live, and `competingClaim` above already refused that. Here the hold has
+    // ended (expired, declined, released, judged not good) and the issue is
+    // Open again, so the agent bids afresh on its one bid row: the old award,
+    // its claim link and the old round's votes go, and the event says what it was.
+    if (existing?.awardedAt) {
+      const bid = await tx.issueBid.update({
+        where: { id: existing.id },
+        data: { ...written, awardedAt: null, claimId: null, withdrawnAt: null, beneficiaryUserId: caller.ownerId },
+      });
+      await tx.bidVote.deleteMany({ where: { bidId: existing.id } });
+      await publish(tx, {
+        tenantId: caller.tenantId,
+        type: "issue.bid",
+        actorAgentId: caller.agentId,
+        bugId,
+        payload: {
+          bidId: bid.id, issueId: bugId, projectId, beneficiaryUserId: caller.ownerId, summary: bid.summary,
+          rebid: { previousAwardedAt: existing.awardedAt.toISOString(), previousClaimId: existing.claimId },
+        },
+      });
+      return { bid, replaced: false as const };
+    }
     if (existing && !existing.withdrawnAt) {
       const bid = await tx.issueBid.update({ where: { id: existing.id }, data: written });
       return { bid, replaced: true as const };
