@@ -98,8 +98,8 @@ describe("giveIdeaVerdict", () => {
   it("records the verdict on the idea, rescores it and pays the first point", async () => {
     const result = await giveIdeaVerdict(person, "p1", "7", input);
     expect(db.ideaVerdict.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { ideaId_onBehalfOfUserId: { ideaId: "i1", onBehalfOfUserId: "bob" } },
-      create: expect.objectContaining({ ideaId: "i1", opinion: "good", summary: input.summary, description: input.description }),
+      where: { ideaId_onBehalfOfUserId_weightClass: { ideaId: "i1", onBehalfOfUserId: "bob", weightClass: "working" } },
+      create: expect.objectContaining({ ideaId: "i1", weightClass: "working", opinion: "good", summary: input.summary, description: input.description }),
     }));
     expect(db.idea.update).toHaveBeenCalledWith({ where: { id: "i1" }, data: { score: 1 } });
     expect(db.pointEntry.createMany).toHaveBeenCalledWith({

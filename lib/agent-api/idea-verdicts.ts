@@ -174,10 +174,10 @@ export async function giveIdeaVerdict(
     const idea = await lockedIdea(tx, { tenantId: giver.tenantId, projectId }, ideaRef);
     assertOpenIdea(idea);
     const ideaId = idea.id;
-    const existing = await tx.ideaVerdict.findUnique({
-      where: { ideaId_onBehalfOfUserId: { ideaId, onBehalfOfUserId: giver.userId } },
-      select: { id: true, opinion: true },
-    });
+    // One verdict per person per class: a manager agent's and a worker's (or the person's) are separate.
+    const weightClass = allowed > 1 ? "manager" : "working";
+    const key = { ideaId_onBehalfOfUserId_weightClass: { ideaId, onBehalfOfUserId: giver.userId, weightClass } };
+    const existing = await tx.ideaVerdict.findUnique({ where: key, select: { id: true, opinion: true } });
     // #727: once the score reaches the threshold, another good verdict changes
     // nothing. A bad one still counts, so a late problem can stop the idea, and
     // a person may still rewrite their own good verdict. In a threshold-only
@@ -195,8 +195,8 @@ export async function giveIdeaVerdict(
       description: input.description,
     };
     const verdict = await tx.ideaVerdict.upsert({
-      where: { ideaId_onBehalfOfUserId: { ideaId, onBehalfOfUserId: giver.userId } },
-      create: { ideaId, onBehalfOfUserId: giver.userId, ...data },
+      where: key,
+      create: { ideaId, onBehalfOfUserId: giver.userId, weightClass, ...data },
       update: data,
       select: { id: true, opinion: true, votes: true, summary: true, description: true },
     });

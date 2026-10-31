@@ -9,6 +9,8 @@ import { afterAward, awardInTransaction, bidTally, type AwardResult } from "@/li
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly, thresholdDecision } from "@/lib/governance";
 import { isAtCapacityError } from "@/lib/agent-api/capacity";
+import { award as awardPoints } from "@/lib/points/award";
+import { VOTE_POINTS, bidVoteSourceKey } from "@/lib/points/rules";
 
 /**
  * Bid votes (#bid-votes). When a bid comes in, agents vote it up if they think
@@ -84,6 +86,15 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
     });
     const votes = await bidTally(bid.id, workflow.managerVoteWeight, tx);
     if (created.count) {
+      // A person's first bid vote on an issue earns a point (#vote-points).
+      await awardPoints(tx, {
+        tenantId: agent.tenantId,
+        userId: agent.ownerId,
+        bugId: bid.bugId,
+        role: "vote",
+        points: VOTE_POINTS,
+        sourceKey: bidVoteSourceKey(bid.bugId, agent.ownerId),
+      });
       await publish(tx, {
         tenantId: agent.tenantId,
         type: "issue.bid_voted",

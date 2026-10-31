@@ -1,4 +1,5 @@
 import { EntrySummary } from "@/components/entry-summary";
+import { BASE_PATH } from "@/lib/base-path";
 import Link from "next/link";
 import { LocalTime } from "@/components/local-time";
 import { AddConfirmationDialog } from "@/components/add-confirmation-dialog";
@@ -19,8 +20,12 @@ export type ConfirmationEntryView = {
   by: string;
   agentName: string | null;
   counted: boolean;
+  /** What it counts for: a manager agent's the project's managerVoteWeight, others 1 (#confirmation-weights). */
+  weight?: number;
   undone: boolean;
   updatedAt: Date | string;
+  /** Evidence: screenshots and other files, served at /api/attachments/{id}. */
+  attachments?: { id: string; filename: string; contentType: string }[];
   replies: ConfirmationReplyView[];
 };
 
@@ -31,10 +36,9 @@ export type ConfirmationsData = {
 };
 
 /** Why the viewer can't give an entry, or null when they can. */
-export type ConfirmationBlock = "own" | "deleted" | null;
+export type ConfirmationBlock = "deleted" | null;
 
 const BLOCK_REASON: Record<Exclude<ConfirmationBlock, null>, string> = {
-  own: "This is your own issue, so you can't confirm it.",
   deleted: "This issue is deleted.",
 };
 
@@ -157,13 +161,34 @@ export function IssueConfirmationsPanel({
                 <span className="whitespace-nowrap text-xs text-zk-muted">
                   · <LocalTime date={entry.updatedAt} />
                 </span>
+                {entry.counted && entry.weight && entry.weight > 1 ? (
+                  <span className="whitespace-nowrap text-xs text-zk-muted" data-testid="confirmation-weight">
+                    · counts {entry.weight}
+                  </span>
+                ) : null}
               </p>
               <EntrySummary summary={entry.summary} description={entry.description} />
+              {entry.attachments?.length ? (
+                <ul className="m-0 mt-2 flex list-none flex-wrap gap-2 p-0" data-testid="confirmation-attachments">
+                  {entry.attachments.map((file) => (
+                    <li key={file.id}>
+                      <a href={`${BASE_PATH}/api/attachments/${file.id}`} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg border border-zk-border hover:border-zk-accent">
+                        {file.contentType.startsWith("image/") ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={`${BASE_PATH}/api/attachments/${file.id}`} alt={file.filename} className="h-20 w-28 object-cover" />
+                        ) : (
+                          <span className="block px-2 py-1 text-xs text-zk-accent">{file.filename}</span>
+                        )}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {entry.verdict !== "neutral" && !entry.counted ? (
                 <p className="mb-0 mt-1 text-xs text-zk-muted" data-testid="confirmation-not-counted">
                   {entry.undone
                     ? "Undone by a workspace admin, so it doesn't count."
-                    : "Doesn't count: given before the latest edit, or not independent of this issue."}
+                    : "Doesn't count: given before the latest edit."}
                 </p>
               ) : null}
               <EntryReplies replies={entry.replies} />

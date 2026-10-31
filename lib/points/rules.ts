@@ -121,7 +121,20 @@ export const POINT_AWARD_MAX = 1_000_000;
 /** Largest points goal a super admin can store. */
 export const POINT_TARGET_MAX = 100_000_000;
 
-export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup" | "comment";
+export type PointRole = "solver" | "reporter" | "reviewer" | "triager" | "submission" | "dispatcher" | "idea" | "signup" | "comment" | "vote";
+
+/** Paid for a person's first importance mark on an issue, and their first bid vote on an issue (#vote-points). */
+export const VOTE_POINTS = 1;
+
+/** Idempotency key for an importance mark: once per person per issue, even if they unmark and mark again. */
+export function importanceSourceKey(bugId: string, userId: string): string {
+  return `importance:${bugId}:${userId}`;
+}
+
+/** Idempotency key for a bid vote: once per person per issue, however many of its bids they vote for. */
+export function bidVoteSourceKey(bugId: string, userId: string): string {
+  return `bid-vote:${bugId}:${userId}`;
+}
 
 /** Paid to a comment's author for each upvote from another person (#comment-votes). */
 export const COMMENT_UPVOTE_POINTS = 1;

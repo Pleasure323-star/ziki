@@ -83,6 +83,7 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
   return {
     tenantId: "t1",
     project: { id: "p1", slug: "ziki", name: "Ziki" },
+    importance: [],
     ideas: [],
     toConvert: [],
     toReject: [],
@@ -145,7 +146,7 @@ describe("itemsFor", () => {
     expect(fresh[0].actions[0].cli).not.toContain("--votes");
     expect(fresh[0].detail).toContain("Score 1 of 3");
 
-    const given = ideaFacts({ verdictOwners: ["owner-bob"] });
+    const given = ideaFacts({ verdictOwners: ["owner-bob:working"] });
     expect(itemsFor(agent("working"), work({ ideas: [idea], ideaFacts: new Map([["b1", given]]) }), nothingMine)).toEqual([]);
   });
 
@@ -175,7 +176,7 @@ describe("itemsFor", () => {
   });
 
   it("asks to confirm a converted issue at the confirmations route, and drops it once the owner gave an entry", () => {
-    const issue = { id: "b1", number: 7, title: "x", confirmations: 1, needed: 2 };
+    const issue = { id: "b1", number: 7, title: "x", confirmations: 1, needed: 2, confirmed: false };
     const items = itemsFor(agent("working"), work({ toConfirm: [issue], facts: new Map([["b1", facts()]]) }), nothingMine);
     expect(items[0]).toMatchObject({ kind: "confirm_issue", canAct: true });
     expect(items[0].detail).toContain("1 of 2 confirmations");
@@ -183,7 +184,8 @@ describe("itemsFor", () => {
     expect(items[0].actions[0].path).toContain("/api/v1/issues/b1/confirmations");
     expect(items[0].actions[0].cli).toContain("confirm-issue --id b1 --verdict confirm|reject|neutral --summary");
 
-    const done = facts({ confirmerOwners: ["owner-bob"] });
+    // A worker agent's owner gave a working-class entry: not asked again (a manager agent still may give one).
+    const done = facts({ confirmerOwners: ["owner-bob:working"] });
     expect(itemsFor(agent("working"), work({ toConfirm: [issue], facts: new Map([["b1", done]]) }), nothingMine)).toEqual([]);
   });
 

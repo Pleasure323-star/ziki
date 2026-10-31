@@ -12,8 +12,8 @@ describe("linkAttachments (#215)", () => {
     });
     expect(count).toBe(2);
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["a1", "a2"] }, uploaderId: "u1", bugId: null, ideaId: null, commentId: null },
-      data: { bugId: "b1", commentId: "c1" },
+      where: { id: { in: ["a1", "a2"] }, uploaderId: "u1", bugId: null, ideaId: null, commentId: null, confirmationId: null },
+      data: { bugId: "b1", commentId: "c1", confirmationId: null },
     });
   });
 

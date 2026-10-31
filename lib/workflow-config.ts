@@ -38,7 +38,7 @@ export type ProjectWorkflowValues = {
 
 export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.freeze({
   // Two independent accepts of `real` confirm an issue.
-  confirmationsNeeded: 2,
+  confirmationsNeeded: 3,
   // Two independent good-to-merge verdicts accept a fix.
   verdictsNeeded: 2,
   // A claim offer lasts 30 minutes.

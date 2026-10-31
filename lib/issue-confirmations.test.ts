@@ -58,9 +58,9 @@ describe("readConfirmations (#714, #issue-confirmations): one rule for confirmed
     expect(await confirmedIssueIds(db([confirm("c1", "bob"), confirm("c2", "cara")]), {})).toEqual(new Set(["b1"]));
   });
 
-  it("does not count the reporter's own entry, as an agent's owner or as a person", async () => {
+  it("counts the reporter's own entry once per class, at weight 1 (#confirmation-weights)", async () => {
     const own = await readConfirmations(db([confirm("c1", "ada"), confirm("c2", "ada", { agent: false }), confirm("c3", "bob")]), {});
-    expect(own.get("b1")).toMatchObject({ confirmed: false, accepts: 1 });
+    expect(own.get("b1")).toMatchObject({ confirmed: true, accepts: 2 });
   });
 
   it("drops entries given before the latest edit", async () => {

@@ -68,6 +68,8 @@ export type WorkKind =
   | "active_claim"
   | "idea"
   | "confirm_issue"
+  | "open_issue"
+  | "vote_importance"
   | "test_fix"
   | "ready_issue"
   | "review_bid"
@@ -188,7 +190,11 @@ type OpenComment = {
 type IssueFacts = ReviewedBug & {
   createdByAgentId: string | null;
   pullRequestUrl: string | null;
-  /** Who already gave a confirmation entry that still stands (after the latest edit, not undone). */
+  /**
+   * Who already gave a confirmation entry that still stands (after the latest
+   * edit, not undone), as "owner:class": a person may give one manager-class
+   * and one working-class entry (#confirmation-weights).
+   */
   confirmerOwners: string[];
   /** Whose delivery is on the linked pull request: the people credited and the delivering agents' owners. */
   deliveryOwners: string[];
@@ -235,7 +241,7 @@ export type ProjectWork = {
   /** In-progress issues with a linked pull request, no delivery and enough good judgements, for a manager agent to deliver on the holder's behalf (#stranded-delivery). */
   toDeliverStranded: StrandedIssue[];
   /** Converted issues still being confirmed. */
-  toConfirm: (IssueRef & { confirmations: number; needed: number })[];
+  toConfirm: (IssueRef & { confirmations: number; needed: number; confirmed: boolean })[];
   ideaThreshold: number;
   tests: (IssueRef & { pullRequestUrl: string | null })[];
   /** `importance` is the issue's importance (#importance). */
@@ -272,6 +278,8 @@ export type ProjectWork = {
   capacity: number;
   /** How the voted steps are decided (#vote-governance, lib/governance.ts), and their thresholds. */
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
+  /** Issues still being decided or worked on, with who marked each important (#importance). */
+  importance: (IssueRef & { markers: string[] })[];
 };
 
 /** An issue In progress or later with its linked pull request and the latest report on it (#pr-reports). */
@@ -342,7 +350,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     : [];
   const toConfirm = confirmingRows.map((bug) => {
     const confirmation = confirmations.get(bug.id)!;
-    return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed };
+    return { ...bug, confirmations: confirmation.accepts, needed: confirmation.needed, confirmed: confirmation.confirmed };
   });
 
   const strandedDeliveries = findStrandedDeliveries(tenantId, project.id);
@@ -410,6 +418,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     ideaFacts: await loadIdeaFacts([...new Set([...ideas, ...toConvert, ...toReject].map((idea) => idea.id))]),
     offerWindowSeconds: workflow.offerWindowSeconds,
     capacity: workflow.maxActiveClaims,
+    importance: await importanceWork(tenantId, project.id),
     governance: {
       thresholdOnly,
       managerVoteWeight: workflow.managerVoteWeight,
@@ -418,6 +427,16 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
       acceptThreshold: workflow.acceptThreshold,
     },
   };
+}
+
+/** Issues not yet finished, with who marked each important: every agent is asked to weigh in. */
+async function importanceWork(tenantId: string, projectId: string): Promise<ProjectWork["importance"]> {
+  const rows = await prisma.bug.findMany({
+    where: { tenantId, projectId, isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { id: true, number: true, title: true, votes: { select: { userId: true } } },
+  });
+  return rows.map(({ votes, ...issue }) => ({ ...issue, markers: votes.map((vote) => vote.userId) }));
 }
 
 /**
@@ -755,7 +774,7 @@ async function loadIdeaFacts(ids: string[]): Promise<Map<string, IdeaFacts>> {
       reporterId: true,
       beneficiaryUserId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      verdicts: { select: { onBehalfOfUserId: true } },
+      verdicts: { select: { onBehalfOfUserId: true, weightClass: true } },
     },
   });
   return new Map(
@@ -767,7 +786,8 @@ async function loadIdeaFacts(ids: string[]): Promise<Map<string, IdeaFacts>> {
         assigneeId: null,
         createdByAgent: idea.createdByAgent,
         claims: [],
-        verdictOwners: idea.verdicts.map((v) => v.onBehalfOfUserId),
+        // "owner:class": a person may give one manager-class and one working-class verdict.
+        verdictOwners: idea.verdicts.map((v) => `${v.onBehalfOfUserId}:${v.weightClass}`),
       },
     ]),
   );
@@ -798,7 +818,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
       createdByAgent: { select: { ownerUserId: true } },
       claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
       deliveries: { select: { pullRequestUrl: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } } } },
-      confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, agent: { select: { ownerUserId: true } } } },
+      confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, weightClass: true } },
       revisions: { orderBy: { editedAt: "desc" }, take: 1, select: { editedAt: true } },
       testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true } } } },
     },
@@ -817,7 +837,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
         // An entry given before the latest edit no longer counts, so its giver is asked again.
         confirmerOwners: bug.confirmations
           .filter((c) => !bug.revisions[0] || c.updatedAt > bug.revisions[0].editedAt)
-          .flatMap((c) => [c.onBehalfOfUserId, ...(c.agent ? [c.agent.ownerUserId] : [])]),
+          .map((c) => `${c.onBehalfOfUserId}:${c.weightClass}`),
         testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, pullRequestUrl: v.pullRequestUrl })),
         deliveryOwners: bug.deliveries
           .filter((d) => d.pullRequestUrl === bug.pullRequestUrl)
@@ -944,7 +964,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     // #727: an idea at the threshold has the verdicts it needs; it waits for an agent to convert it.
     if (idea.score >= work.ideaThreshold) continue;
     // Your owner's own idea included: anyone may give a verdict on their own idea.
-    if (work.ideaFacts.get(idea.id)?.verdictOwners.includes(owner)) continue;
+    if (work.ideaFacts.get(idea.id)?.verdictOwners.includes(`${owner}:${can("manager") ? "manager" : "working"}`)) continue;
     items.push({
       kind: "idea",
       key: `idea:${idea.id}`,
@@ -966,29 +986,64 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
 
-  // 3. Converted issues to confirm: real, and not a duplicate.
+  // 3. Converted issues to confirm: real, and not a duplicate. Anyone may
+  // confirm their own issue (it counts 1); a person may confirm twice, once
+  // with a manager agent and once with a worker (#confirmation-weights).
+  const confirmClass = can("manager") ? "manager" : "working";
+  const confirmWeight = can("manager") ? work.governance.managerVoteWeight : 1;
   for (const issue of work.toConfirm) {
-    if (!independent(issue.id)) continue;
+    if (issue.confirmed) {
+      // Confirmed: any agent moves it to Open, where it takes bids.
+      items.push({
+        kind: "open_issue",
+        key: `open_issue:${issue.id}`,
+        title: `Move #${issue.number} to Open`,
+        detail: `It has ${issue.confirmations} of the ${issue.needed} confirmations it needs, so it is confirmed. Move it to Open so agents can bid on it.`,
+        minimumRole: "working",
+        canAct: true,
+        issue: issueRef(issue),
+        actions: [{ name: "open_issue", minimumRole: "working", method: "POST", path: apiPath(issue.id, "open", pid), cli: `open-issue --id ${issue.id}` }],
+      });
+      continue;
+    }
     const facts = work.facts.get(issue.id);
-    if (facts?.confirmerOwners.includes(owner)) continue;
+    if (facts?.confirmerOwners.includes(`${owner}:${confirmClass}`)) continue;
     const actions: WorkAction[] = [
       {
         name: "confirm_issue",
         minimumRole: "working",
         method: "POST",
         path: apiPath(issue.id, "confirmations", pid),
-        cli: `confirm-issue --id ${issue.id} --verdict confirm|reject|neutral --summary <two sentences at most> --description <why, in full> [--duplicate-of-id <issue>]`,
+        cli: `confirm-issue --id ${issue.id} --verdict confirm|reject|neutral --summary <two sentences at most> --description <why, in full: the files and lines of code where you found it> [--attachment-ids <screenshot ids>] [--duplicate-of-id <issue>]`,
       },
     ];
     items.push({
       kind: "confirm_issue",
       key: `confirm_issue:${issue.id}`,
       title: `Confirm issue #${issue.number}`,
-      detail: `Converted from an idea. Confirm it if it is real and not a duplicate, reject it if not (with duplicateOfId when it duplicates another issue), or stay neutral. Give a summary of at most two sentences and a full description. ${issue.confirmations} of ${issue.needed} confirmations so far; once confirmed it takes bids.`,
+      detail: `Converted from an idea. Confirm it if it is real and not a duplicate, reject it if not (with duplicateOfId when it duplicates another issue), or stay neutral. Give a summary of at most two sentences and a full description that names the files and lines of code where you found it; when it shows on screen, attach screenshots (attachmentIds, several allowed). ${issue.confirmations} of ${issue.needed} confirmations so far; your confirmation counts ${confirmWeight}${can("manager") ? " (your owner may also confirm once with a worker agent, counting 1)" : ""}, or 1 on your owner's own issue. Once confirmed, any agent moves it to Open.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
       actions,
+    });
+  }
+
+  // 3b. Importance: one item naming the issues this owner hasn't marked yet.
+  const unmarked = work.importance.filter((issue) => !issue.markers.includes(owner));
+  if (unmarked.length > 0) {
+    const sample = unmarked.slice(0, 20).map((issue) => `#${issue.number}`).join(", ");
+    items.push({
+      kind: "vote_importance",
+      key: `vote_importance:${unmarked.length}`,
+      title: `Weigh in on the importance of ${unmarked.length} issue${unmarked.length === 1 ? "" : "s"}`,
+      detail: `Read each issue and mark the ones that matter as important (a plain toggle; ${can("manager") ? `your mark counts ${work.governance.managerVoteWeight}` : "your mark counts 1"}; your first mark on each issue earns 1 point); importance decides what gets worked on first. Not yet marked by your owner: ${sample}${unmarked.length > 20 ? ` and ${unmarked.length - 20} more` : ""}.`,
+      minimumRole: "working",
+      canAct: true,
+      actions: [
+        { name: "list_issues", minimumRole: "working", method: "GET", path: `/api/v1/issues?projectId=${pid}`, cli: "list-issues" },
+        { name: "mark_important", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/importance?projectId=${pid}`, cli: "mark-important --id <issue>" },
+      ],
     });
   }
 
@@ -1522,8 +1577,12 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   for (const item of items) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
 
   const ask: string[] = [];
+  // The goal, first: agents work for points (docs: Points System).
+  ask.push("Your goal on Ziki is to earn the most points for your owner. The big awards come from the work: solving an issue (750), a reviewed fix that gets accepted (300), a real report (150) or a duplicate caught (150). When there is no issue you can win, keep earning by contributing: confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
   if (offered) ask.push(`You have ${offered} offer${offered === 1 ? "" : "s"} waiting. Accept or let them go before they lapse.`);
+  if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
+  if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;
   if (newIdeas) {
     ask.push(`${newIdeas} idea${newIdeas === 1 ? " needs" : "s need"} your verdict: good, bad or neutral, with a summary of at most two sentences and a full description. Each earns ${IDEA_CONTRIBUTION_POINTS} point.`);
