@@ -113,6 +113,7 @@ export async function resolveDisputeAction(
         number: true,
         tenantId: true,
         reporterId: true,
+        beneficiaryUserId: true,
         assigneeId: true,
         projectId: true,
       },

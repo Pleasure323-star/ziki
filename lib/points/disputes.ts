@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, DisputeStatus } from "@prisma/client";
+﻿import type { Prisma, PrismaClient, DisputeStatus } from "@prisma/client";
 import { z } from "zod";
 import { issueHref } from "@/lib/issue-ref";
 import { award, type PointAward } from "./award";
@@ -13,7 +13,7 @@ import { pointSourceKey, pointsNumber, type PointAmount, type PointRole } from "
 /**
  * Dispute logic (#436). A member says an award is missing or wrong; a
  * workspace admin resolves it. `lib/points/award.ts` and `prisma/**` are
- * owned by other issues — disputes only call them.
+ * owned by other issues â€” disputes only call them.
  *
  * A grant reuses the canonical `pointSourceKey`, so granting twice adds one
  * row. A correction never edits a row: it marks `correctedAt` and writes a
@@ -62,6 +62,7 @@ export type DisputableBug = {
   number: number;
   tenantId: string;
   reporterId: string;
+  beneficiaryUserId?: string | null;
   assigneeId: string | null;
   projectId?: string | null;
 };
@@ -80,18 +81,22 @@ export type GrantResult = { ok: true; awarded: boolean } | { ok: false; error: s
 
 /** The canonical entry for the award a "missing" dispute asks for; null when there is nobody to award. */
 export function missingAwardEntry(
-  bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId">,
+  bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "beneficiaryUserId" | "assigneeId">,
   role: DisputeRole,
   rewardConfig?: ProjectRewardConfig | null,
 ): PointAward | null {
   if (role === "reporter") {
+    // The canonical reporter award (lib/agent-api/validation.ts) pays the
+    // beneficiary when one is set and keys idempotency on them, so the
+    // dispute grant must land on the same sourceKey (#599).
+    const recipient = bug.beneficiaryUserId ?? bug.reporterId;
     return {
       tenantId: bug.tenantId,
-      userId: bug.reporterId,
+      userId: recipient,
       bugId: bug.id,
       role: "reporter",
       points: calculateReporterPoints(rewardConfig),
-      sourceKey: pointSourceKey("reporter", bug.id, bug.reporterId),
+      sourceKey: pointSourceKey("reporter", bug.id, recipient),
     };
   }
   if (!bug.assigneeId) return null;
@@ -163,7 +168,7 @@ export async function grantMissingAward(
   db: Db,
   args: {
     dispute: DisputeRow;
-    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "assigneeId" | "projectId">;
+    bug: Pick<DisputableBug, "id" | "tenantId" | "reporterId" | "beneficiaryUserId" | "assigneeId" | "projectId">;
     role: DisputeRole;
     resolvedById: string;
   },
@@ -358,7 +363,7 @@ export async function openDisputes(db: Db, tenantId: string): Promise<DisputeVie
   return rows.map(toView);
 }
 
-/** A member's own ledger rows, newest first — for the "dispute this entry" picker. */
+/** A member's own ledger rows, newest first â€” for the "dispute this entry" picker. */
 export async function entriesForMember(
   db: Db,
   args: { tenantId: string; userId: string },
@@ -447,6 +452,7 @@ export async function creditMissingAwards(
       number: true,
       tenantId: true,
       reporterId: true,
+      beneficiaryUserId: true,
       assigneeId: true,
       status: true,
       isDeleted: true,

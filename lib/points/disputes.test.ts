@@ -138,6 +138,24 @@ describe("missingAwardEntry", () => {
     expect(entry?.sourceKey).toBe("reporter:bug-1:user-me");
   });
 
+  it("pays the beneficiary and keys idempotency on them like the canonical award (#599)", () => {
+    // Canonical rule (lib/agent-api/validation.ts): userId = beneficiary ?? reporter.
+    // The grant must land on the exact same sourceKey so award() dedupes.
+    const entry = missingAwardEntry({ ...bugOn, reporterId: "other-user", beneficiaryUserId: ME }, "reporter");
+    expect(entry).toMatchObject({
+      userId: ME,
+      sourceKey: "reporter:bug-1:user-me",
+    });
+  });
+
+  it("falls back to the reporter when no beneficiary is set (#599)", () => {
+    const entry = missingAwardEntry({ ...bugOn, beneficiaryUserId: null }, "reporter");
+    expect(entry).toMatchObject({
+      userId: ME,
+      sourceKey: "reporter:bug-1:user-me",
+    });
+  });
+
   it("uses platform/project reward amounts when provided", () => {
     const config = {
       solver: 20,
