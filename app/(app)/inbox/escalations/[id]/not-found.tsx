@@ -8,7 +8,7 @@ export default function EscalationNotFound() {
       code="404"
       title="We couldn't find that escalation"
       actions={
-        <Link href="/escalations" className={primaryActionClass}>
+        <Link href="/inbox?tab=escalations" className={primaryActionClass}>
           All escalations
         </Link>
       }

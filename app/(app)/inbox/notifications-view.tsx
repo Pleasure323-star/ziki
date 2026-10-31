@@ -8,12 +8,10 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { calculatePagination } from "@/lib/pagination";
 import { BASE_PATH } from "@/lib/base-path";
 
-export const metadata = { title: "Notifications" };
-
 const PAGE_SIZE = 50;
 
-/** In-app notification feed (#216); older pages are reachable with ?page= (#569). */
-export default async function NotificationsPage({
+/** The Inbox's notifications (#216); older pages are reachable with ?page= (#569). */
+export async function NotificationsView({
   searchParams,
 }: {
   searchParams?: Promise<{ scope?: string | string[]; page?: string | string[] }>;
@@ -45,10 +43,10 @@ export default async function NotificationsPage({
     }`;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight text-zk-text sm:text-2xl">Notifications</h1>
+          <h2 className="text-lg font-bold text-zk-text">Notifications</h2>
           <p className="mt-1 text-sm text-zk-muted">
             {unread === 0 ? "You're all caught up." : `${unread} unread`}
           </p>
@@ -59,14 +57,14 @@ export default async function NotificationsPage({
       {workspaceCount > 1 ? (
         <nav className="flex gap-1.5" aria-label="Notification workspaces">
           <Link
-            href="/notifications"
+            href="/inbox"
             aria-current={!allWorkspaces ? "page" : undefined}
             className={scopePill(!allWorkspaces)}
           >
             This workspace
           </Link>
           <Link
-            href="/notifications?scope=all"
+            href="/inbox?scope=all"
             aria-current={allWorkspaces ? "page" : undefined}
             className={scopePill(allWorkspaces)}
           >
@@ -94,7 +92,7 @@ export default async function NotificationsPage({
               <li key={n.id}>
                 {/* A plain link, not <Link>: prefetching would mark it read. */}
                 <a
-                  href={`${BASE_PATH}/notifications/${n.id}`}
+                  href={`${BASE_PATH}/inbox/notifications/${n.id}`}
                   className={`flex items-start gap-3 px-4 py-3 text-sm transition-colors hover:bg-zk-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-electric-blue ${
                     unreadItem ? "bg-zk-tint/50" : ""
                   }`}
@@ -129,7 +127,7 @@ export default async function NotificationsPage({
           from={pagination.from}
           to={pagination.to}
           queryParams={{ scope: allWorkspaces ? "all" : undefined }}
-          basePath="/notifications"
+          basePath="/inbox"
           itemLabel="notification"
         />
       ) : null}

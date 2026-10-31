@@ -38,12 +38,12 @@ export async function GET(
   });
   // Someone else's notification (or none): don't reveal or touch it.
   if (!notification || notification.userId !== resolved.userId) {
-    return redirectTo("/notifications");
+    return redirectTo("/inbox");
   }
 
   if (notification.tenantId) {
     const tenant = await memberTenantById(prisma, resolved.userId, notification.tenantId);
-    if (!tenant) return redirectTo("/notifications");
+    if (!tenant) return redirectTo("/inbox");
     if ((await readActiveTenantCookie()) !== tenant.id) {
       await setActiveTenantCookie(tenant.id);
       await setActiveProjectCookie("");

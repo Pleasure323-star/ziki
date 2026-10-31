@@ -32,8 +32,8 @@ export async function answerEscalationAction(
   }
 
   revalidatePath("/activity");
-  revalidatePath("/escalations");
-  revalidatePath(`/escalations/${escalationId}`);
+  revalidatePath("/inbox");
+  revalidatePath(`/inbox/escalations/${escalationId}`);
   revalidatePath("/questions");
   revalidatePath(`/questions/${escalationId}`);
   revalidatePath("/issues");
@@ -63,8 +63,8 @@ export async function quickResolveEscalationAction(
   }
 
   revalidatePath("/activity");
-  revalidatePath("/escalations");
-  revalidatePath(`/escalations/${escalationId}`);
+  revalidatePath("/inbox");
+  revalidatePath(`/inbox/escalations/${escalationId}`);
   revalidatePath("/issues");
   return { ok: true };
 }
