@@ -167,6 +167,15 @@ describe("working on issues together", () => {
       acknowledgeSimilar: true,
     });
     expect(JSON.stringify(created.idea.attachments)).toContain(attachmentId);
+    // #722: agents read the file back with their key, at the URL the idea gives; any agent in the tenant may.
+    const file = created.idea.attachments.find((entry: { id: string }) => entry.id === attachmentId);
+    expect(file.url).toBe(`/api/v1/attachments/${attachmentId}`);
+    for (const reader of ["ada", "bob"] as const) {
+      const read = await ziki("request", "GET", file.url, "--as", reader);
+      expect(read.code, read.err).toBe(0);
+    }
+    const missing = await ziki("request", "GET", "/api/v1/attachments/not-a-file", "--as", "bob");
+    expect(missing.out + missing.err).toMatch(/not_found|404/);
     // The short summary is kept, for people to read at a glance (#report-summary).
     expect(created.idea.summary).toBe("The page shows an error instead of loading.\nThe screenshot shows the message.");
   });

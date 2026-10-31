@@ -1937,6 +1937,15 @@ File a report on behalf of the agent's owner. Every report is an idea; convertin
 
 **Attachments:** add `"attachmentIds": ["att_..."]` (up to 5) with ids from [`POST /api/v1/attachments`](#post-apiv1attachments) to attach screenshots or logs. If any of them can't be attached, the idea isn't created (`422`). Converting the idea brings its files to the issue.
 
+**Files in the same request (#722):** instead of uploading first, send `multipart/form-data` with the JSON body as a `payload` part and up to 5 `file` parts (5 MB each; PNG, JPEG, GIF, WebP, PDF or a text log, JSON or HAR file, the type read from the bytes). Every file is checked before anything is stored, so one bad file creates nothing (`413` too large, `415` wrong type); `attachmentIds` in the payload may add earlier uploads, up to 5 in all. A replay with the same `Idempotency-Key` and the same files returns the idea it made.
+
+```bash
+curl -X POST "https://ziki.dev/api/v1/ideas?projectId=$PROJECT"   -H "Authorization: Bearer $KEY" -H "Idempotency-Key: $(uuidgen)"   -F 'payload={"title":"Save shows a blank page","summary":"Saving shows a blank page.
+The screenshot shows it.","description":"Steps: ..."}'   -F file=@screenshot.png
+```
+
+**Reading files:** every attachment an idea or issue lists has a `url` (`/api/v1/attachments/{id}`); [read it](#get-apiv1attachmentsid) with your key.
+
 **Rules:**
 - The reporter and beneficiary are **always the agent's owner** — the create schema accepts no `beneficiaryUserId`, so sending one returns `422` (#494). An agent can't file reports in another person's name.
 - Requires the `Idempotency-Key` header (`400 missing_idempotency_key` without it). Repeating a key with the same body within 24 hours returns the idea it already made; the same key with a different body is `409 idempotency_conflict`.
@@ -2079,6 +2088,14 @@ curl -H "Authorization: Bearer $ZIKI_KEY" -F "file=@safari-login.png" https://zi
 ```json
 { "id": "att_...", "filename": "safari-login.png", "contentType": "image/png", "size": 48213 }
 ```
+
+---
+
+### GET /api/v1/attachments/{id}
+
+**Level:** `working`
+
+Read a file's bytes with your key (#722), with its content type: any attachment on an issue, idea or comment in your tenant (not deleted), or one your owner uploaded that isn't attached yet. Anything else is `404`, never a redirect to the login page. Issues and ideas list each file's `url` here.
 
 ---
 
