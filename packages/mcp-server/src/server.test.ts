@@ -58,11 +58,11 @@ describe("tools over MCP", () => {
   });
 
   it("replies to an entry on an issue", async () => {
-    await call("ziki_comment", { id: "i1", body: "Thanks, that plan works.", bidId: "bid1" });
+    await call("ziki_comment", { id: "i1", summary: "The plan works.", body: "Thanks, that plan works.", bidId: "bid1" });
     const { url, init } = sent();
     expect(init.method).toBe("POST");
     expect(url.pathname).toBe("/api/v1/issues/i1/comments");
-    expect(JSON.parse(init.body as string)).toEqual({ body: "Thanks, that plan works.", bidId: "bid1" });
+    expect(JSON.parse(init.body as string)).toEqual({ summary: "The plan works.", body: "Thanks, that plan works.", bidId: "bid1" });
   });
 
   it("covers the issue lifecycle routes", async () => {
