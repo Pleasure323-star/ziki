@@ -4,6 +4,44 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 import { itemsFor, waitingForOthers, workEtag, type AgentWork, type ProjectWork, type WorkFeed } from "./work";
+import { prGate } from "./pr-gate";
+import type { StoredPullRequestReport } from "./pull-request-report";
+
+const REPO = { owner: "emerjent", repo: "ziki" };
+const PR = "https://github.com/emerjent/ziki/pull/552";
+const REPORTED_AT = new Date("2026-10-31T11:00:00Z");
+
+/** Erin's agent's report on a pull request: open, checks passing, can merge, at head-sha. */
+const prReport = (overrides: Partial<StoredPullRequestReport> = {}): StoredPullRequestReport => ({
+  id: "rep1",
+  bugId: "b2",
+  pullRequestUrl: PR,
+  state: "open",
+  mergedInto: null,
+  inDefaultBranch: null,
+  headSha: "head-sha",
+  mergeCommitSha: null,
+  checks: "passing",
+  mergeable: true,
+  note: "Checked on GitHub.",
+  agentId: "agent-owner-erin",
+  onBehalfOfUserId: "owner-erin",
+  createdAt: REPORTED_AT,
+  agent: { name: "Erin's agent" },
+  onBehalfOf: { name: "Erin" },
+  ...overrides,
+}) as StoredPullRequestReport;
+
+/** An issue In progress or later with its pull request and latest report, through the real gate (#pr-reports). */
+const prIssue = (id: string, number: number, pullRequestUrl: string, status: string, report: StoredPullRequestReport | null = null) => ({
+  id,
+  number,
+  title: "Fix",
+  status,
+  pullRequestUrl,
+  report,
+  gate: prGate(report, { pullRequestUrl, pullRequestHeadSha: "head-sha", repo: REPO }),
+});
 
 const agent = (level: AgentContext["level"], ownerId = "owner-bob"): AgentContext => ({
   agentId: `agent-${ownerId}`,
@@ -25,6 +63,7 @@ const facts = (overrides: Partial<ProjectWork["facts"] extends Map<string, infer
   pullRequestUrl: null,
   claims: [],
   confirmerOwners: [],
+  deliveryOwners: [],
   testerOwners: [],
   ...overrides,
 });
@@ -53,7 +92,10 @@ function work(overrides: Partial<ProjectWork> = {}): ProjectWork {
     toClose: [],
     toDeliverStranded: [],
     toReconcile: [],
+    toAwaitRelease: [],
     toRepair: [],
+    toReportPr: [],
+    prGates: new Map(),
     toConfirm: [],
     ideaThreshold: 3,
     tests: [],
@@ -146,8 +188,8 @@ describe("itemsFor", () => {
     expect(itemsFor(agent("working"), work({ toConfirm: [issue], facts: new Map([["b1", done]]) }), nothingMine)).toEqual([]);
   });
 
-  it("lists an idea at the threshold as a manager task to convert", () => {
-    // The convert list comes from its own query, so ideas past the top of the verdict list still reach managers.
+  it("lists an idea at the threshold as a task any agent can convert", () => {
+    // The convert list comes from its own query, so ideas past the top of the verdict list still reach agents.
     const project = work({
       ideas: [{ id: "b2", number: 8, title: "y", score: 2 }],
       toConvert: [{ id: "b1", number: 7, title: "x", score: 3 }],
@@ -155,10 +197,11 @@ describe("itemsFor", () => {
     });
     const forWorking = itemsFor(agent("working"), project, nothingMine).filter((item) => item.kind === "convert_idea");
     expect(forWorking).toHaveLength(1);
-    expect(forWorking[0]).toMatchObject({ key: "convert_idea:b1", minimumRole: "manager", canAct: false, blockedReason: "Needs a manager agent." });
+    expect(forWorking[0]).toMatchObject({ key: "convert_idea:b1", minimumRole: "working", canAct: true });
+    expect(forWorking[0].blockedReason).toBeUndefined();
+    expect(forWorking[0].actions.map((a) => [a.name, a.minimumRole])).toEqual([["list_idea_verdicts", "working"], ["convert_idea", "working"]]);
     const forManager = itemsFor(agent("manager"), project, nothingMine).find((item) => item.kind === "convert_idea");
     expect(forManager).toMatchObject({ canAct: true });
-    expect(forManager!.actions.map((a) => a.name)).toEqual(["list_idea_verdicts", "convert_idea"]);
   });
 
   it("lists a bad idea as a manager task to reject (#idea-rejected)", () => {
@@ -239,7 +282,7 @@ describe("itemsFor", () => {
     const project = work({
       ready: [{ id: "b1", number: 1, title: "x", importance: 3 }],
       toAward: [{ id: "b4", number: 4, title: "w", bids: [openBid({ issue: { id: "b4", number: 4, title: "w" } })] }],
-      toClose: [{ id: "b5", number: 5, title: "v", votes: 3, threshold: 3, suggestions: 1, summaries: ["#2 covers it."], suggesters: ["owner-cara"] }],
+      toClose: [{ id: "b5", number: 5, title: "v", reason: "superseded", votes: 3, tallies: [{ reason: "superseded", votes: 3 }], threshold: 3, suggestions: 1, summaries: ["#2 covers it."], suggesters: ["owner-cara"], duplicateOfNumber: null }],
       toAccept: [{ id: "b2", number: 2, title: "y" }],
       toMerge: [{ id: "b3", number: 3, title: "z" }],
       facts: new Map([["b2", facts()], ["b3", facts()]]),
@@ -391,16 +434,34 @@ describe("itemsFor", () => {
     });
   });
 
-  it("asks a manager to close an issue whose suggestions reached the threshold (#close-superseded)", () => {
-    const project = work({ toClose: [{ id: "b5", number: 5, title: "v", votes: 5, threshold: 3, suggestions: 3, summaries: ["#2 covers it.", "Same as #2."], suggesters: ["owner-cara", "owner-dan", "owner-eli"] }] });
+  it("asks a manager to close an issue for its leading reason once that reason reaches the threshold (#close-reasons)", () => {
+    const project = work({ toClose: [{
+      id: "b5", number: 5, title: "v", reason: "not_reproducible", votes: 4,
+      tallies: [{ reason: "not_reproducible", votes: 4 }, { reason: "superseded", votes: 1 }],
+      threshold: 3, suggestions: 3, summaries: ["Passes on main.", "Can't reproduce it."], suggesters: ["owner-cara", "owner-dan", "owner-eli"], duplicateOfNumber: null,
+    }] });
     const item = itemsFor(agent("manager"), project, nothingMine).find((i) => i.kind === "close_issue");
-    expect(item).toMatchObject({ key: "close_issue:b5", minimumRole: "manager", canAct: true, title: "Close #5 as superseded?" });
-    expect(item!.detail).toContain("3 suggestions say another issue or change covers it (5 of 3 votes)");
-    expect(item!.detail).toContain('"#2 covers it." "Same as #2."');
+    expect(item).toMatchObject({ key: "close_issue:b5", minimumRole: "manager", canAct: true, title: "Close #5 as not reproducible?" });
+    expect(item!.detail).toContain("3 suggestions; leading reason not reproducible");
+    expect(item!.detail).toContain("4 of 3 votes");
+    expect(item!.detail).toContain("Other reasons, counted apart: superseded 1.");
+    expect(item!.detail).toContain("not superseded by default");
+    expect(item!.detail).toContain('"Passes on main." "Can\'t reproduce it."');
     expect(item!.actions).toEqual([
-      { name: "close_issue", minimumRole: "manager", method: "POST", path: "/api/v1/issues/b5/close?projectId=p1", cli: "close-issue --id b5 --reason superseded --summary <why you close it>" },
+      { name: "close_issue", minimumRole: "manager", method: "POST", path: "/api/v1/issues/b5/close?projectId=p1", cli: "close-issue --id b5 --reason not_reproducible --evidence <what shows it>" },
     ]);
     expect(itemsFor(agent("working"), project, nothingMine).find((i) => i.kind === "close_issue")).toMatchObject({ canAct: false });
+  });
+
+  it("names the other issue when the leading reason is duplicate (#close-reasons)", () => {
+    const project = work({ toClose: [{
+      id: "b5", number: 5, title: "v", reason: "duplicate", votes: 3, tallies: [{ reason: "duplicate", votes: 3 }],
+      threshold: 3, suggestions: 1, summaries: ["#2 owns it."], suggesters: ["owner-dan"], duplicateOfNumber: 2,
+    }] });
+    const item = itemsFor(agent("manager"), project, nothingMine).find((i) => i.kind === "close_issue");
+    expect(item).toMatchObject({ title: "Close #5 as duplicate?" });
+    expect(item!.detail).toContain("leading reason duplicate of #2");
+    expect(item!.actions[0].cli).toBe("close-issue --id b5 --reason duplicate --duplicate-of 2 --evidence <what shows it>");
   });
 
   it("asks an independent manager to deliver a stranded pull request on the holder's behalf (#stranded-delivery)", () => {
@@ -443,6 +504,40 @@ describe("itemsFor", () => {
     });
   });
 
+  it("blocks deliver_stranded and offers a reclaim when the pull request is reported 404, and says so on the issue's other items", () => {
+    const pr = "https://github.com/emerjent/ziki/pull/615";
+    const stranded = {
+      id: "b7",
+      number: 615,
+      title: "x",
+      pullRequestUrl: pr,
+      creditedUserId: "owner-cara",
+      creditedName: "Cara",
+      linkedAt: new Date("2026-10-01T10:00:00Z"),
+      goodVerdicts: 3,
+      needed: 2,
+    };
+    const gone = prIssue("b7", 615, pr, "in_progress", prReport({ bugId: "b7", pullRequestUrl: pr, state: "not_found", headSha: null, checks: null, mergeable: null }));
+    expect(gone.gate.broken).toBe("not_found");
+    const project = work({
+      toDeliverStranded: [stranded],
+      toSenseCheck: [{ id: "b7", number: 615, title: "x", votes: 0, threshold: 3, holderOwners: ["owner-cara"], voters: [], since: null }],
+      prGates: new Map([["b7", gone.gate]]),
+      facts: new Map([["b7", facts({ assigneeId: "owner-cara", pullRequestUrl: pr })]]),
+    });
+    const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
+    const item = items.find((i) => i.kind === "deliver_stranded");
+    expect(item).toMatchObject({ canAct: false });
+    expect(item!.blockedReason).toContain("doesn't exist on GitHub (404)");
+    expect(item!.blockedReason).toContain("Reclaim it if it is idle.");
+    // The reason is the block, not repeated in the detail.
+    expect(item!.detail).not.toContain("doesn't exist on GitHub");
+    expect(item!.actions.map((a) => a.name)).toEqual(["list_test_verdicts", "deliver", "reclaim_issue"]);
+    expect(item!.actions[2]).toMatchObject({ minimumRole: "manager", method: "POST", path: "/api/v1/issues/b7/reclaim?projectId=p1" });
+    // Other items about the issue carry the reason in their detail.
+    expect(items.find((i) => i.kind === "sense_check")!.detail).toContain(gone.gate.reason!);
+  });
+
   it("blocks a manager from accepting a fix it is not independent of", () => {
     const own = facts({ reporterId: "owner-dana", beneficiaryUserId: "owner-dana" });
     const items = itemsFor(agent("manager", "owner-dana"), work({ toAccept: [{ id: "b2", number: 2, title: "y" }], facts: new Map([["b2", own]]) }), nothingMine);
@@ -450,34 +545,128 @@ describe("itemsFor", () => {
     expect(items[0].blockedReason).toMatch(/Your owner/);
   });
 
-  it("asks an independent manager to check whether a long-waiting fix is merged already (#reconcile-merged)", () => {
-    const pr = "https://github.com/emerjent/ziki/pull/552";
+  it("asks an independent manager to resolve a fix reported merged into the default branch (#reconcile-merged)", () => {
+    const report = prReport({ id: "rep5", bugId: "b5", state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" });
+    const issue = prIssue("b5", 552, PR, "ready_to_merge", report);
     const project = work({
-      toReconcile: [{ id: "b5", number: 552, title: "Old fix", status: "ready_to_merge", pullRequestUrl: pr }],
-      facts: new Map([["b5", facts({ pullRequestUrl: pr })]]),
+      toMerge: [{ id: "b5", number: 552, title: "Fix" }],
+      toReconcile: [issue],
+      prGates: new Map([["b5", issue.gate]]),
+      facts: new Map([["b5", facts({ pullRequestUrl: PR })]]),
     });
-    const item = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "reconcile_merged");
-    expect(item).toMatchObject({ key: `reconcile_merged:b5:${pr}`, minimumRole: "manager", canAct: true });
-    expect(item!.detail).toContain("Check whether the PR is merged; if so, resolve it");
-    expect(item!.actions.map((a) => [a.name, a.path])).toEqual([
-      ["resolve_merged", "/api/v1/issues/b5/resolve?projectId=p1"],
-      ["repair_pull_request", "/api/v1/issues/b5/pull-request?projectId=p1"],
-    ]);
+    const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
+    const item = items.find((i) => i.kind === "reconcile_merged");
+    expect(item).toMatchObject({ key: `reconcile_merged:b5:${PR}:rep5`, minimumRole: "manager", canAct: true, issue: { id: "b5", number: 552 } });
+    expect(item!.detail).toContain(`Erin's agent reported ${PR} merged into main, and the default branch contains it`);
+    expect(item!.actions.map((a) => [a.name, a.path])).toEqual([["resolve_merged", "/api/v1/issues/b5/resolve?projectId=p1"]]);
+    // Reported merged already: no merge item for it.
+    expect(items.some((i) => i.kind === "merge_fix")).toBe(false);
     // A working agent sees it but can't act; a manager whose owner filed it can't either.
     expect(itemsFor(agent("working", "owner-eli"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
     expect(itemsFor(agent("manager", "owner-ada"), project, nothingMine).find((i) => i.kind === "reconcile_merged")).toMatchObject({ canAct: false });
   });
 
+  it("offers no accept for a fix reported merged into staging, and lists it as awaiting release instead", () => {
+    const report = prReport({ id: "rep3", state: "merged", mergedInto: "staging", inDefaultBranch: false });
+    const issue = prIssue("b2", 552, PR, "done", report);
+    const project = work({
+      toAccept: [{ id: "b2", number: 552, title: "Fix" }],
+      toAwaitRelease: [issue],
+      prGates: new Map([["b2", issue.gate]]),
+      facts: new Map([["b2", facts({ pullRequestUrl: PR })]]),
+    });
+    for (const level of ["manager", "merger"] as const) {
+      const items = itemsFor(agent(level, "owner-dana"), project, nothingMine);
+      expect(items.some((i) => i.kind === "accept_fix")).toBe(false);
+      const wait = items.find((i) => i.kind === "await_release");
+      expect(wait).toMatchObject({ key: `await_release:b2:${PR}:rep3`, minimumRole: "manager", canAct: false, issue: { id: "b2", number: 552 } });
+      expect(wait!.blockedReason).toContain('Merged into "staging"');
+      expect(wait!.detail).toContain("merged into staging, not yet in the default branch");
+      expect(wait!.actions.map((a) => [a.name, a.path])).toEqual([["report_pr_status", "/api/v1/issues/b2/pull-request-status?projectId=p1"]]);
+    }
+  });
+
+  it("blocks the accept until an independent agent reports the pull request, then follows the report", () => {
+    const fix = { id: "b2", number: 552, title: "Fix" };
+    const withGate = (report: StoredPullRequestReport | null) =>
+      work({ toAccept: [fix], prGates: new Map([["b2", prIssue("b2", 552, PR, "done", report).gate]]), facts: new Map([["b2", facts({ pullRequestUrl: PR })]]) });
+    const unreported = itemsFor(agent("manager", "owner-dana"), withGate(null), nothingMine).find((i) => i.kind === "accept_fix");
+    expect(unreported).toMatchObject({ canAct: false });
+    expect(unreported!.blockedReason).toMatch(/^No agent has reported this pull request's state yet\./);
+
+    const failing = itemsFor(agent("manager", "owner-dana"), withGate(prReport({ checks: "failing" })), nothingMine).find((i) => i.kind === "accept_fix");
+    expect(failing).toMatchObject({ canAct: false, blockedReason: "The latest report says its checks are failing: the author fixes them and pushes." });
+
+    expect(itemsFor(agent("manager", "owner-dana"), withGate(prReport()), nothingMine).find((i) => i.kind === "accept_fix")).toMatchObject({ canAct: true });
+    // Not independent still says so first.
+    expect(itemsFor(agent("manager", "owner-ada"), withGate(prReport()), nothingMine).find((i) => i.kind === "accept_fix")).toMatchObject({
+      canAct: false,
+      blockedReason: "Your owner filed, claimed or is credited on this issue.",
+    });
+  });
+
+  it("asks the merger to merge on GitHub, report it and resolve it, blocked until the report allows it", () => {
+    const fix = { id: "b3", number: 553, title: "Fix" };
+    const withGate = (report: StoredPullRequestReport | null) =>
+      work({ toMerge: [fix], prGates: new Map([["b3", prIssue("b3", 553, PR, "ready_to_merge", report).gate]]), facts: new Map([["b3", facts({ pullRequestUrl: PR })]]) });
+    const item = itemsFor(agent("merger", "owner-dana"), withGate(prReport({ bugId: "b3" })), nothingMine).find((i) => i.kind === "merge_fix");
+    expect(item).toMatchObject({ key: "merge_fix:b3", title: "Merge the accepted fix for #553 on GitHub", minimumRole: "merger", canAct: true });
+    expect(item!.actions.map((a) => [a.name, a.path])).toEqual([
+      ["report_pr_status", "/api/v1/issues/b3/pull-request-status?projectId=p1"],
+      ["resolve_merged", "/api/v1/issues/b3/resolve?projectId=p1"],
+    ]);
+    const unreported = itemsFor(agent("merger", "owner-dana"), withGate(null), nothingMine).find((i) => i.kind === "merge_fix");
+    expect(unreported).toMatchObject({ canAct: false });
+    expect(unreported!.blockedReason).toMatch(/^No agent has reported/);
+  });
+
+  it("asks an independent agent to check a pull request on GitHub and report it, not the issue's own side (#pr-reports)", () => {
+    const pr9 = "https://github.com/emerjent/ziki/pull/9";
+    const unreported = prIssue("b3", 9, pr9, "delivered");
+    const project = (report: StoredPullRequestReport | null, why: string) => work({
+      toReportPr: [{ ...prIssue("b3", 9, pr9, "delivered", report), why }],
+      prGates: new Map([["b3", unreported.gate]]),
+      facts: new Map([["b3", facts({ pullRequestUrl: pr9, assigneeId: "owner-cara", deliveryOwners: ["owner-cara", "owner-finn"] })]]),
+    });
+    const fresh = project(null, "Nobody has reported this pull request's state yet.");
+    const item = itemsFor(agent("working", "owner-eli"), fresh, nothingMine).find((i) => i.kind === "report_pr_status");
+    expect(item).toMatchObject({
+      key: `report_pr_status:b3:${pr9}:none`,
+      title: "Check PR #9 on GitHub and report its state",
+      minimumRole: "working",
+      canAct: true,
+      issue: { id: "b3", number: 9 },
+    });
+    expect(item!.detail).toContain(`#9 links ${pr9}. Nobody has reported this pull request's state yet.`);
+    expect(item!.actions).toEqual([expect.objectContaining({ name: "report_pr_status", minimumRole: "working", method: "POST", path: "/api/v1/issues/b3/pull-request-status?projectId=p1" })]);
+    expect(item!.actions[0].cli).toContain(`report-pr-status --id b3 --pull-request-url ${pr9}`);
+
+    // Not for the filer, the assignee, or whoever delivered it.
+    for (const ownerId of ["owner-ada", "owner-cara", "owner-finn"]) {
+      expect(itemsFor(agent("manager", ownerId), fresh, nothingMine).some((i) => i.kind === "report_pr_status")).toBe(false);
+    }
+
+    // An old report: the key moves with it, and the detail names it.
+    const old = project(prReport({ id: "rep9", bugId: "b3", pullRequestUrl: pr9 }), "The latest report is 7 hours old.");
+    const again = itemsFor(agent("working", "owner-eli"), old, nothingMine).find((i) => i.kind === "report_pr_status");
+    expect(again!.key).toBe(`report_pr_status:b3:${pr9}:rep9`);
+    expect(again!.detail).toContain(`The latest report (open) is from Erin's agent at ${REPORTED_AT.toISOString()}.`);
+  });
+
   it("says a link under the old repository name needs repairing, on the issue's items and as a manager item (#triage)", () => {
     const old = "https://github.com/Zedu-Endor/issue-tracker/pull/552";
+    const broken = prIssue("b2", 552, old, "done");
     const project = work({
       toAccept: [{ id: "b2", number: 552, title: "Old fix" }],
-      toRepair: [{ id: "b2", number: 552, title: "Old fix", status: "done", pullRequestUrl: old, linkState: "old_repository" }],
+      toRepair: [{ ...broken, linkState: "old_repository" }],
+      prGates: new Map([["b2", broken.gate]]),
       facts: new Map([["b2", facts({ pullRequestUrl: old })]]),
     });
     const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
     const accept = items.find((i) => i.kind === "accept_fix");
     expect(accept!.detail).toContain("PR belongs to the old repository: repair it first.");
+    expect(accept).toMatchObject({ canAct: false });
+    expect(accept!.blockedReason).toContain("uses an old name of the project's repository");
     const repair = items.find((i) => i.kind === "repair_pull_request");
     expect(repair).toMatchObject({ key: `repair_pull_request:b2:${old}`, minimumRole: "manager", canAct: true, issue: { id: "b2", number: 552 } });
     expect(repair!.actions.map((a) => [a.name, a.path])).toEqual([["repair_pull_request", "/api/v1/issues/b2/pull-request?projectId=p1"]]);
@@ -486,22 +675,10 @@ describe("itemsFor", () => {
     expect(itemsFor(agent("manager", "owner-ada"), project, nothingMine).find((i) => i.kind === "repair_pull_request")).toMatchObject({ canAct: false });
   });
 
-  it("doesn't add a second repair item when the reconcile item already offers the repair", () => {
-    const old = "https://github.com/zeduchat/bug-tracker/pull/9";
-    const project = work({
-      toReconcile: [{ id: "b5", number: 9, title: "Fix", status: "ready_to_merge", pullRequestUrl: old }],
-      toRepair: [{ id: "b5", number: 9, title: "Fix", status: "ready_to_merge", pullRequestUrl: old, linkState: "old_repository" }],
-      facts: new Map([["b5", facts({ pullRequestUrl: old })]]),
-    });
-    const items = itemsFor(agent("manager", "owner-dana"), project, nothingMine);
-    expect(items.filter((i) => i.kind === "repair_pull_request")).toHaveLength(0);
-    expect(items.find((i) => i.kind === "reconcile_merged")!.detail).toContain("PR belongs to the old repository: repair it first.");
-  });
-
   it("names a link in another repository as one to repair or replace", () => {
     const elsewhere = "https://github.com/someone/fork/pull/3";
     const project = work({
-      toRepair: [{ id: "b6", number: 3, title: "Fix", status: "in_progress", pullRequestUrl: elsewhere, linkState: "other_repository" }],
+      toRepair: [{ ...prIssue("b6", 3, elsewhere, "in_progress"), linkState: "other_repository" }],
       facts: new Map([["b6", facts({ pullRequestUrl: elsewhere })]]),
     });
     const repair = itemsFor(agent("manager", "owner-dana"), project, nothingMine).find((i) => i.kind === "repair_pull_request");
@@ -511,7 +688,7 @@ describe("itemsFor", () => {
   it("lists repair_pull_request as waiting for a manager when a working agent can't do it", () => {
     const old = "https://github.com/Zedu-Endor/issue-tracker/pull/552";
     const project = work({
-      toRepair: [{ id: "b2", number: 552, title: "Old fix", status: "delivered", pullRequestUrl: old, linkState: "old_repository" }],
+      toRepair: [{ ...prIssue("b2", 552, old, "delivered"), linkState: "old_repository" }],
       facts: new Map([["b2", facts({ pullRequestUrl: old })]]),
     });
     const { waiting } = waitingForOthers("working", itemsFor(agent("working", "owner-eli"), project, nothingMine));
@@ -541,13 +718,12 @@ describe("waitingForOthers", () => {
   it("tells a working agent what waits for managers and mergers, though it can't do it", () => {
     const { waiting, lines } = waitingForOthers("working", itemsFor(agent("working"), project, nothingMine));
     expect(waiting).toEqual([
-      { kind: "convert_idea", count: 2, minimumRole: "manager", what: "2 ideas to convert to issues" },
       { kind: "accept_fix", count: 1, minimumRole: "manager", what: "1 tested fix to accept or reject" },
-      { kind: "merge_fix", count: 1, minimumRole: "merger", what: "1 accepted fix to merge" },
+      { kind: "merge_fix", count: 1, minimumRole: "merger", what: "1 accepted fix to merge on GitHub" },
     ]);
     expect(lines).toEqual([
-      "Also open in this project, for a manager agent: 2 ideas to convert to issues and 1 tested fix to accept or reject. You can't do these as a working agent, but they are work waiting to be done.",
-      "Also open in this project, for a merger agent: 1 accepted fix to merge. You can't do it as a working agent, but it is work waiting to be done.",
+      "Also open in this project, for a manager agent: 1 tested fix to accept or reject. You can't do it as a working agent, but it is work waiting to be done.",
+      "Also open in this project, for a merger agent: 1 accepted fix to merge on GitHub. You can't do it as a working agent, but it is work waiting to be done.",
     ]);
   });
 
@@ -556,10 +732,13 @@ describe("waitingForOthers", () => {
     expect(waitingForOthers("merger", itemsFor(agent("merger"), project, nothingMine))).toEqual({ waiting: [], lines: [] });
   });
 
-  it("lets a manager convert its owner's own idea", () => {
+  it("lets an agent convert its owner's own idea, and never lists converting as waiting for others", () => {
     const own = work({ toConvert: [{ id: "b1", number: 7, title: "x", score: 4 }], facts: new Map([["b1", facts({ reporterId: "owner-bob", beneficiaryUserId: "owner-bob" })]]) });
-    const item = itemsFor(agent("manager"), own, nothingMine).find((i) => i.kind === "convert_idea");
-    expect(item).toMatchObject({ canAct: true });
+    for (const level of ["working", "manager"] as const) {
+      const item = itemsFor(agent(level), own, nothingMine).find((i) => i.kind === "convert_idea");
+      expect(item).toMatchObject({ canAct: true });
+    }
+    expect(waitingForOthers("working", itemsFor(agent("working"), project, nothingMine)).waiting.map((w) => w.kind)).not.toContain("convert_idea");
   });
 });
 

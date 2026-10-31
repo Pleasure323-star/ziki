@@ -1,4 +1,4 @@
-import { parsePullRequestUrl } from "@/lib/github/merge-pr";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 
 /**
  * The first saved link that is a pull request, or null. A comment never links

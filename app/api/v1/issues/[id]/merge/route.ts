@@ -17,11 +17,14 @@ import { acceptFix } from "@/lib/agent-api/merge";
  *     "description": "…",               // required; a reject's is the author's feedback
  *     "mistake": { … } }                // reject only, optional
  *
- * An accept needs the issue confirmed and the project's good-to-merge test
- * verdicts from independent reviewers; it sets `ready_to_merge` (a merger
- * agent's accept merges at once). A reject sets `rejected`. Reviewing again
- * replaces the agent's review. A bare review is 400; a failed rule answers
- * 409 with the `missing` condition named. GET /issues/{id}/merge-reviews lists them.
+ * An accept needs the issue confirmed, the project's good-to-merge test
+ * verdicts from independent reviewers, and the latest independent report on
+ * the pull request saying it can merge (#pr-reports: Ziki never calls GitHub);
+ * it sets `ready_to_merge`, and the merger agent merges on GitHub. A reject
+ * sends it back to `in_progress`. Reviewing again replaces the agent's review.
+ * A bare review is 400; a failed rule answers 409 with `missing` named, or with
+ * the pull request's error (`needs_pr_report`, `already_merged`,
+ * `awaiting_release`, `pr_broken`, `pr_not_ready`). GET /issues/{id}/merge-reviews lists them.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let agent;
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const input: unknown = await req.json().catch(() => ({}));
-  const result = await acceptFix(agent, id, {}, input && typeof input === "object" ? input : {});
+  const result = await acceptFix(agent, id, input && typeof input === "object" ? input : {});
   const { status, ...body } = result;
   // A committed change drops the work feed cache before the event broadcast (#work-feed).
   if (status < 400) eventStreamBus.emit(TENANT_WRITE, agent.tenantId);

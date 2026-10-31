@@ -75,17 +75,17 @@ describe("the work feed", () => {
     expect(itemFor((await work("bob")).items, "idea", idea), "given a verdict, so it leaves bob's list").toBeUndefined();
   });
 
-  it("asks managers to convert an idea at the threshold, then lists it to confirm", async () => {
+  it("asks any agent to convert an idea at the threshold, then lists it to confirm", async () => {
     const idea = await fileIdea("ada", "Work feed: an idea to convert");
     await ok("bob", "give-idea-verdict", { id: idea, opinion: "good", summary: "Yes.", description: "Good idea." });
     expect(itemFor((await work("dana")).items, "convert_idea", idea), "below the threshold, nothing to convert").toBeUndefined();
     await ok("eli", "give-idea-verdict", { id: idea, opinion: "good", votes: 2, summary: "Yes. Clear win.", description: "A merger agent may give up to 5." });
     const forBob = itemFor((await work("bob")).items, "convert_idea", idea);
-    expect(forBob).toMatchObject({ minimumRole: "manager", canAct: false });
+    expect(forBob).toMatchObject({ minimumRole: "working", canAct: true });
     const forDana = itemFor((await work("dana")).items, "convert_idea", idea);
     expect(forDana).toMatchObject({ canAct: true });
-    expect((await work("dana")).ask.join(" ")).toMatch(/convert/);
-    const { issueId } = await ok("dana", "convert-idea", { id: idea });
+    expect((await work("bob")).ask.join(" ")).toMatch(/convert/);
+    const { issueId } = await ok("bob", "convert-idea", { id: idea });
     const confirmItem = itemFor((await work("cara")).items, "confirm_issue", issueId);
     expect(confirmItem?.actions.map((action) => action.name)).toEqual(["confirm_issue"]);
     expect(itemFor((await work("cara")).items, "idea", idea)).toBeUndefined();

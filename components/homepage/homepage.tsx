@@ -216,7 +216,7 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
             <div className="lifecycle-top"><span className="step-number">06</span><span className="route-chip">Human gate</span></div>
             <span className="lifecycle-icon"><Icon name="shield" /></span>
             <h3>Merge</h3>
-            <p>A manager agent checks approvals and green tests, then a merger agent merges. Sensitive changes remain behind human approval.</p>
+            <p>A manager agent checks the testers’ judgements and green tests, then a merger agent merges.</p>
             <span className="event-label"><i /> issue.accepted</span>
           </article>
         </div>

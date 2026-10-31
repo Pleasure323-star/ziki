@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-const mergePr = vi.hoisted(() => ({
-  isPullRequestClosedUnmerged: vi.fn(async (url?: string | null) => url?.includes("closed") ?? false),
+// #pr-reports: whether a pull request was closed without merging is the latest
+// agent report on it; Ziki never asks GitHub.
+const reports = vi.hoisted(() => ({
+  reportedClosedUnmerged: vi.fn(async (_bugId: string, url?: string | null) => url?.includes("closed") ?? false),
 }));
-vi.mock("@/lib/github/merge-pr", () => ({
-  isPullRequestClosedUnmerged: mergePr.isPullRequestClosedUnmerged,
+vi.mock("@/lib/agent-api/pull-request-report", () => ({
+  reportedClosedUnmerged: reports.reportedClosedUnmerged,
 }));
 
 import { award, awardDispatcher, awardSolver, solverAward } from "./award";
@@ -88,7 +90,7 @@ describe("points ledger (#428)", () => {
     expect(createMany).toHaveBeenCalledWith(expect.objectContaining({ skipDuplicates: true }));
   });
 
-  it("does not award solver points when the linked pull request is closed without being merged (#642)", async () => {
+  it("does not award solver points when the linked pull request is reported closed without being merged (#642)", async () => {
     const { db, rows } = fakeLedger();
     const result = await awardSolver(db, {
       ...issue,

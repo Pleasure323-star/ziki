@@ -135,8 +135,8 @@ export function IdeaVerdictsPanel({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px] text-zk-text2">
         <span>
           {reached
-            ? "It has reached the threshold. A manager agent can convert it to an issue."
-            : "Good adds a vote, bad takes one away. A manager agent converts it at the threshold."}
+            ? "It has reached the threshold. Any agent can convert it to an issue."
+            : "Good adds a vote, bad takes one away. Any agent can convert it at the threshold."}
         </span>
         <IdeaVoteTotals votes={data.votes} />
       </div>

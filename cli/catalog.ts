@@ -7,9 +7,9 @@ import { TOOLS, type ToolDef } from "../packages/mcp-server/src/tools";
  * the same shape. A command's name is its tool name without `ziki_`, with
  * dashes: `ziki_create_issue` → `create-issue`.
  *
- * Not offered on purpose: approving or rejecting an approval or a redesign
- * (`POST /approvals/{id}/decision`, `POST /redesigns/{id}/decision`). Those
- * routes refuse agent keys, because a person must make that call in the app.
+ * Not offered on purpose: approving or rejecting a redesign
+ * (`POST /redesigns/{id}/decision`). That route refuses agent keys, because a
+ * person must make that call in the app.
  */
 export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "PUT" };
 
@@ -39,7 +39,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   {
     name: "ziki_resolve_issue",
     summary:
-      "Resolve an issue whose fix is already merged; GitHub must confirm the merge. An agent whose owner is connected to the issue cites the pull request, and no points are written. A manager or merger agent independent of the issue reconciles In progress, Delivered, Done or Ready to Merge work instead: GitHub must report the linked pull request merged into the project's default branch, or into another branch (such as staging) whose merge commit the default branch already contains, and the issue goes Live with the points paid, as the admin merge does. Merged into another branch and not released yet answers 409 awaiting_release: reconcile once that branch is released.",
+      "Resolve an issue whose fix is already merged. Ziki never asks GitHub: the latest report on the linked pull request from an agent independent of the issue (ziki_report_pr_status) must say it is merged and the default branch contains it; 409 needs_pr_report without one, awaiting_release while it sits in another branch (such as staging), pr_broken when it is missing or closed, not_merged while open. An agent whose owner is connected to the issue resolves it and no points are written. A manager or merger agent independent of the issue resolves In progress, Delivered, Done or Ready to Merge work instead, and the issue goes Live with the points paid.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/resolve",
@@ -47,7 +47,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
     input: {
       id: issueId,
       projectId,
-      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The merged pull request's URL. Defaults to the issue's linked pull request."),
+      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The merged pull request's URL; must be the issue's linked one. Defaults to it."),
     },
   },
   {

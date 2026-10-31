@@ -17,6 +17,7 @@ const db = vi.hoisted(() => {
       issueClaim: { findFirst: vi.fn() },
       reviewOffer: { findFirst: vi.fn() },
       agentAuditEvent: { findFirst: vi.fn() },
+      pullRequestReport: { findFirst: vi.fn() },
       delivery: { findMany: vi.fn() },
       $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     },
@@ -65,7 +66,7 @@ function issue(overrides: { reporterId?: string } = {}) {
     projectId: "p1",
     status: "in_progress",
     pullRequestUrl: PR,
-    project: { repoUrl: "https://github.com/emerjent/ziki", githubInstallationId: null },
+    project: { repoUrl: "https://github.com/emerjent/ziki" },
   });
   db.prisma.bug.findUnique.mockResolvedValue({
     beneficiaryUserId: "rex",
@@ -83,6 +84,7 @@ describe("deliverWork: a manager agent delivers a stranded pull request on the h
     db.prisma.issueClaim.findFirst.mockResolvedValue(null);
     db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
     db.prisma.agentAuditEvent.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
     db.prisma.delivery.findMany.mockResolvedValue([
       {
         id: "d1",
@@ -108,7 +110,7 @@ describe("deliverWork: a manager agent delivers a stranded pull request on the h
   });
 
   it("files the delivery as the manager agent, credits the holder, marks it on their behalf and evaluates the judgements at once", async () => {
-    const result = await deliverWork(agent("manager"), "bug1", body(), { client: null });
+    const result = await deliverWork(agent("manager"), "bug1", body());
     expect(result).toMatchObject({ status: 201, replaced: false });
     expect(db.tx.delivery.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ bugId: "bug1", agentId: "agent-dana", beneficiaryUserId: "ada", pullRequestUrl: PR }) }),
@@ -128,47 +130,132 @@ describe("deliverWork: a manager agent delivers a stranded pull request on the h
 
   it("asks for reviewers when the existing judgements leave it Delivered", async () => {
     mocks.refreshJudgedStatus.mockResolvedValue(null);
-    expect(await deliverWork(agent("merger"), "bug1", body(), { client: null })).toMatchObject({ status: 201 });
+    expect(await deliverWork(agent("merger"), "bug1", body())).toMatchObject({ status: 201 });
     expect(mocks.createReviewOffers).toHaveBeenCalled();
   });
 
   it("answers 409 not_stranded to a manager when the issue doesn't qualify", async () => {
     mocks.strandedDelivery.mockResolvedValue(null);
-    const result = await deliverWork(agent("manager"), "bug1", body(), { client: null });
+    const result = await deliverWork(agent("manager"), "bug1", body());
     expect(result).toMatchObject({ status: 409, error: "not_stranded" });
     expect((result as { message: string }).message).toMatch(/linked more than 2 hours ago/);
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("keeps 409 no_claim for a working agent without a claim, even on a stranded issue", async () => {
-    expect(await deliverWork(agent("working"), "bug1", body(), { client: null })).toMatchObject({ status: 409, error: "no_claim" });
+    expect(await deliverWork(agent("working"), "bug1", body())).toMatchObject({ status: 409, error: "no_claim" });
     expect(mocks.strandedDelivery).not.toHaveBeenCalled();
   });
 
   it("refuses a manager that is not independent of the issue or of the person credited", async () => {
     // The credited person's own manager agent.
-    expect(await deliverWork(agent("manager", "ada"), "bug1", body(), { client: null })).toMatchObject({ status: 403, error: "not_independent" });
+    expect(await deliverWork(agent("manager", "ada"), "bug1", body())).toMatchObject({ status: 403, error: "not_independent" });
     // The reporter's manager agent.
     issue({ reporterId: "rex" });
-    expect(await deliverWork(agent("manager", "rex"), "bug1", body(), { client: null })).toMatchObject({ status: 403, error: "not_independent" });
+    expect(await deliverWork(agent("manager", "rex"), "bug1", body())).toMatchObject({ status: 403, error: "not_independent" });
     // Credited through the agent that linked it, who is neither reporter nor assignee.
     mocks.strandedDelivery.mockResolvedValue({ ...stranded, creditedUserId: "lin" });
-    expect(await deliverWork(agent("manager", "lin"), "bug1", body(), { client: null })).toMatchObject({ status: 403, error: "not_independent" });
+    expect(await deliverWork(agent("manager", "lin"), "bug1", body())).toMatchObject({ status: 403, error: "not_independent" });
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("answers 409 wrong_pull_request unless it delivers the linked pull request", async () => {
-    const result = await deliverWork(agent("manager"), "bug1", body("https://github.com/emerjent/ziki/pull/700"), { client: null });
+    const result = await deliverWork(agent("manager"), "bug1", body("https://github.com/emerjent/ziki/pull/700"));
     expect(result).toMatchObject({ status: 409, error: "wrong_pull_request", field: "pullRequestUrl" });
     expect(db.prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("leaves the claim holder's own delivery as it was: no stranded check and no immediate evaluation", async () => {
     db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
-    expect(await deliverWork(agent("working", "ada"), "bug1", body(), { client: null })).toMatchObject({ status: 201 });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body())).toMatchObject({ status: 201 });
     expect(mocks.strandedDelivery).not.toHaveBeenCalled();
     expect(mocks.refreshJudgedStatus).not.toHaveBeenCalled();
     expect(mocks.audit).toHaveBeenCalledWith(expect.anything(), "issue.delivered", "bug:bug1", expect.not.objectContaining({ onBehalfOf: true }), expect.anything());
     expect(mocks.createReviewOffers).toHaveBeenCalled();
+  });
+});
+
+/** The latest independent report on the pull request (#pr-reports). */
+const report = (state: "open" | "closed" | "merged" | "not_found", overrides: Record<string, unknown> = {}) => ({
+  id: "r1",
+  bugId: "bug1",
+  pullRequestUrl: PR,
+  state,
+  mergedInto: state === "merged" ? "main" : null,
+  inDefaultBranch: state === "merged" ? true : null,
+  headSha: null,
+  mergeCommitSha: null,
+  checks: null,
+  mergeable: null,
+  note: "Checked it on GitHub.",
+  agentId: "agent-rex",
+  onBehalfOfUserId: "rex",
+  createdAt: new Date("2026-10-30T09:00:00Z"),
+  agent: { name: "rex's agent" },
+  onBehalfOf: { name: "Rex" },
+  ...overrides,
+});
+
+describe("deliverWork: the latest pull request report decides whether it can be delivered (#pr-reports)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    issue();
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.agentAuditEvent.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        agentId: "agent-ada",
+        beneficiaryUserId: "ada",
+        summary: body().summary,
+        description: body().description,
+        pullRequestUrl: PR,
+        headSha: "abc1234",
+        screenshots: [],
+        testResults: body().testResults,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        agent: { name: "ada's agent" },
+        beneficiary: { name: "Ada" },
+        replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+  });
+
+  it("refuses a pull request reported merged, closed or missing, naming who reported it", async () => {
+    for (const [state, error] of [
+      ["merged", "pull_request_merged"],
+      ["closed", "pull_request_closed"],
+      ["not_found", "pull_request_not_found"],
+    ] as const) {
+      db.prisma.pullRequestReport.findFirst.mockResolvedValueOnce(report(state));
+      const result = await deliverWork(agent("working", "ada"), "bug1", body());
+      expect(result).toMatchObject({ status: 422, error });
+      expect((result as { message: string }).message).toContain("rex's agent");
+    }
+    expect(db.prisma.pullRequestReport.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { bugId: "bug1", pullRequestUrl: PR } }));
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("delivers when nobody has reported the pull request yet, recording the head commit the deliverer sent", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "abc1234" });
+    expect(result).toMatchObject({ status: 201 });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ headSha: "abc1234" }) }));
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: "abc1234", status: "delivered" }) }));
+    expect(mocks.publish).toHaveBeenCalledWith(db.tx, expect.objectContaining({ type: "issue.delivered", payload: expect.objectContaining({ headSha: "abc1234" }) }));
+  });
+
+  it("delivers a pull request reported open, and records no head when none is sent", async () => {
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(report("open", { headSha: "def5678" }));
+    expect(await deliverWork(agent("working", "ada"), "bug1", body())).toMatchObject({ status: 201 });
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: null }) }));
+  });
+
+  it("refuses a head commit that isn't a hexadecimal SHA", async () => {
+    expect(await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "not-a-sha" })).toMatchObject({ status: 400, field: "headSha" });
   });
 });

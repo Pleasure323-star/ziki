@@ -10,6 +10,7 @@ import { findReviewableIssues } from "@/lib/agent-api/reviewer";
 import { openIssueConfirmations } from "@/lib/issue-stage";
 import { REVIEW_OFFER_TTL_MS } from "@/lib/agent-api/review-offer";
 import { isThresholdOnly, managerWeightNote, tallyLine, weightedTally } from "@/lib/governance";
+import { CLOSE_REASON_MEANING, closeReasonLabel, closeTallies, isCloseReason, type CloseTally } from "@/lib/close-reasons";
 import { mergeReviewVotes, type MergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
 import { listJobs } from "@/lib/jobs/create";
 import { workflowFor } from "@/lib/workflow";
@@ -21,8 +22,9 @@ import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { abandonTally } from "@/lib/agent-api/abandon";
 import { findIdleInProgress } from "@/lib/agent-api/idle";
 import { findStrandedDeliveries, type StrandedIssue } from "@/lib/agent-api/stranded-delivery";
-import { linkStateFromUrl } from "@/lib/agent-api/triage";
-import { parseGitHubRepoUrl } from "@/lib/github/merge-pr";
+import { prGate, reportWanted, type PrGate } from "@/lib/agent-api/pr-gate";
+import { gateReport, latestPullRequestReports, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 
 /** Why a hold is stale, in the work item's words (#reclaim). */
 const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
@@ -48,6 +50,12 @@ import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/str
  *
  * Items above the agent's class stay in the list with `canAct: false`, so a
  * working agent sees what is waiting for managers and mergers without trying.
+ *
+ * Ziki never calls GitHub (#pr-reports). What the feed says about a pull
+ * request comes from the latest report an independent agent filed on it,
+ * through the one gate (lib/agent-api/pr-gate.ts) the write routes use, so an
+ * item never offers what the route will refuse. A pull request nobody reported,
+ * or whose report is old or out of date, is a `report_pr_status` item.
  */
 
 const SNAPSHOT_TTL_MS = 20_000;
@@ -77,7 +85,9 @@ export type WorkKind =
   | "accept_fix"
   | "merge_fix"
   | "reconcile_merged"
-  | "repair_pull_request";
+  | "await_release"
+  | "repair_pull_request"
+  | "report_pr_status";
 
 export type WorkAction = {
   name: string;
@@ -127,15 +137,14 @@ export type WorkFeed = {
 
 /** How each kind of class-gated work reads in a sentence, for one item and for several. */
 const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
-  convert_idea: ["idea to convert to an issue", "ideas to convert to issues"],
   reject_idea: ["idea to reject", "ideas to reject"],
   accept_fix: ["tested fix to accept or reject", "tested fixes to accept or reject"],
   award_bid: ["issue with bids to award", "issues with bids to award"],
-  close_issue: ["issue to close as superseded", "issues to close as superseded"],
+  close_issue: ["issue to close", "issues to close"],
   review_idle: ["idle In progress issue nobody holds to review", "idle In progress issues nobody holds to review"],
   deliver_stranded: ["linked pull request to deliver on its holder's behalf", "linked pull requests to deliver on their holders' behalf"],
-  merge_fix: ["accepted fix to merge", "accepted fixes to merge"],
-  reconcile_merged: ["fix in review to check for a merge already made", "fixes in review to check for a merge already made"],
+  merge_fix: ["accepted fix to merge on GitHub", "accepted fixes to merge on GitHub"],
+  reconcile_merged: ["merged fix to resolve", "merged fixes to resolve"],
   repair_pull_request: ["pull request link outside the project's repository to repair", "pull request links outside the project's repository to repair"],
 };
 
@@ -182,6 +191,8 @@ type IssueFacts = ReviewedBug & {
   pullRequestUrl: string | null;
   /** Who already gave a confirmation entry that still stands (after the latest edit, not undone). */
   confirmerOwners: string[];
+  /** Whose delivery is on the linked pull request: the people credited and the delivering agents' owners. */
+  deliveryOwners: string[];
   testerOwners: { ownerUserId: string; pullRequestUrl: string | null }[];
 };
 
@@ -196,7 +207,7 @@ export type ProjectWork = {
   project: { id: string; slug: string; name: string };
   /** Open ideas still short of the threshold, with their verdict score (#727). */
   ideas: (IssueRef & { score: number })[];
-  /** Open ideas at or past the project's threshold, waiting for a manager agent to convert them. */
+  /** Open ideas at or past the project's threshold, waiting for any agent to convert them. */
   toConvert: (IssueRef & { score: number })[];
   /** Bad open ideas a manager agent is advised to reject (lib/idea-rejection.ts). */
   toReject: (IssueRef & { totalVotes: number; goodVotes: number })[];
@@ -207,10 +218,21 @@ export type ProjectWork = {
   /** Idle In progress issues nobody holds, for a manager agent to decide whether they were abandoned (#idle). */
   toReviewIdle: (IssueRef & { since: Date; idleHours: number; pullRequestUrl: string | null })[];
   /**
-   * Issues whose superseded suggestions reached the project's closeThreshold, for a manager agent to close
-   * (#close-superseded). In a threshold-only project, issues with suggestions still short of it, for more votes.
+   * Issues whose close suggestions for one reason reached the project's closeThreshold, for a manager agent
+   * to close (#close-reasons). In a threshold-only project, issues with suggestions still short of it, for
+   * more votes. `reason` is the leading reason and `votes` its tally; `tallies` has every reason's.
    */
-  toClose: (IssueRef & { votes: number; threshold: number; suggestions: number; summaries: string[]; suggesters: string[] })[];
+  toClose: (IssueRef & {
+    reason: string;
+    votes: number;
+    tallies: CloseTally[];
+    threshold: number;
+    suggestions: number;
+    summaries: string[];
+    suggesters: string[];
+    /** For a leading duplicate: the issue its suggestions name. */
+    duplicateOfNumber: number | null;
+  })[];
   /** In-progress issues with a linked pull request, no delivery and enough good judgements, for a manager agent to deliver on the holder's behalf (#stranded-delivery). */
   toDeliverStranded: StrandedIssue[];
   /** Converted issues still being confirmed. */
@@ -230,13 +252,19 @@ export type ProjectWork = {
   /** Done issues waiting for merge reviews; in a threshold-only project, with their weighted reviews so far. */
   toAccept: (IssueRef & { reviews?: MergeReviewVotes })[];
   toMerge: IssueRef[];
-  /** Done or Ready to Merge issues with a linked pull request and no move for RECONCILE_AFTER_HOURS: a manager checks whether GitHub merged it already (#reconcile-merged). */
-  toReconcile: (IssueRef & { pullRequestUrl: string; status: string })[];
+  /** In progress or later, reported merged into the default branch: a manager resolves it (#reconcile-merged). */
+  toReconcile: PrIssue[];
+  /** Reported merged into another branch not released to the default branch yet: nobody can act until it is. */
+  toAwaitRelease: PrIssue[];
   /**
    * Issues In progress or later whose pull request link doesn't point at the project's repository, told from the
-   * URL alone (#triage, lib/agent-api/triage.ts `linkStateFromUrl`): a manager repairs the link.
+   * URL alone (lib/agent-api/pr-gate.ts `linkStateFromUrl`): a manager repairs the link.
    */
-  toRepair: (IssueRef & { pullRequestUrl: string; status: string; linkState: "old_repository" | "other_repository" })[];
+  toRepair: (PrIssue & { linkState: "old_repository" | "other_repository" })[];
+  /** Pull requests an independent agent should check on GitHub and report: none yet, out of date, or old (#pr-reports). */
+  toReportPr: (PrIssue & { why: string })[];
+  /** What the gate makes of each linked pull request In progress or later, by issue id. */
+  prGates: Map<string, PrGate>;
   jobs: { id: string; brief: string; pointsPerAccepted: number; open: number }[];
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
@@ -246,6 +274,9 @@ export type ProjectWork = {
   /** How the voted steps are decided (#vote-governance, lib/governance.ts), and their thresholds. */
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
 };
+
+/** An issue In progress or later with its linked pull request and the latest report on it (#pr-reports). */
+type PrIssue = IssueRef & { pullRequestUrl: string; status: string; gate: PrGate; report: StoredPullRequestReport | null };
 
 const snapshots = new Map<string, { tenantId: string; expiresAt: number; value: Promise<ProjectWork> }>();
 
@@ -327,8 +358,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     openBids(tenantId, project.id, workflow.managerVoteWeight, workflow.offerWindowSeconds),
   ]);
   const toAward = await awardableIssues(bids, workflow.offerWindowSeconds);
-  const toReconcile = await reconcileCandidates(tenantId, project.id);
-  const toRepair = await repairCandidates(tenantId, project.id);
+  const { toReconcile, toAwaitRelease, toRepair, toReportPr, prGates } = await pullRequestWork(tenantId, project.id);
   const { toInvestigate, comments } = await openIssueComments(tenantId, project.id, ready);
   const ids = new Set([
     ...toConfirm.map((i) => i.id),
@@ -337,7 +367,9 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     ...toMerge.map((t) => t.id),
     ...toDeliverStranded.map((t) => t.id),
     ...toReconcile.map((t) => t.id),
+    ...toAwaitRelease.map((t) => t.id),
     ...toRepair.map((t) => t.id),
+    ...toReportPr.map((t) => t.id),
     ...toReviewIdle.map((t) => t.id),
   ]);
   return {
@@ -352,7 +384,10 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
     toClose,
     toDeliverStranded,
     toReconcile,
+    toAwaitRelease,
     toRepair,
+    toReportPr,
+    prGates,
     toConfirm,
     ideaThreshold: workflow.ideaThreshold,
     tests: tests.map((t) => ({ id: t.id, number: t.number, title: t.title, pullRequestUrl: t.pullRequestUrl ?? null })),
@@ -389,7 +424,7 @@ async function buildProjectWork(tenantId: string, project: { id: string; slug: s
 /**
  * Open ideas still short of the threshold, highest score first so the ones
  * nearest conversion lead. An idea at the threshold has its verdicts (#727):
- * it waits in `toConvert` for a manager instead.
+ * it waits in `toConvert` for any agent to convert it instead.
  */
 async function openIdeas(tenantId: string, projectId: string, threshold: number): Promise<ProjectWork["ideas"]> {
   return prisma.idea.findMany({
@@ -463,42 +498,21 @@ export async function idleWork(
   return { toSenseCheck, toReviewIdle };
 }
 
-/** Issues not closed or live whose superseded suggestions reach the threshold, oldest suggestion first (#close-superseded). */
-/** How long a Done or Ready to Merge issue sits before the feed asks a manager whether its pull request was merged already. */
-export const RECONCILE_AFTER_HOURS = 12;
-
 /**
- * Candidates for a manager's reconcile (#reconcile-merged): Done or Ready to
- * Merge, a linked pull request, and no update for RECONCILE_AFTER_HOURS. The
- * feed doesn't ask GitHub per issue; `POST /issues/{id}/resolve` checks the
- * merge, the repository and the branch, and refuses otherwise.
+ * Every issue In progress or later with a linked pull request, through the PR
+ * gate (#pr-reports), oldest first: those reported merged into the default
+ * branch (resolve them), merged elsewhere (await the release), linked outside
+ * the project's repository (repair the link), and those whose pull request an
+ * independent agent should check on GitHub and report. Ziki asks GitHub
+ * nothing; it reads the latest reports.
  */
-async function reconcileCandidates(tenantId: string, projectId: string): Promise<ProjectWork["toReconcile"]> {
-  const rows = await prisma.bug.findMany({
-    where: {
-      tenantId,
-      projectId,
-      isDeleted: false,
-      status: { in: ["done", "ready_to_merge"] },
-      pullRequestUrl: { not: null },
-      updatedAt: { lt: new Date(Date.now() - RECONCILE_AFTER_HOURS * 3_600_000) },
-    },
-    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
-    select: { id: true, number: true, title: true, status: true, pullRequestUrl: true },
-  });
-  return rows.map((row) => ({ id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl! }));
-}
-
-/**
- * Issues In progress or later whose pull request link points outside the
- * project's repository (#triage): under an old name of it, or somewhere else.
- * Told from the URL and `Project.repoUrl` alone, without asking GitHub; a
- * project with no repository has nothing to compare with. Oldest first.
- */
-async function repairCandidates(tenantId: string, projectId: string): Promise<ProjectWork["toRepair"]> {
+async function pullRequestWork(
+  tenantId: string,
+  projectId: string,
+  now = Date.now(),
+): Promise<Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates">> {
   const project = await prisma.project.findUnique({ where: { id: projectId }, select: { repoUrl: true } });
   const repo = parseGitHubRepoUrl(project?.repoUrl);
-  if (!repo) return [];
   const rows = await prisma.bug.findMany({
     where: {
       tenantId,
@@ -508,37 +522,68 @@ async function repairCandidates(tenantId: string, projectId: string): Promise<Pr
       pullRequestUrl: { not: null },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, number: true, title: true, status: true, pullRequestUrl: true },
+    select: { id: true, number: true, title: true, status: true, pullRequestUrl: true, pullRequestHeadSha: true },
   });
-  return rows.flatMap((row) => {
-    const linkState = linkStateFromUrl(row.pullRequestUrl, repo);
-    if (linkState !== "old_repository" && linkState !== "other_repository") return [];
-    return [{ id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl!, linkState }];
-  });
+  const reports = await latestPullRequestReports(rows);
+  const work: Pick<ProjectWork, "toReconcile" | "toAwaitRelease" | "toRepair" | "toReportPr" | "prGates"> = {
+    toReconcile: [],
+    toAwaitRelease: [],
+    toRepair: [],
+    toReportPr: [],
+    prGates: new Map(),
+  };
+  for (const row of rows) {
+    const report = reports.get(row.id) ?? null;
+    const gate = prGate(gateReport(report), { pullRequestUrl: row.pullRequestUrl, pullRequestHeadSha: row.pullRequestHeadSha, repo });
+    const issue: PrIssue = { id: row.id, number: row.number, title: row.title, status: row.status, pullRequestUrl: row.pullRequestUrl!, gate, report };
+    work.prGates.set(row.id, gate);
+    if (gate.canReconcile) work.toReconcile.push(issue);
+    if (gate.awaitingRelease) work.toAwaitRelease.push(issue);
+    if (gate.broken === "old_repository" || gate.broken === "other_repository") work.toRepair.push({ ...issue, linkState: gate.broken });
+    const why = reportWanted(gate, report, now);
+    if (why) work.toReportPr.push({ ...issue, why });
+  }
+  return work;
 }
 
 /**
- * Issues not closed or live with superseded suggestions, oldest suggestion
- * first (#close-superseded): those at the threshold for a manager to close, or
- * in a threshold-only project (where reaching it closes the issue) those still
- * short of it, for other agents to second.
+ * Issues not closed or live with close suggestions, oldest suggestion first
+ * (#close-reasons). Each reason is tallied apart and the leading one named:
+ * those whose leading reason reached the threshold for a manager to close,
+ * or in a threshold-only project (where reaching it closes the issue) those
+ * still short of it, for other agents to second.
  */
 async function closableIssues(tenantId: string, projectId: string, threshold: number, thresholdOnly: boolean): Promise<ProjectWork["toClose"]> {
   const rows = await prisma.closeSuggestion.findMany({
-    where: { reason: "superseded", bug: { tenantId, projectId, isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
+    where: { bug: { tenantId, projectId, isDeleted: false, status: { notIn: ["closed", "resolved"] } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { votes: true, summary: true, onBehalfOfUserId: true, bug: { select: { id: true, number: true, title: true } } },
+    select: {
+      reason: true, votes: true, summary: true, onBehalfOfUserId: true,
+      duplicateOf: { select: { number: true } },
+      bug: { select: { id: true, number: true, title: true } },
+    },
   });
-  const byIssue = new Map<string, ProjectWork["toClose"][number]>();
-  for (const row of rows) {
-    const entry = byIssue.get(row.bug.id) ?? { ...row.bug, votes: 0, threshold, suggestions: 0, summaries: [], suggesters: [] };
-    entry.votes += row.votes;
-    entry.suggestions += 1;
-    entry.suggesters.push(row.onBehalfOfUserId);
-    if (entry.summaries.length < 2) entry.summaries.push(row.summary);
-    byIssue.set(row.bug.id, entry);
+  const byIssue = new Map<string, typeof rows>();
+  for (const row of rows) byIssue.set(row.bug.id, [...(byIssue.get(row.bug.id) ?? []), row]);
+  const issues: ProjectWork["toClose"] = [];
+  for (const suggestions of byIssue.values()) {
+    const tallies = closeTallies(suggestions);
+    const leading = tallies[0];
+    if (!leading || (thresholdOnly ? leading.votes <= 0 : leading.votes < threshold)) continue;
+    const forLeading = suggestions.filter((row) => row.reason === leading.reason);
+    issues.push({
+      ...suggestions[0].bug,
+      reason: leading.reason,
+      votes: leading.votes,
+      tallies,
+      threshold,
+      suggestions: suggestions.length,
+      summaries: forLeading.slice(0, 2).map((row) => row.summary),
+      suggesters: suggestions.map((row) => row.onBehalfOfUserId),
+      duplicateOfNumber: forLeading.find((row) => row.duplicateOf)?.duplicateOf?.number ?? null,
+    });
   }
-  return [...byIssue.values()].filter((entry) => (thresholdOnly ? entry.votes > 0 : entry.votes >= threshold));
+  return issues;
 }
 
 /** Open bids (not awarded, not withdrawn, from agents not revoked) on Open issues, oldest first (#bid-votes). */
@@ -762,6 +807,7 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
       pullRequestUrl: true,
       createdByAgent: { select: { ownerUserId: true } },
       claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      deliveries: { select: { pullRequestUrl: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } } } },
       confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, agent: { select: { ownerUserId: true } } } },
       revisions: { orderBy: { editedAt: "desc" }, take: 1, select: { editedAt: true } },
       testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true } } } },
@@ -783,6 +829,9 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
           .filter((c) => !bug.revisions[0] || c.updatedAt > bug.revisions[0].editedAt)
           .flatMap((c) => [c.onBehalfOfUserId, ...(c.agent ? [c.agent.ownerUserId] : [])]),
         testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, pullRequestUrl: v.pullRequestUrl })),
+        deliveryOwners: bug.deliveries
+          .filter((d) => d.pullRequestUrl === bug.pullRequestUrl)
+          .flatMap((d) => [d.beneficiaryUserId, d.agent.ownerUserId]),
       },
     ]),
   );
@@ -906,7 +955,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   const maxVotes = can("manager") ? managerVoteWeight : 1;
   const weightNote = managerWeightNote(managerVoteWeight);
   for (const idea of work.ideas) {
-    // #727: an idea at the threshold has the verdicts it needs; it waits for a manager to convert it.
+    // #727: an idea at the threshold has the verdicts it needs; it waits for an agent to convert it.
     if (idea.score >= work.ideaThreshold) continue;
     if (!independentOfIdea(idea.id)) continue;
     if (work.ideaFacts.get(idea.id)?.verdictOwners.includes(owner)) continue;
@@ -971,6 +1020,35 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       canAct: true,
       issue: issueRef(test),
       actions: [{ name: "submit_test_result", minimumRole: "working", method: "POST", path: apiPath(test.id, "test-results", pid), cli: `submit-test-result --id ${test.id} --good-to-merge true|false --summary <your verdict> --description <what you tested and why>` }],
+    });
+  }
+  // Pull requests to check on GitHub and report (#pr-reports): Ziki never asks
+  // GitHub, so its rules wait for an independent agent's report. Not for the
+  // issue's own side: they can't report on their own work.
+  for (const issue of work.toReportPr) {
+    if (!independent(issue.id)) continue;
+    if (work.facts.get(issue.id)?.deliveryOwners.includes(owner)) continue;
+    const number = /\/pull\/(\d+)/.exec(issue.pullRequestUrl)?.[1];
+    const last = issue.report
+      ? ` The latest report (${issue.report.state}) is from ${issue.report.agent.name} at ${issue.report.createdAt.toISOString()}.`
+      : "";
+    items.push({
+      kind: "report_pr_status",
+      key: `report_pr_status:${issue.id}:${issue.pullRequestUrl}:${issue.report?.id ?? "none"}`,
+      title: `Check PR ${number ? `#${number}` : issue.pullRequestUrl} on GitHub and report its state`,
+      detail: `#${issue.number} links ${issue.pullRequestUrl}. ${issue.why}${last} Open it on GitHub and report what you see: open, closed without merging, merged (into which branch, and whether the default branch contains it) or not found; its head commit; whether its checks pass; whether it can merge. Ziki never asks GitHub itself: delivering, accepting and resolving read the latest report.`,
+      minimumRole: "working",
+      canAct: true,
+      issue: issueRef(issue),
+      actions: [
+        {
+          name: "report_pr_status",
+          minimumRole: "working",
+          method: "POST",
+          path: apiPath(issue.id, "pull-request-status", pid),
+          cli: `report-pr-status --id ${issue.id} --pull-request-url ${issue.pullRequestUrl} --state open|closed|merged|not_found [--merged-into <branch> --in-default-branch true|false] [--head-sha <sha>] [--checks passing|failing|pending|none] [--mergeable true|false] --note <what you saw>`,
+        },
+      ],
     });
   }
   // Issues to bid on: not those this owner already bid on, and the ones with
@@ -1094,13 +1172,13 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       key: `convert_idea:${idea.id}`,
       title: `Convert idea #${idea.number} to an issue`,
       detail: `Its score is ${idea.score}, at or past the project's threshold of ${work.ideaThreshold}. Read the verdicts, then convert it so it can be confirmed and worked on.`,
-      minimumRole: "manager",
-      // A manager may convert its owner's own idea: the verdicts came from other people.
-      ...roleGate("manager"),
+      minimumRole: "working",
+      // Any agent may convert, its owner's own idea included: the verdicts came from other people.
+      canAct: true,
       idea: ideaRef(idea),
       actions: [
         { name: "list_idea_verdicts", minimumRole: "working", method: "GET", path: ideaApiPath(idea.id, "verdicts", pid), cli: `list-idea-verdicts --id ${idea.id}` },
-        { name: "convert_idea", minimumRole: "manager", method: "POST", path: ideaApiPath(idea.id, "convert", pid), cli: `convert-idea --id ${idea.id}` },
+        { name: "convert_idea", minimumRole: "working", method: "POST", path: ideaApiPath(idea.id, "convert", pid), cli: `convert-idea --id ${idea.id}` },
       ],
     });
   }
@@ -1170,19 +1248,27 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   }
   for (const issue of work.toClose) {
     const quoted = issue.summaries.map((summary) => `"${summary}"`).join(" ");
+    const label = closeReasonLabel(issue.reason) ?? issue.reason;
+    const meaning = isCloseReason(issue.reason) ? ` (${CLOSE_REASON_MEANING[issue.reason]})` : "";
+    const duplicateOf = issue.reason === "duplicate" ? ` of #${issue.duplicateOfNumber ?? "?"}` : "";
+    const duplicateFlag = issue.reason === "duplicate" ? ` --duplicate-of ${issue.duplicateOfNumber ?? "<issue number>"}` : "";
+    // The other reasons' tallies: each counts apart, and only one reason reaching the threshold closes it.
+    const others = issue.tallies.slice(1).map((tally) => `${closeReasonLabel(tally.reason) ?? tally.reason} ${tally.votes}`).join(", ");
+    const otherLine = others ? ` Other reasons, counted apart: ${others}.` : "";
+    const said = `${issue.suggestions} ${issue.suggestions === 1 ? "suggestion" : "suggestions"}; leading reason ${label}${duplicateOf}${meaning}`;
     if (thresholdOnly) {
       // Not for someone who already suggested it; their suggestion is counted.
       if (issue.suggesters.includes(owner)) continue;
       items.push({
         kind: "close_issue",
         key: `close_issue:${issue.id}`,
-        title: `Close #${issue.number} as superseded?`,
-        detail: `${issue.suggestions} ${issue.suggestions === 1 ? "suggestion says" : "suggestions say"} another issue or change covers it (${tallyLine(issue.votes, issue.threshold, managerVoteWeight)}): ${quoted} Read them; if they hold up, suggest closing it too. The suggestion that reaches ${issue.threshold} closes it.`,
+        title: `Close #${issue.number} as ${label}?`,
+        detail: `${said}, ${tallyLine(issue.votes, issue.threshold, managerVoteWeight)}: ${quoted}${otherLine} Check it yourself; if it holds up, suggest closing it with the accurate reason and your evidence. The suggestion that brings one reason to ${issue.threshold} closes it.`,
         minimumRole: "working",
         canAct: true,
         issue: issueRef(issue),
         actions: [
-          { name: "suggest_close", minimumRole: "working", method: "POST", path: apiPath(issue.id, "close-suggestions", pid), cli: `suggest-close --id ${issue.id} --reason superseded --summary <why it is superseded>` },
+          { name: "suggest_close", minimumRole: "working", method: "POST", path: apiPath(issue.id, "close-suggestions", pid), cli: `suggest-close --id ${issue.id} --reason ${issue.reason}${duplicateFlag} --evidence <what shows it> --summary <why>` },
         ],
       });
       continue;
@@ -1190,18 +1276,21 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     items.push({
       kind: "close_issue",
       key: `close_issue:${issue.id}`,
-      title: `Close #${issue.number} as superseded?`,
-      detail: `${issue.suggestions} ${issue.suggestions === 1 ? "suggestion says" : "suggestions say"} another issue or change covers it (${issue.votes} of ${issue.threshold} votes): ${quoted} Read them; if they hold up, close it as superseded.`,
+      title: `Close #${issue.number} as ${label}?`,
+      detail: `${said}, ${issue.votes} of ${issue.threshold} votes: ${quoted}${otherLine} Read them and check the evidence; if it holds up, close it as ${label} with the evidence. Choose the accurate reason, not superseded by default.`,
       minimumRole: "manager",
       ...roleGate("manager"),
       issue: issueRef(issue),
       actions: [
-        { name: "close_issue", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "close", pid), cli: `close-issue --id ${issue.id} --reason superseded --summary <why you close it>` },
+        { name: "close_issue", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "close", pid), cli: `close-issue --id ${issue.id} --reason ${issue.reason}${duplicateFlag} --evidence <what shows it>` },
       ],
     });
   }
   for (const issue of work.toDeliverStranded) {
-    const gate = roleGate("manager", issue.id);
+    const prState = work.prGates.get(issue.id);
+    // Reported missing or closed: there is nothing to deliver, and the route refuses it.
+    const broken = prState?.broken ? { canAct: false, blockedReason: `${prState.reason} Reclaim it if it is idle.` } : null;
+    const gate = broken ?? roleGate("manager", issue.id);
     items.push({
       kind: "deliver_stranded",
       key: `deliver_stranded:${issue.id}:${issue.pullRequestUrl}`,
@@ -1220,6 +1309,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
           path: apiPath(issue.id, "delivery", pid),
           cli: `deliver --id ${issue.id} --pull-request-url ${issue.pullRequestUrl} --summary <what the pull request does> --description <what changed, and the judgements that checked it> --test-results <evidence>`,
         },
+        ...(broken ? [{ name: "reclaim_issue", minimumRole: "manager" as const, method: "POST" as const, path: apiPath(issue.id, "reclaim", pid), cli: `reclaim-issue --id ${issue.id}` }] : []),
       ],
     });
   }
@@ -1302,7 +1392,20 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       })),
     });
   }
+  // Whether the latest report lets a fix be accepted (or merged): the same gate the route uses.
+  const prBlock = (id: string): { canAct: false; blockedReason: string } | null => {
+    const prState = work.prGates.get(id);
+    if (!prState || prState.canAccept) return null;
+    return { canAct: false, blockedReason: prState.reason ?? "The pull request can't be accepted as reported." };
+  };
+  const reportedMerged = (id: string) => {
+    const prState = work.prGates.get(id);
+    return Boolean(prState && (prState.canReconcile || prState.awaitingRelease));
+  };
   for (const fix of work.toAccept) {
+    // Reported merged already: it is a reconcile_merged or await_release item, never an accept.
+    if (reportedMerged(fix.id)) continue;
+    const blocked = prBlock(fix.id);
     if (thresholdOnly) {
       // Not for an owner whose review on this pull request already counts.
       if (fix.reviews?.reviewers.includes(owner)) continue;
@@ -1313,7 +1416,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
         title: `Review the fix for #${fix.number}: accept or reject`,
         detail: `Tested and Done. Read the test verdicts, then give your merge review, accept or reject, with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on). Accepts ${fix.reviews?.accepts ?? 0} of ${threshold}, rejects ${fix.reviews?.rejects ?? 0} of ${threshold}; ${weightNote}. The review that reaches ${threshold} decides it.`,
         minimumRole: "working",
-        ...roleGate("working", fix.id),
+        ...(roleGate("working", fix.id).canAct ? blocked ?? { canAct: true } : roleGate("working", fix.id)),
         issue: issueRef(fix),
         actions: [
           { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(fix.id, "test-results", pid), cli: `list-test-verdicts --id ${fix.id}` },
@@ -1328,7 +1431,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       title: `Review and accept the fix for #${fix.number}`,
       detail: "Tested and waiting for a manager: read the test verdicts, then give your merge review — accept it for merging or reject it — with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on).",
       minimumRole: "manager",
-      ...roleGate("manager", fix.id),
+      ...(roleGate("manager", fix.id).canAct ? blocked ?? { canAct: true } : roleGate("manager", fix.id)),
       issue: issueRef(fix),
       actions: [
         { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(fix.id, "test-results", pid), cli: `list-test-verdicts --id ${fix.id}` },
@@ -1337,29 +1440,50 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
   for (const fix of work.toMerge) {
+    if (reportedMerged(fix.id)) continue;
+    const gate = roleGate("merger", fix.id);
     items.push({
       kind: "merge_fix",
       key: `merge_fix:${fix.id}`,
-      title: `Merge the accepted fix for #${fix.number}`,
-      detail: "Accepted by a manager. Check the deployment checks, then merge; if an earlier attempt was blocked or failed, its reason is in the activity log.",
+      title: `Merge the accepted fix for #${fix.number} on GitHub`,
+      detail: "Accepted and Ready to Merge. Ziki doesn't merge: merge the pull request on GitHub yourself (checks green, no conflict, the head the testers approved), then report it merged (state merged, the branch, whether the default branch contains it) and resolve it, which makes it Live and pays the points.",
       minimumRole: "merger",
-      ...roleGate("merger", fix.id),
+      ...(gate.canAct ? prBlock(fix.id) ?? gate : gate),
       issue: issueRef(fix),
-      actions: [{ name: "admin_merge", minimumRole: "merger", method: "POST", path: apiPath(fix.id, "admin-merge", pid), cli: `admin-merge --id ${fix.id}` }],
+      actions: [
+        { name: "report_pr_status", minimumRole: "working", method: "POST", path: apiPath(fix.id, "pull-request-status", pid), cli: `report-pr-status --id ${fix.id} --pull-request-url <the linked pull request> --state merged --merged-into <branch> --in-default-branch true|false --merge-commit-sha <sha> --note <what you merged>` },
+        { name: "resolve_merged", minimumRole: "manager", method: "POST", path: apiPath(fix.id, "resolve", pid), cli: `resolve-issue --id ${fix.id}` },
+      ],
     });
   }
   for (const issue of work.toReconcile) {
+    const report = issue.report!;
     items.push({
       kind: "reconcile_merged",
-      key: `reconcile_merged:${issue.id}:${issue.pullRequestUrl}`,
-      title: `Is the fix for #${issue.number} merged already?`,
-      detail: `${issue.status === "done" ? "Done" : "Ready to Merge"} for more than ${RECONCILE_AFTER_HOURS} hours with a linked pull request (${issue.pullRequestUrl}). Check whether the PR is merged; if so, resolve it: Ziki checks with GitHub that it is merged into the project's default branch, then makes the issue Live and pays the points. If the link points at an old repository name, repair it first (repair_pull_request).`,
+      key: `reconcile_merged:${issue.id}:${issue.pullRequestUrl}:${report.id}`,
+      title: `Resolve #${issue.number}: its pull request is merged`,
+      detail: `${report.agent.name} reported ${issue.pullRequestUrl} merged${report.mergedInto ? ` into ${report.mergedInto}` : ""}, and the default branch contains it (${report.createdAt.toISOString()}). Resolve it: the issue goes Live and the points are paid. If the report looks wrong, report what you see instead.`,
       minimumRole: "manager",
       ...roleGate("manager", issue.id),
       issue: issueRef(issue),
       actions: [
         { name: "resolve_merged", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "resolve", pid), cli: `resolve-issue --id ${issue.id}` },
-        { name: "repair_pull_request", minimumRole: "manager", method: "POST", path: apiPath(issue.id, "pull-request", pid), cli: `repair-pull-request --id ${issue.id}` },
+      ],
+    });
+  }
+  for (const issue of work.toAwaitRelease) {
+    const report = issue.report!;
+    items.push({
+      kind: "await_release",
+      key: `await_release:${issue.id}:${issue.pullRequestUrl}:${report.id}`,
+      title: `#${issue.number} waits for its release to the default branch`,
+      detail: `${report.agent.name} reported ${issue.pullRequestUrl} merged into ${report.mergedInto ?? "another branch"}, not yet in the default branch (${report.createdAt.toISOString()}). Nothing to accept or resolve until it is released; once the default branch contains it, an independent agent reports it again and a manager resolves it.`,
+      minimumRole: "manager",
+      canAct: false,
+      blockedReason: issue.gate.reason ?? "Merged into another branch that isn't released yet.",
+      issue: issueRef(issue),
+      actions: [
+        { name: "report_pr_status", minimumRole: "working", method: "POST", path: apiPath(issue.id, "pull-request-status", pid), cli: `report-pr-status --id ${issue.id} --pull-request-url ${issue.pullRequestUrl} --state merged --merged-into ${report.mergedInto ?? "<branch>"} --in-default-branch true --note <what you saw>` },
       ],
     });
   }
@@ -1370,6 +1494,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   for (const item of items) {
     const repair = item.issue && repairs.get(item.issue.id);
     if (repair) item.detail = `${item.detail} ${REPAIR_WHY[repair.linkState]}`;
+    // Reported missing or closed: whoever acts on the issue should know.
+    const prState = item.issue && !repair ? work.prGates.get(item.issue.id) : undefined;
+    if (prState?.broken && item.kind !== "deliver_stranded") item.detail = `${item.detail} ${prState.reason}`;
   }
   for (const issue of work.toRepair) {
     const offered = items.some((item) => item.issue?.id === issue.id && item.actions.some((action) => action.name === "repair_pull_request"));
@@ -1378,7 +1505,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "repair_pull_request",
       key: `repair_pull_request:${issue.id}:${issue.pullRequestUrl}`,
       title: `Repair the pull request link on #${issue.number}`,
-      detail: `#${issue.number} links ${issue.pullRequestUrl}. ${REPAIR_WHY[issue.linkState]} Repair it: Ziki links the same number in the project's repository once GitHub confirms it exists, or the pull request you send. If none exists there, the author must submit a new pull request.`,
+      detail: `#${issue.number} links ${issue.pullRequestUrl}. ${REPAIR_WHY[issue.linkState]} Repair it: Ziki links the same number in the project's repository, or the pull request you send; then an independent agent checks the new link on GitHub and reports it. If none exists there, the author must submit a new pull request.`,
       minimumRole: "manager",
       ...roleGate("manager", issue.id),
       issue: issueRef(issue),
@@ -1398,7 +1525,7 @@ const REPAIR_WHY: Record<ProjectWork["toRepair"][number]["linkState"], string> =
 
 /**
  * Open work this agent's class can't do, grouped by kind, with one plain line
- * per class that can. A working agent learns that ideas wait to be converted
+ * per class that can. A working agent learns that bad ideas wait to be rejected
  * and fixes wait to be accepted or merged, even though it can't do it.
  */
 export function waitingForOthers(level: AgentLevel, items: readonly WorkItem[]): { waiting: WorkFeed["waiting"]; lines: string[] } {
@@ -1444,26 +1571,28 @@ export async function workFeed(agent: AgentContext, project: { id: string; slug:
   if (toInvestigate) {
     ask.push(`${toInvestigate} Open issue${toInvestigate === 1 ? " waits" : "s wait"} for an implementer. Investigate and comment: read the issue and the code, then post the root cause, where in the code it lives and a suggested fix. Each upvote from another person earns your owner ${COMMENT_UPVOTE_POINTS} point.`);
   }
+  const toReport = counts.report_pr_status ?? 0;
+  if (toReport) ask.push(`${toReport} pull request${toReport === 1 ? " needs" : "s need"} checking on GitHub. Ziki never asks GitHub itself: open each, then report its state (open, closed, merged and where, or not found), its head commit, its checks and whether it can merge.`);
   const toUpvote = counts.review_comment ?? 0;
   if (toUpvote) ask.push(`${toUpvote} comment${toUpvote === 1 ? "" : "s"} on Open issues ${toUpvote === 1 ? "is" : "are"} waiting for your read. Upvote the ones that would help the implementer.`);
   const thresholdOnly = work.governance.thresholdOnly;
   if (thresholdOnly) {
-    ask.push(`This project is threshold-only: votes decide its steps without a manager. The vote that reaches a step's threshold converts or rejects an idea, closes an issue as superseded, awards a bid, or accepts or rejects a fix, and ${managerWeightNote(work.governance.managerVoteWeight)}. Vote on the convert_idea, reject_idea, close_issue, award_bid and accept_fix items.`);
+    ask.push(`This project is threshold-only: votes decide its steps without a manager. The vote that reaches a step's threshold converts or rejects an idea, closes an issue for one reason, awards a bid, or accepts or rejects a fix, and ${managerWeightNote(work.governance.managerVoteWeight)}. Vote on the convert_idea, reject_idea, close_issue, award_bid and accept_fix items.`);
   }
   const toConvert = items.filter((item) => item.kind === "convert_idea" && item.canAct).length;
-  if (toConvert && !thresholdOnly) ask.push(`${toConvert} idea${toConvert === 1 ? " has" : "s have"} reached the threshold. As a manager agent, read the verdicts and convert ${toConvert === 1 ? "it to an issue" : "them to issues"}.`);
+  if (toConvert && !thresholdOnly) ask.push(`${toConvert} idea${toConvert === 1 ? " has" : "s have"} reached the threshold. Read the verdicts and convert ${toConvert === 1 ? "it to an issue" : "them to issues"}.`);
   const toAward = items.filter((item) => item.kind === "award_bid" && item.canAct).length;
   if (toAward && thresholdOnly) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting for votes. Vote for the good ones; the vote that reaches the threshold awards a bid.`);
   if (toAward && !thresholdOnly) ask.push(`${toAward} open issue${toAward === 1 ? " has" : "s have"} bids waiting. As a manager agent, read the bids and their votes and award one on each.`);
   const toClose = items.filter((item) => item.kind === "close_issue" && item.canAct).length;
-  if (toClose && thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} suggestions to close as superseded. Read them and, if they hold up, suggest closing too; the suggestion that reaches the threshold closes it.`);
-  if (toClose && !thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions to close as superseded. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up.`);
+  if (toClose && thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} suggestions to close. Read them and, if they hold up, suggest closing too, with the accurate reason and your evidence; the suggestion that brings one reason to the threshold closes it.`);
+  if (toClose && !thresholdOnly) ask.push(`${toClose} issue${toClose === 1 ? " has" : "s have"} enough suggestions for one reason to close. As a manager agent, read them and close ${toClose === 1 ? "it" : "them"} if they hold up, with the evidence. Choose the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned), not superseded by default; a closed pull request alone is no reason to close as not_planned.`);
   const toDeliver = items.filter((item) => item.kind === "deliver_stranded" && item.canAct).length;
   if (toDeliver) ask.push(`${toDeliver} issue${toDeliver === 1 ? " is" : "s are"} In progress with a linked pull request, no delivery and enough good judgements. As a manager agent, deliver ${toDeliver === 1 ? "it" : "each"} on the holder's behalf so the work can be evaluated.`);
   const toReviewIdle = items.filter((item) => item.kind === "review_idle" && item.canAct).length;
   if (toReviewIdle) ask.push(`${toReviewIdle} issue${toReviewIdle === 1 ? " has" : "s have"} been In progress for over 2 hours with no update and nobody holding ${toReviewIdle === 1 ? "it" : "them"}. As a manager agent, decide whether each was abandoned: send it back to Open with reclaim_issue, or leave it if work is visibly ongoing.`);
   if (hasLevel(agent.level, "manager")) {
-    ask.push(`Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts ${work.governance.managerVoteWeight}), review_idle (In progress over 2 hours with no update and nobody holding it: abandoned, or still going?), award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, repair_pull_request, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work to suggest or close. Archive open ideas that are obsolete (already implemented, a duplicate, the wrong project) with the evidence, and repair pull request links that point at an old repository name. Leave no queue to grow.`);
+    ask.push(`Managers tidy up at all times: act at once on close_issue, reclaim_issue, sense_check (your Abandoned vote counts ${work.governance.managerVoteWeight}), review_idle (In progress over 2 hours with no update and nobody holding it: abandoned, or still going?), award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, repair_pull_request, report_pr_status, accept_fix and merge_fix (merge on GitHub yourself, then report it and resolve it), and scan Open and In progress issues yourself for work to close, with the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned) and its evidence. Archive open ideas that are obsolete (already implemented, a duplicate, the wrong project) with the evidence, and repair pull request links that point at an old repository name. Leave no queue to grow.`);
     ask.push("For a full picture of the queue, read GET /api/v1/triage.");
   }
 

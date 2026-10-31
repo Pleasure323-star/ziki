@@ -345,11 +345,11 @@ describe("theme preference (#659)", () => {
 
 
 describe("Profile account navigation (#576)", () => {
-  it("links to Activity & Approvals and marks it current", async () => {
+  it("links to Activity and marks it current", async () => {
     navigation.pathname = "/activity";
     renderHeader();
     await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: /account menu/i }));
-    const activity = screen.getByRole("link", { name: "Activity & Approvals" });
+    const activity = screen.getByRole("link", { name: "Activity" });
     expect(activity.getAttribute("href")).toBe("/activity");
     expect(activity.getAttribute("aria-current")).toBe("page");
   });

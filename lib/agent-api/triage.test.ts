@@ -6,6 +6,7 @@ const db = vi.hoisted(() => ({
   testVerdict: { findMany: vi.fn() },
   delivery: { findMany: vi.fn() },
   issueBid: { findMany: vi.fn() },
+  pullRequestReport: { findMany: vi.fn() },
 }));
 const holders = vi.hoisted(() => ({ currentHold: vi.fn() }));
 const stranded = vi.hoisted(() => ({ strandedDelivery: vi.fn() }));
@@ -21,11 +22,9 @@ vi.mock("@/lib/workflow", () => workflow);
 
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { AgentLevelError } from "@/lib/agents/levels";
-import { GitHubError, type GitHubClient, type PullRequest } from "@/lib/github/merge-pr";
+import { linkStateFromUrl } from "./pr-gate";
+import type { StoredPullRequestReport } from "./pull-request-report";
 import {
-  clearTriageCache,
-  linkStateFromUrl,
-  mapLimit,
   nextActions,
   parseTriageQuery,
   pullRequestFacts,
@@ -38,25 +37,20 @@ const REPO = { owner: "emerjent", repo: "ziki" };
 const PR = "https://github.com/emerjent/ziki/pull/552";
 const OLD = "https://github.com/Zedu-Endor/issue-tracker/pull/552";
 const scope = { tenantId: "t1", projectId: "p1" };
+const NOW = Date.parse("2026-10-31T12:00:00Z");
 
 const agent = (ownerId = "dana", level: AgentContext["level"] = "manager"): AgentContext =>
   ({ agentId: `agent-${ownerId}`, name: ownerId, ownerId, tenantId: "t1", level, burst: false, keyId: "k" });
 
-const merged: PullRequest = {
-  merged: true, mergeable: true, headSha: "head-sha", state: "closed",
-  baseRef: "main", baseRepo: "emerjent/ziki", defaultBranch: "main", mergeCommitSha: "merge-sha",
-};
-const open: PullRequest = { merged: false, mergeable: true, headSha: "head-sha", state: "open", baseRef: "main", defaultBranch: "main", mergeCommitSha: null };
-
-/** A fake GitHub: `prs` by number in emerjent/ziki (missing → 404), and the compare status. */
-function github(prs: Record<number, PullRequest>, compare?: string) {
-  const getPullRequest = vi.fn(async (ref: { owner: string; repo: string; number: number }) => {
-    const pr = prs[ref.number];
-    if (!pr) throw new GitHubError("Not Found", 404);
-    return pr;
-  });
-  const compareCommits = vi.fn(async () => ({ status: compare ?? "ahead" }));
-  return { client: { getPullRequest, compareCommits } as unknown as GitHubClient, getPullRequest, compareCommits };
+/** Erin's agent's report, a minute old: open, checks passing, can merge, at Ziki's head. */
+function report(over: Partial<StoredPullRequestReport> = {}): StoredPullRequestReport {
+  return {
+    id: "rep1", bugId: "bug1", pullRequestUrl: PR, state: "open", mergedInto: null, inDefaultBranch: null,
+    headSha: "head-sha", mergeCommitSha: null, checks: "passing", mergeable: true, note: "Checked on GitHub.",
+    agentId: "agent-erin", onBehalfOfUserId: "erin", createdAt: new Date(NOW - 60_000),
+    agent: { name: "Erin's agent" }, onBehalfOf: { name: "Erin" },
+    ...over,
+  } as StoredPullRequestReport;
 }
 
 /** An issue filed by Ada, claimed by Cara's agent. */
@@ -75,10 +69,9 @@ function bug(over: Record<string, unknown> = {}) {
   };
 }
 
-const pr = (over: Partial<TriagePullRequest> = {}): TriagePullRequest => ({
-  url: PR, linkState: "ok", state: "open", mergedInto: null, defaultBranch: "main", inDefaultBranch: null,
-  headSha: "head-sha", mergeCommitSha: null, sameNumberInProjectRepo: null, ...over,
-});
+/** The pull request as triage reads it, through the real gate. */
+const pr = (rep: StoredPullRequestReport | null = report(), url: string | null = PR, head: string | null = "head-sha"): TriagePullRequest =>
+  pullRequestFacts(url, REPO, rep, head, NOW);
 
 function facts(over: Partial<TriageFacts> = {}): TriageFacts {
   return {
@@ -102,17 +95,17 @@ const manager = { agentId: "agent-dana", ownerId: "dana", level: "manager" as co
 
 beforeEach(() => {
   vi.clearAllMocks();
-  clearTriageCache();
   workflow.workflowFor.mockResolvedValue({ verdictsNeeded: 2, offerWindowSeconds: 1800, governance: "manager" });
   holders.currentHold.mockResolvedValue(null);
   stranded.strandedDelivery.mockResolvedValue(null);
   idle.idleInProgress.mockResolvedValue(null);
   stale.staleHold.mockResolvedValue(null);
-  db.project.findFirst.mockResolvedValue({ id: "p1", slug: "ziki", repoUrl: "https://github.com/emerjent/ziki.git", githubInstallationId: "inst" });
+  db.project.findFirst.mockResolvedValue({ id: "p1", slug: "ziki", repoUrl: "https://github.com/emerjent/ziki.git" });
   db.bug.findMany.mockResolvedValue([]);
   db.testVerdict.findMany.mockResolvedValue([]);
   db.delivery.findMany.mockResolvedValue([]);
   db.issueBid.findMany.mockResolvedValue([]);
+  db.pullRequestReport.findMany.mockResolvedValue([]);
 });
 
 describe("linkStateFromUrl", () => {
@@ -136,78 +129,57 @@ describe("linkStateFromUrl", () => {
 });
 
 describe("pullRequestFacts", () => {
-  it("reads a PR merged into the default branch", async () => {
-    const gh = github({ 552: merged });
-    expect(await pullRequestFacts(PR, REPO, gh.client)).toEqual({
-      url: PR, linkState: "ok", state: "merged", mergedInto: "main", defaultBranch: "main", inDefaultBranch: true,
-      headSha: "head-sha", mergeCommitSha: "merge-sha", sameNumberInProjectRepo: null,
+  it("reads a PR reported merged into the default branch, with who reported it and when", () => {
+    const facts = pr(report({ state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" }));
+    expect(facts).toMatchObject({
+      url: PR, linkState: "ok", state: "merged", mergedInto: "main", inDefaultBranch: true,
+      headSha: "head-sha", mergeCommitSha: "merge-sha", reportWanted: null,
     });
-    expect(gh.compareCommits).not.toHaveBeenCalled();
+    expect(facts.gate).toMatchObject({ canReconcile: true, awaitingRelease: false, broken: null });
+    expect(facts.report).toMatchObject({ id: "rep1", state: "merged", ageMinutes: 1, reportedBy: { agentId: "agent-erin", agentName: "Erin's agent", userId: "erin", name: "Erin" } });
   });
 
-  it.each([["behind", true], ["identical", true], ["ahead", false], ["diverged", false]])(
-    "asks whether main contains a PR merged into staging (compare %s)",
-    async (status, contained) => {
-      const gh = github({ 552: { ...merged, baseRef: "staging" } }, status);
-      const facts = await pullRequestFacts(PR, REPO, gh.client);
-      expect(facts).toMatchObject({ state: "merged", mergedInto: "staging", inDefaultBranch: contained });
-      expect(gh.compareCommits).toHaveBeenCalledWith(REPO, "main", "merge-sha");
-    },
-  );
-
-  it("marks a link in the project's repository that GitHub answers 404 as not_found", async () => {
-    expect(await pullRequestFacts(PR, REPO, github({}).client)).toMatchObject({ linkState: "not_found", state: "unknown" });
+  it("says a PR reported merged into staging is awaiting release", () => {
+    const facts = pr(report({ state: "merged", mergedInto: "staging", inDefaultBranch: false }));
+    expect(facts).toMatchObject({ state: "merged", mergedInto: "staging", inDefaultBranch: false, reportWanted: null });
+    expect(facts.gate).toMatchObject({ canReconcile: false, awaitingRelease: true });
+    expect(facts.gate.reason).toContain('Merged into "staging"');
   });
 
-  it("reads a link under an old repository name as the same number in the project's repository", async () => {
-    const gh = github({ 552: open });
-    expect(await pullRequestFacts(OLD, REPO, gh.client)).toMatchObject({ linkState: "old_repository", state: "open", sameNumberInProjectRepo: true });
-    expect(gh.getPullRequest).toHaveBeenCalledWith({ ...REPO, number: 552 });
-    expect(await pullRequestFacts("https://github.com/zeduchat/bug-tracker/pull/9", REPO, gh.client)).toMatchObject({
-      linkState: "old_repository", sameNumberInProjectRepo: false,
+  it("is unreported with no report, keeps Ziki's head, and wants a report", () => {
+    const facts = pr(null, PR, "ziki-head");
+    expect(facts).toMatchObject({
+      linkState: "ok", state: "unreported", mergedInto: null, inDefaultBranch: null, headSha: "ziki-head",
+      checks: null, mergeable: null, report: null, reportWanted: "Nobody has reported this pull request's state yet.",
     });
+    expect(facts.gate).toMatchObject({ canDeliver: true, canAccept: false, needsReport: true });
   });
 
-  it("only says whether the number exists here for a link in another repository", async () => {
-    const facts = await pullRequestFacts("https://github.com/someone/fork/pull/552", REPO, github({ 552: merged }).client);
-    expect(facts).toMatchObject({ linkState: "other_repository", state: "unknown", sameNumberInProjectRepo: true });
+  it("ignores a report on another pull request address", () => {
+    const facts = pr(report({ pullRequestUrl: "https://github.com/emerjent/ziki/pull/551", state: "merged", inDefaultBranch: true }));
+    expect(facts).toMatchObject({ state: "unreported", report: null });
+    expect(facts.gate.canReconcile).toBe(false);
   });
 
-  it("without GitHub, takes linkState from the URL and leaves the state unknown", async () => {
-    expect(await pullRequestFacts(OLD, REPO, null)).toMatchObject({ linkState: "old_repository", state: "unknown", inDefaultBranch: null });
-    expect(await pullRequestFacts(PR, REPO, null)).toMatchObject({ linkState: "ok", state: "unknown" });
+  it("wants a new report once the latest is old, or the head moved since it", () => {
+    expect(pr(report({ createdAt: new Date(NOW - 7 * 3_600_000) })).reportWanted).toBe("The latest report is 7 hours old.");
+    const moved = pr(report({ headSha: "old-sha" }));
+    expect(moved.headSha).toBe("old-sha");
+    expect(moved.gate.canAccept).toBe(false);
+    expect(moved.reportWanted).toContain("The head moved since the last report");
   });
 
-  it("leaves the state unknown when GitHub doesn't answer, and doesn't cache that", async () => {
-    const getPullRequest = vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValueOnce(open);
-    const client = { getPullRequest } as unknown as GitHubClient;
-    expect(await pullRequestFacts(PR, REPO, client)).toMatchObject({ linkState: "ok", state: "unknown" });
-    expect(await pullRequestFacts(PR, REPO, client)).toMatchObject({ state: "open" });
+  it("takes linkState from the URL and wants no report on a link outside the project's repository", () => {
+    const old = pr(null, OLD);
+    expect(old).toMatchObject({ linkState: "old_repository", state: "unreported", reportWanted: null });
+    expect(old.gate.broken).toBe("old_repository");
+    expect(pr(null, "https://github.com/someone/fork/pull/552").gate.broken).toBe("other_repository");
   });
 
-  it("keeps each pull request's answer for five minutes", async () => {
-    const gh = github({ 552: open });
-    await pullRequestFacts(PR, REPO, gh.client, 1_000);
-    await pullRequestFacts(PR, REPO, gh.client, 1_000 + 4 * 60_000);
-    expect(gh.getPullRequest).toHaveBeenCalledTimes(1);
-    await pullRequestFacts(PR, REPO, gh.client, 1_000 + 6 * 60_000);
-    expect(gh.getPullRequest).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("mapLimit", () => {
-  it("runs at most the limit at once and keeps the order", async () => {
-    let running = 0;
-    let most = 0;
-    const out = await mapLimit([1, 2, 3, 4, 5, 6, 7], 4, async (n) => {
-      running += 1;
-      most = Math.max(most, running);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      running -= 1;
-      return n * 2;
-    });
-    expect(out).toEqual([2, 4, 6, 8, 10, 12, 14]);
-    expect(most).toBeLessThanOrEqual(4);
+  it("reads a report of a 404 as broken", () => {
+    const gone = pr(report({ state: "not_found", headSha: null, checks: null, mergeable: null }));
+    expect(gone).toMatchObject({ linkState: "ok", state: "not_found", reportWanted: null });
+    expect(gone.gate).toMatchObject({ broken: "not_found", canDeliver: false, canAccept: false });
   });
 });
 
@@ -229,41 +201,95 @@ describe("nextActions", () => {
     expect(working[0]).toMatchObject({ canAct: false, blockedReason: "Needs a manager agent." });
   });
 
+  it("blocks the accept by the latest report: failing checks, or a conflict", () => {
+    const failing = nextActions(manager, facts({ pullRequest: pr(report({ checks: "failing" })) }));
+    expect(failing).toEqual([expect.objectContaining({ action: "accept_fix", canAct: false, blockedReason: "The latest report says its checks are failing: the author fixes them and pushes." })]);
+    const conflict = nextActions(manager, facts({ pullRequest: pr(report({ mergeable: false })) }));
+    expect(conflict[0]).toMatchObject({ action: "accept_fix", canAct: false });
+    expect(conflict[0].blockedReason).toContain("The latest report says it can't merge");
+  });
+
+  it("asks an independent agent to report an unreported PR, and blocks the accept until then", () => {
+    const unreported = facts({ pullRequest: pr(null) });
+    const actions = nextActions(manager, unreported);
+    expect(names(actions)).toEqual(["report_pr_status", "accept_fix"]);
+    expect(actions[0]).toEqual({
+      action: "report_pr_status", method: "POST", route: "/api/v1/issues/bug1/pull-request-status?projectId=p1",
+      minimumRole: "working", canAct: true, note: "Nobody has reported this pull request's state yet.",
+    });
+    expect(actions[1]).toMatchObject({ action: "accept_fix", canAct: false });
+    expect(actions[1].blockedReason).toMatch(/^No agent has reported this pull request's state yet\./);
+
+    // A working agent may report; the holder's owner may not.
+    expect(nextActions({ agentId: "agent-eli", ownerId: "eli", level: "working" }, unreported)[0]).toMatchObject({ action: "report_pr_status", canAct: true });
+    const holder = nextActions({ ...manager, agentId: "agent-cara", ownerId: "cara" }, unreported)[0];
+    expect(holder).toMatchObject({ action: "report_pr_status", canAct: false });
+    expect(holder.blockedReason).toMatch(/^Not independent: /);
+  });
+
+  it("asks for a fresh report once the latest one is old, without blocking the accept", () => {
+    const actions = nextActions(manager, facts({ pullRequest: pr(report({ createdAt: new Date(NOW - 7 * 3_600_000) })) }));
+    expect(names(actions)).toEqual(["report_pr_status", "accept_fix"]);
+    expect(actions[0]).toMatchObject({ canAct: true, note: "The latest report is 7 hours old." });
+    expect(actions[1]).toMatchObject({ canAct: true });
+  });
+
   it("notes judgements that are not on the current head", () => {
     const [accept] = nextActions(manager, facts({ judgements: { good: 2, notGood: 0, needed: 2, goodAtHead: 1, headSha: "abcdef123" } }));
     expect(accept).toMatchObject({ canAct: true });
     expect(accept.note).toContain("Only 1 of 2 judgements are on the current head (abcdef1)");
   });
 
-  it("offers resolve for In progress work whose PR is already merged into main (production #682)", () => {
+  it("offers resolve for In progress work whose PR is reported merged into main (production #682)", () => {
     const actions = nextActions(manager, facts({
       bug: bug({ status: "in_progress" }) as unknown as TriageFacts["bug"],
-      pullRequest: pr({ state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" }),
+      pullRequest: pr(report({ state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" })),
     }));
     expect(actions).toEqual([{ action: "resolve", method: "POST", route: "/api/v1/issues/bug1/resolve?projectId=p1", minimumRole: "manager", canAct: true }]);
   });
 
-  it("says a PR merged into staging and not released yet is awaiting release", () => {
-    const actions = nextActions(manager, facts({ pullRequest: pr({ state: "merged", mergedInto: "staging", inDefaultBranch: false }) }));
+  it("says a PR reported merged into staging and not released yet is awaiting release, and offers no accept", () => {
+    const actions = nextActions(manager, facts({ pullRequest: pr(report({ state: "merged", mergedInto: "staging", inDefaultBranch: false })) }));
     expect(actions).toEqual([expect.objectContaining({
-      action: "awaiting_release", canAct: false, blockedReason: "Merged into staging; reconcile once staging is released to main.",
+      action: "awaiting_release", route: "/api/v1/issues/bug1/resolve?projectId=p1", canAct: false,
     })]);
+    expect(actions[0].blockedReason).toContain('Merged into "staging", which isn\'t released to the default branch yet');
   });
 
-  it("offers repair for a link under an old name whose number exists here, and blocks the accept until then", () => {
-    const actions = nextActions(manager, facts({ pullRequest: pr({ url: OLD, linkState: "old_repository", sameNumberInProjectRepo: true }) }));
+  it("asks for a report when a merged PR's report doesn't say whether the default branch contains it", () => {
+    const actions = nextActions(manager, facts({ pullRequest: pr(report({ state: "merged", mergedInto: "main", inDefaultBranch: null })) }));
+    expect(names(actions)).toEqual(["report_pr_status", "resolve"]);
+    expect(actions[1]).toMatchObject({ canAct: false });
+    expect(actions[1].blockedReason).toContain("not whether the default branch contains it");
+  });
+
+  it("offers repair for a link under an old name, and blocks the accept until then", () => {
+    const actions = nextActions(manager, facts({ pullRequest: pr(null, OLD) }));
     expect(names(actions)).toEqual(["repair_pull_request", "accept_fix"]);
     expect(actions[0]).toMatchObject({ canAct: true, route: "/api/v1/issues/bug1/pull-request?projectId=p1" });
-    expect(actions[1]).toMatchObject({ canAct: false, blockedReason: "The PR link uses an old repository name: repair it first." });
+    expect(actions[0].note).toContain("Leave pullRequestUrl out to link #552 in emerjent/ziki");
+    expect(actions[1]).toMatchObject({ canAct: false });
+    expect(actions[1].blockedReason).toContain("uses an old name of the project's repository");
   });
 
-  it("tells the manager the author must submit a new PR when there is nothing to repair to", () => {
-    const missing = nextActions(manager, facts({ pullRequest: pr({ url: OLD, linkState: "old_repository", sameNumberInProjectRepo: false }) }));
-    expect(missing[0]).toMatchObject({ action: "repair_pull_request", canAct: false });
-    expect(missing[0].blockedReason).toContain("the author must submit a new PR");
-    const gone = nextActions(manager, facts({ pullRequest: pr({ linkState: "not_found", state: "unknown" }) }));
-    expect(gone[0].blockedReason).toContain("The PR returns 404");
-    expect(gone[1]).toMatchObject({ action: "accept_fix", canAct: false, blockedReason: "The PR returns 404." });
+  it("offers repair for a link in another repository", () => {
+    const actions = nextActions(manager, facts({ pullRequest: pr(null, "https://github.com/someone/fork/pull/3") }));
+    expect(names(actions)).toEqual(["repair_pull_request", "accept_fix"]);
+    expect(actions[0].note).toContain("The link points outside emerjent/ziki; check that #3 there is the same work");
+    expect(actions[1].blockedReason).toContain("not in the project's repository");
+  });
+
+  it("tells the manager the author must submit a new PR when the PR is reported 404 or closed", () => {
+    const gone = nextActions(manager, facts({ pullRequest: pr(report({ state: "not_found" })) }));
+    expect(names(gone)).toEqual(["repair_pull_request", "accept_fix"]);
+    expect(gone[0]).toMatchObject({ canAct: true });
+    expect(gone[0].note).toContain("Only once the author has opened a new pull request in emerjent/ziki");
+    expect(gone[1]).toMatchObject({ canAct: false });
+    expect(gone[1].blockedReason).toContain("doesn't exist on GitHub (404)");
+
+    const closed = nextActions(manager, facts({ pullRequest: pr(report({ state: "closed" })) }));
+    expect(names(closed)).toEqual(["repair_pull_request", "accept_fix"]);
+    expect(closed[1].blockedReason).toContain("closed without being merged");
   });
 
   it("asks a Delivered fix to be judged, unless the caller's owner judged it already", () => {
@@ -274,10 +300,19 @@ describe("nextActions", () => {
     });
   });
 
-  it("asks for the merger on Ready to Merge work", () => {
+  it("asks the merger to merge Ready to Merge work on GitHub, then report and resolve it", () => {
     const ready = facts({ bug: bug({ status: "ready_to_merge" }) as unknown as TriageFacts["bug"] });
-    expect(nextActions(manager, ready)[0]).toMatchObject({ action: "merge_fix", canAct: false, blockedReason: "Needs a merger agent." });
-    expect(nextActions({ ...manager, level: "merger" }, ready)[0]).toMatchObject({ action: "merge_fix", canAct: true });
+    expect(nextActions(manager, ready)[0]).toMatchObject({ action: "merge_on_github", minimumRole: "merger", canAct: false, blockedReason: "Needs a merger agent." });
+    const [merge] = nextActions({ ...manager, level: "merger" }, ready);
+    expect(merge).toMatchObject({ action: "merge_on_github", route: "/api/v1/issues/bug1/pull-request-status?projectId=p1", canAct: true });
+    expect(merge.note).toContain(`Merge ${PR} on GitHub yourself`);
+    expect(merge.note).toContain("POST /api/v1/issues/bug1/resolve?projectId=p1");
+
+    // Not merged without a report that lets it.
+    const unreported = nextActions({ ...manager, level: "merger" }, { ...ready, pullRequest: pr(null) });
+    expect(names(unreported)).toEqual(["report_pr_status", "merge_on_github"]);
+    expect(unreported[1]).toMatchObject({ canAct: false });
+    expect(unreported[1].blockedReason).toMatch(/^No agent has reported/);
   });
 
   it("offers deliver_stranded, not also review_idle, on a stranded In progress issue", () => {
@@ -288,6 +323,20 @@ describe("nextActions", () => {
     }));
     expect(names(actions)).toEqual(["deliver_stranded"]);
     expect(actions[0]).toMatchObject({ canAct: true, route: "/api/v1/issues/bug1/delivery?projectId=p1" });
+  });
+
+  it("blocks deliver_stranded on a PR reported 404 and offers review_idle instead", () => {
+    const actions = nextActions(manager, facts({
+      bug: bug({ status: "in_progress", claims: [] }) as unknown as TriageFacts["bug"],
+      pullRequest: pr(report({ state: "not_found" })),
+      stranded: { pullRequestUrl: PR, creditedUserId: "cara", linkedAt: new Date(), goodVerdicts: 2, needed: 2 },
+      idle: { held: false, holderOwners: [], idleHours: 5 },
+    }));
+    expect(names(actions)).toEqual(["repair_pull_request", "deliver_stranded", "review_idle"]);
+    expect(actions[1]).toMatchObject({ canAct: false });
+    expect(actions[1].blockedReason).toContain("doesn't exist on GitHub (404)");
+    expect(actions[1].blockedReason).toContain("Nothing to deliver; reclaim it if it is idle.");
+    expect(actions[2]).toMatchObject({ canAct: true, route: "/api/v1/issues/bug1/reclaim?projectId=p1" });
   });
 
   it("offers review_idle for idle work nobody holds, and an Abandoned vote for held work", () => {
@@ -304,7 +353,7 @@ describe("nextActions", () => {
   });
 
   it("awards the most voted bid from another owner on an Open issue nobody holds", () => {
-    const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr({ url: null, linkState: "missing", state: "unknown" }), judgements: null };
+    const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
     const bids = [{ id: "bid-dana", votes: 5, ownerIds: ["dana"] }, { id: "bid-erin", votes: 2, ownerIds: ["erin"] }];
     expect(nextActions(manager, facts({ ...openIssue, bids }))).toEqual([expect.objectContaining({
       action: "award_bid", route: "/api/v1/bids/bid-erin/award?projectId=p1", canAct: true,
@@ -330,10 +379,15 @@ describe("triageQueue", () => {
     expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns one item per issue with its holder, PR, judgements and next actions", async () => {
+  it("returns one item per issue with its holder, PR from the latest report, judgements and next actions", async () => {
+    const old553 = "https://github.com/Zedu-Endor/issue-tracker/pull/553";
     db.bug.findMany.mockResolvedValue([
       bug({ id: "bug1", status: "in_progress" }),
-      bug({ id: "bug2", number: 553, status: "done", pullRequestUrl: "https://github.com/Zedu-Endor/issue-tracker/pull/553" }),
+      bug({ id: "bug2", number: 553, status: "done", pullRequestUrl: old553 }),
+    ]);
+    db.pullRequestReport.findMany.mockResolvedValue([
+      report({ id: "rep2", state: "merged", mergedInto: "main", inDefaultBranch: true, mergeCommitSha: "merge-sha" }),
+      report({ id: "rep1", createdAt: new Date(NOW - 3_600_000) }),
     ]);
     holders.currentHold.mockImplementation(async (id: string) => (id === "bug1"
       ? { id: "claim1", agentName: "Cara's agent", personName: "Cara", via: "bid", dispatcherName: null, status: "active", offeredAt: null, claimedAt: new Date("2026-10-20T11:00:00Z"), deliverBy: null }
@@ -342,31 +396,36 @@ describe("triageQueue", () => {
       { goodToMerge: true, headSha: "head-sha", onBehalfOfUserId: "erin", agent: { id: "agent-erin", ownerUserId: "erin" } },
       { goodToMerge: true, headSha: "old-sha", onBehalfOfUserId: "finn", agent: { id: "agent-finn", ownerUserId: "finn" } },
     ]);
-    const gh = github({ 552: merged, 553: open });
 
-    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { clientFor: () => gh.client });
+    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { now: NOW });
 
-    expect(page).toMatchObject({ nextCursor: null, githubAvailable: true });
+    expect(page).toEqual({ items: expect.any(Array), nextCursor: null });
     expect(page.items).toHaveLength(2);
     const [first, second] = page.items;
     expect(first.issue).toMatchObject({ id: "bug1", number: 552, status: "in_progress" });
     expect(first.issue.url).toMatch(/\/ziki\/552$/);
     expect(first.holder).toMatchObject({ state: "active_claim", agentName: "Cara's agent", personName: "Cara", via: "bid", staleAssignee: false });
-    expect(first.pullRequest).toMatchObject({ linkState: "ok", state: "merged", mergedInto: "main", inDefaultBranch: true });
+    // The latest report counts: the first row per issue.
+    expect(first.pullRequest).toMatchObject({ linkState: "ok", state: "merged", mergedInto: "main", inDefaultBranch: true, report: { id: "rep2" } });
     expect(first.judgements).toEqual({ good: 2, notGood: 0, needed: 2, goodAtHead: 1, headSha: "head-sha" });
     expect(first.nextActions.map((a) => [a.action, a.canAct])).toEqual([["resolve", true]]);
 
-    expect(second.pullRequest).toMatchObject({ linkState: "old_repository", state: "open", sameNumberInProjectRepo: true });
+    expect(second.pullRequest).toMatchObject({ linkState: "old_repository", state: "unreported", report: null, reportWanted: null });
     expect(second.holder).toMatchObject({ state: "none", assignee: { id: "cara", name: "Cara" }, staleAssignee: false });
     expect(second.nextActions.map((a) => a.action)).toEqual(["repair_pull_request", "accept_fix"]);
     expect(db.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 51 }));
+    expect(db.pullRequestReport.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { OR: [{ bugId: "bug1", pullRequestUrl: PR }, { bugId: "bug2", pullRequestUrl: old553 }] },
+    }));
   });
 
-  it("without GitHub, takes linkState from the URL and leaves the state unknown", async () => {
-    db.bug.findMany.mockResolvedValue([bug({ pullRequestUrl: OLD })]);
-    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { clientFor: () => null });
-    expect(page.githubAvailable).toBe(false);
-    expect(page.items[0].pullRequest).toMatchObject({ linkState: "old_repository", state: "unknown" });
+  it("asks for a report on a Done fix nobody reported, and blocks its accept", async () => {
+    db.bug.findMany.mockResolvedValue([bug({ claims: [] })]);
+    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { now: NOW });
+    const [item] = page.items;
+    expect(item.pullRequest).toMatchObject({ linkState: "ok", state: "unreported", report: null });
+    expect(item.nextActions.map((a) => [a.action, a.canAct])).toEqual([["report_pr_status", true], ["accept_fix", false]]);
+    expect(item.nextActions[1].blockedReason).toMatch(/^No agent has reported this pull request's state yet\./);
   });
 
   it("flags an Open issue's stale assignee and counts its open bids", async () => {
@@ -375,17 +434,19 @@ describe("triageQueue", () => {
       { id: "bid1", beneficiaryUserId: "erin", agent: { ownerUserId: "erin" }, _count: { votes: 1 } },
       { id: "bid2", beneficiaryUserId: "finn", agent: { ownerUserId: "finn" }, _count: { votes: 3 } },
     ]);
-    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { clientFor: () => null });
+    const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { now: NOW });
     const [item] = page.items;
     expect(item.holder).toMatchObject({ state: "none", staleAssignee: true });
     expect(item.bids).toEqual({ open: 2 });
     expect(item.judgements).toBeNull();
     expect(item.nextActions[0]).toMatchObject({ action: "award_bid", route: "/api/v1/bids/bid2/award?projectId=p1", canAct: true });
+    // No linked pull request: nothing to ask about it.
+    expect(db.pullRequestReport.findMany).not.toHaveBeenCalled();
   });
 
   it("pages with a cursor when there are more issues than the limit", async () => {
     db.bug.findMany.mockResolvedValue([bug({ id: "a" }), bug({ id: "b" })]);
-    const page = await triageQueue(agent(), scope, { limit: 1, cursor: null }, { clientFor: () => null });
+    const page = await triageQueue(agent(), scope, { limit: 1, cursor: null }, { now: NOW });
     expect(page.items).toHaveLength(1);
     expect(page.nextCursor).toEqual(expect.any(String));
   });

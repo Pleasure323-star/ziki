@@ -16,6 +16,7 @@ const db = vi.hoisted(() => ({
   attachment: { updateMany: vi.fn() },
   bugRevision: { findMany: vi.fn(), findFirst: vi.fn() },
   issueConfirmation: { findMany: vi.fn() },
+  pullRequestReport: { findFirst: vi.fn(async () => null) },
   issueBid: { findFirst: vi.fn() },
   issueClaim: { findFirst: vi.fn() },
 }));

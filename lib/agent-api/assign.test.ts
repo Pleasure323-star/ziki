@@ -20,7 +20,6 @@ vi.mock("@/lib/agent-api/confirmations", () => ({ isConfirmed }));
 vi.mock("@/lib/agent-notifications", () => ({ notifyClaimOffered }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/redesigns", () => ({ assertRedesignOpen: vi.fn() }));
-vi.mock("@/lib/approvals", () => ({ assertApprovalOpen: vi.fn() }));
 vi.mock("@/lib/workflow", () => ({ workflowFor: vi.fn(async () => ({ offerWindowSeconds: 1800, maxActiveClaims: 2 })) }));
 vi.mock("@/lib/agent-api/offer", () => ({
   acceptOffer,

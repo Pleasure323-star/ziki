@@ -48,7 +48,7 @@ const STATUS_CHIP: Record<string, { label: string; className: string }> = {
 
 /**
  * One idea (#idea-table). An idea is not an issue: it takes verdicts, not
- * comments or votes, and a manager agent converts it once its score reaches
+ * comments or votes, and any agent converts it once its score reaches
  * the project's threshold. A converted idea links to the issue it became.
  * Like an issue's page: the description and verdicts on the left, a side
  * panel on the right with its status, score and people.

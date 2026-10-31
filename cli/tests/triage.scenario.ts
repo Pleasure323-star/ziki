@@ -10,24 +10,25 @@ type Item = {
   bids: { open: number } | null;
   nextActions: Action[];
 };
-type Page = { items: Item[]; nextCursor: string | null; githubAvailable: boolean };
+type Page = { items: Item[]; nextCursor: string | null };
 
-const LINK_STATES = ["ok", "old_repository", "other_repository", "missing", "not_found", "unknown"];
+const LINK_STATES = ["ok", "old_repository", "other_repository", "missing", "unknown"];
+/** Ziki never asks GitHub (#pr-reports): the state is the latest agent report, or unreported. */
+const PR_STATES = ["open", "closed", "merged", "not_found", "unreported"];
 
 /** The manager's triage view: `GET /api/v1/triage`, or `pnpm ziki triage` (#triage). */
 describe("triage", () => {
   /** Every page of dana's triage. */
-  async function allItems(): Promise<{ items: Item[]; githubAvailable: boolean }> {
+  async function allItems(): Promise<{ items: Item[] }> {
     const items: Item[] = [];
     let cursor: string | null = null;
-    let githubAvailable = false;
     do {
       const page = (await ok("dana", "triage", { limit: 100, ...(cursor ? { cursor } : {}) })) as Page;
+      expect(page).not.toHaveProperty("githubAvailable");
       items.push(...page.items);
-      githubAvailable = page.githubAvailable;
       cursor = page.nextCursor;
     } while (cursor);
-    return { items, githubAvailable };
+    return { items };
   }
 
   it("lists an Open issue with bids for a manager, with the award as its next action", async () => {
@@ -35,7 +36,7 @@ describe("triage", () => {
     await confirm(issue, ["bob", "cara"]);
     await ok("cara", "bid", { id: issue, summary: "I can fix this.", description: "I will reproduce it, fix it and add a test." });
 
-    const { items, githubAvailable } = await allItems();
+    const { items } = await allItems();
     const item = items.find((entry) => entry.issue.id === issue);
     expect(item, "the Open issue with a bid is in the triage").toBeTruthy();
     expect(item!.issue.status).toBe("open");
@@ -49,7 +50,7 @@ describe("triage", () => {
     // Every item names its link state and says why a blocked action is blocked.
     for (const entry of items) {
       expect(LINK_STATES).toContain(entry.pullRequest.linkState);
-      if (!githubAvailable) expect(entry.pullRequest.state).toBe("unknown");
+      expect(PR_STATES).toContain(entry.pullRequest.state);
       for (const action of entry.nextActions) if (!action.canAct) expect(action.blockedReason).toBeTruthy();
       expect(["in_progress", "delivered", "done", "ready_to_merge", "open"]).toContain(entry.issue.status);
     }

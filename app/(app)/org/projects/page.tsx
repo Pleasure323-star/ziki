@@ -79,7 +79,7 @@ export default async function OrgProjectsPage({
       <OrgPageHeader title="Projects">
         A project is one product inside {org.name}, such as a web app. The issue list follows the
         project selected in the bar. A platform, such as Web or Mobile, is a label on an issue, not
-        another project.{canManageProjects ? " Open a project's settings for its workflow, areas, approval rules and GitHub App." : ""}
+        another project.{canManageProjects ? " Open a project's settings for its workflow, areas and GitHub App." : ""}
       </OrgPageHeader>
 
       <OrgMessages error={oneParam(params.error)} notice={oneParam(params.notice)} />

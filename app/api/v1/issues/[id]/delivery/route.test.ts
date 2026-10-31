@@ -4,7 +4,6 @@ import { NextRequest } from "next/server";
 const mocks = vi.hoisted(() => ({
   requireAgent: vi.fn(),
   budget: vi.fn(),
-  clientForInstallation: vi.fn(),
   standingAcceptance: vi.fn(),
 }));
 
@@ -16,11 +15,7 @@ vi.mock("@/lib/agents/rate-budget", async (original) => ({
   ...(await original<typeof import("@/lib/agents/rate-budget")>()),
   consumeAgentBudget: mocks.budget,
 }));
-vi.mock("@/lib/github/merge-pr", async (original) => ({
-  ...(await original<typeof import("@/lib/github/merge-pr")>()),
-  clientForInstallation: mocks.clientForInstallation,
-  standingAcceptance: mocks.standingAcceptance,
-}));
+vi.mock("@/lib/accepted-fix", () => ({ standingAcceptance: mocks.standingAcceptance }));
 vi.mock("@/lib/agent-api/review-offer", () => ({ createReviewOffers: vi.fn().mockResolvedValue(null) }));
 
 const db = vi.hoisted(() => ({
@@ -28,6 +23,7 @@ const db = vi.hoisted(() => ({
   issueClaim: { findFirst: vi.fn() },
   reviewOffer: { findFirst: vi.fn() },
   delivery: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  pullRequestReport: { findFirst: vi.fn() },
   testVerdict: { updateMany: vi.fn() },
   bugActivity: { create: vi.fn() },
   agentAuditEvent: { create: vi.fn() },
@@ -59,7 +55,7 @@ const bug = (overrides: Record<string, unknown> = {}) => ({
   projectId: "proj-1",
   status: "in_progress",
   pullRequestUrl: null,
-  project: { repoUrl: "https://github.com/zedu/web", githubInstallationId: null },
+  project: { repoUrl: "https://github.com/zedu/web" },
   ...overrides,
 });
 
@@ -86,7 +82,6 @@ describe("POST /api/v1/issues/{id}/delivery (#delivered-step)", () => {
     db.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(db));
     mocks.requireAgent.mockResolvedValue(agent);
     mocks.budget.mockResolvedValue({ allowed: true });
-    mocks.clientForInstallation.mockReturnValue(null);
     mocks.standingAcceptance.mockResolvedValue(null);
     db.bug.findFirst.mockResolvedValue(bug());
     db.bug.update.mockResolvedValue({});
@@ -96,6 +91,7 @@ describe("POST /api/v1/issues/{id}/delivery (#delivered-step)", () => {
     db.delivery.create.mockResolvedValue({ id: "dlv1" });
     db.delivery.update.mockResolvedValue({ id: "dlv1" });
     db.delivery.findMany.mockResolvedValue([storedDelivery]);
+    db.pullRequestReport.findFirst.mockResolvedValue(null);
     db.testVerdict.updateMany.mockResolvedValue({ count: 0 });
     db.bugActivity.create.mockResolvedValue({});
     db.agentAuditEvent.create.mockResolvedValue({});
@@ -179,23 +175,38 @@ describe("POST /api/v1/issues/{id}/delivery (#delivered-step)", () => {
     expect((await response.json()).error).toBe("accepted_pull_request");
   });
 
-  it("refuses a closed, merged or empty pull request, and records the head commit of an open one (#255, #713, #489)", async () => {
-    const client = { getPullRequest: vi.fn() };
-    mocks.clientForInstallation.mockReturnValue(client);
-    db.bug.findFirst.mockResolvedValue(bug({ project: { repoUrl: "https://github.com/zedu/web", githubInstallationId: 5 } }));
-    for (const [pullRequest, error] of [
-      [{ state: "closed", merged: false }, "pull_request_closed"],
-      [{ state: "closed", merged: true }, "pull_request_merged"],
-      [{ state: "open", merged: false, changedFiles: 0 }, "pull_request_empty"],
+  it("refuses a pull request the latest report says is closed, merged or missing, and records the head commit sent with an open one (#255, #713, #489, #pr-reports)", async () => {
+    const report = (state: string) => ({
+      id: "r1",
+      bugId: "bug1",
+      pullRequestUrl: PR_URL,
+      state,
+      mergedInto: null,
+      inDefaultBranch: null,
+      headSha: null,
+      mergeCommitSha: null,
+      checks: null,
+      mergeable: null,
+      note: "Checked on GitHub.",
+      agentId: "r9",
+      onBehalfOfUserId: "rex",
+      createdAt: new Date("2026-10-30T09:00:00Z"),
+      agent: { name: "Rex's agent" },
+      onBehalfOf: { name: "Rex" },
+    });
+    for (const [state, error] of [
+      ["closed", "pull_request_closed"],
+      ["merged", "pull_request_merged"],
+      ["not_found", "pull_request_not_found"],
     ] as const) {
-      client.getPullRequest.mockResolvedValueOnce(pullRequest);
+      db.pullRequestReport.findFirst.mockResolvedValueOnce(report(state));
       const response = await POST(request(body), params);
       expect(response.status).toBe(422);
       expect((await response.json()).error).toBe(error);
     }
-    client.getPullRequest.mockResolvedValueOnce({ state: "open", merged: false, changedFiles: 3, headSha: "fresh-sha" });
-    expect((await POST(request(body), params)).status).toBe(201);
-    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: "fresh-sha" }) }));
+    db.pullRequestReport.findFirst.mockResolvedValueOnce(report("open"));
+    expect((await POST(request({ ...body, headSha: "f3e5a71" }), params)).status).toBe(201);
+    expect(db.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ pullRequestHeadSha: "f3e5a71" }) }));
   });
 });
 
