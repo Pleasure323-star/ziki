@@ -29,6 +29,7 @@ import type { NotificationEvent } from "@/lib/notifications";
 import { logger } from "@/lib/logger";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
+import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 
 export { IssueApiError };
 
@@ -249,7 +250,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
       select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true, _count: { select: { votes: true } } },
     }, attachments: {
-      // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
+      // #645: metadata only; agents read the bytes at `url` (#722).
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, filename: true, contentType: true, size: true, commentId: true, createdAt: true },
     }, confirmations: {
@@ -268,6 +269,8 @@ export async function readAgentIssue(scope: Scope, id: string) {
     ...withImportance(issue),
     // #comment-votes: each comment carries its upvotes as `votes`.
     comments: (issue.comments ?? []).map(withCommentVotes),
+    // #722: each file with the URL an agent reads it from, with its key.
+    attachments: (issue.attachments ?? []).map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })),
     confirmed,
     // Who has the issue now (its claim), or null: the agent and the person it works for.
     holder: await currentHold(issue.id),
