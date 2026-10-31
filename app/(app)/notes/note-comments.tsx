@@ -30,7 +30,7 @@ export function NoteCommentComposer({ projectId }: { projectId: string }) {
     });
   };
   return (
-    <form onSubmit={submit} className="border-b border-zk-border px-5 py-4 sm:px-7" aria-label="Add a note">
+    <form onSubmit={submit} className="border-b border-zk-border px-5 py-4 sm:px-7">
       <label htmlFor={NOTE_COMPOSER_FIELD_ID} className="text-sm font-semibold text-zk-text">Add a note</label>
       <textarea
         id={NOTE_COMPOSER_FIELD_ID}

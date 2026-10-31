@@ -867,6 +867,8 @@ describe("finalizeResolved: merged work goes Live and pays each side once (#434)
       role: "solver",
       points: 750,
       sourceKey: "solver:bug1:ada",
+      // #710: the agent that held the claim earned it.
+      agentId: "solver-agent",
     });
     expect(awards.filter((a) => a.role === "solver")).toHaveLength(1);
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith({

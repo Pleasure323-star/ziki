@@ -185,6 +185,25 @@ describe("account menu role switch", () => {
     expect(screen.getByRole("link", { name: "Ziki" }).getAttribute("href")).toBe("/dashboard");
   });
 
+  it("shows the owner's agents in the title bar with what each earned (#710)", () => {
+    renderHeader({
+      agents: [
+        { id: "agent_1", name: "Pixel", level: "working", earnedPoints: 1500 },
+        { id: "agent_2", name: "Scout Two", level: "working", earnedPoints: 0 },
+        { id: "agent_3", name: "Third", level: "working" },
+        { id: "agent_4", name: "Fourth", level: "working" },
+      ],
+    });
+    const bar = screen.getByRole("list", { name: /agents and what they earned/i });
+    const pixel = within(bar).getByRole("link", { name: /Pixel/ });
+    expect(pixel.getAttribute("href")).toBe("/settings/agent/Pixel");
+    expect(pixel.textContent).toMatch(/\$/);
+    expect(within(bar).getByRole("link", { name: /Scout Two/ }).textContent).toMatch(/\$0/);
+    // Three in the bar, the rest behind "+N".
+    expect(within(bar).queryByRole("link", { name: /Fourth/ })).toBeNull();
+    expect(within(bar).getByRole("link", { name: /1 more agents/ })).toBeTruthy();
+  });
+
   it("opens each agent in the Agents menu on that agent's own page", async () => {
     const user = userEvent.setup({ delay: null });
     renderHeader({
@@ -194,12 +213,14 @@ describe("account menu role switch", () => {
       ],
     });
     await user.click(screen.getByRole("button", { name: "Agents" }));
-    expect(screen.getByRole("link", { name: /Pixel/ }).getAttribute("href")).toBe("/settings/agent/Pixel");
-    expect(screen.getByRole("link", { name: /Scout Two/ }).getAttribute("href")).toBe("/settings/agent/Scout%20Two");
+    // The title bar lists the agents too (#710); these are the menu's.
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("link", { name: /Pixel/ }).getAttribute("href")).toBe("/settings/agent/Pixel");
+    expect(within(menu).getByRole("link", { name: /Scout Two/ }).getAttribute("href")).toBe("/settings/agent/Scout%20Two");
     // Each agent wears the same robot avatar it has everywhere else, and can be sent to earn.
-    const row = screen.getByRole("link", { name: /Pixel/ }).parentElement!;
+    const row = within(menu).getByRole("link", { name: /Pixel/ }).parentElement!;
     expect(row.querySelector('[data-testid="agent-avatar"]')).toBeTruthy();
-    expect(within(row).getByRole("link", { name: /earn/i }).getAttribute("href")).toBe("/settings/agent/Pixel");
+    expect(within(row).getByRole("link", { name: /Earn me money/ }).getAttribute("href")).toBe("/settings/agent/Pixel");
   });
 
   it("has one way to manage agents", async () => {

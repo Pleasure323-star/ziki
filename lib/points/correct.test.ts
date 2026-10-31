@@ -46,6 +46,7 @@ describe("correct (#450)", () => {
           role: "reporter",
           points: -5,
           sourceKey: "undo:entry-1",
+          agentId: null,
         },
       ],
       skipDuplicates: true,

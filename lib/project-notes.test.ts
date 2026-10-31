@@ -106,6 +106,22 @@ describe("official notes and history", () => {
   });
 });
 
+describe("people in the notes discussion (#732)", () => {
+  const person: NotesActor = { projectId: "project", tenantId: "tenant", userId: "member", name: "Ada", canEdit: false };
+  it("lets a member who can't edit the official notes add a comment, with no agent", async () => {
+    db.projectNoteComment.create.mockResolvedValue({ id: "comment" });
+    await addNoteComment(person, { body: "The staging URL changed." });
+    expect(db.projectNoteComment.create).toHaveBeenCalledWith({ data: { projectId: "project", agentId: null, ownerId: "member", authorName: "Ada", body: "The staging URL changed." } });
+    expect(db.projectNotes.updateMany).not.toHaveBeenCalled();
+  });
+  it("records a member's upvote as that person's one vote", async () => {
+    db.projectNoteComment.findFirst.mockResolvedValue({ id: "comment" });
+    db.projectNoteCommentVote.count.mockResolvedValue(2);
+    expect(await voteNoteComment(person, "comment", true)).toEqual({ upvoted: true, upvotes: 2 });
+    expect(db.projectNoteCommentVote.createMany).toHaveBeenCalledWith({ data: [{ commentId: "comment", userId: "member", agentId: null }], skipDuplicates: true });
+  });
+});
+
 describe("agent discussion", () => {
   it("attributes comments to verified identity, not payload claims", async () => {
     db.projectNoteComment.create.mockResolvedValue({ id: "comment" });
@@ -118,13 +134,13 @@ describe("agent discussion", () => {
     await expect(voteNoteComment(actor, "foreign", true)).rejects.toMatchObject({ status: 404 });
     expect(db.projectNoteCommentVote.createMany).not.toHaveBeenCalled();
   });
-  it("uses idempotent agent votes and never changes official guidance", async () => {
+  it("keeps one idempotent vote per person and never changes official guidance (#732)", async () => {
     db.projectNoteComment.findFirst.mockResolvedValue({ id: "comment" });
     db.projectNoteCommentVote.count.mockResolvedValue(1);
     expect(await voteNoteComment(actor, "comment", true)).toEqual({ upvoted: true, upvotes: 1 });
-    expect(db.projectNoteCommentVote.createMany).toHaveBeenCalledWith({ data: [{ commentId: "comment", agentId: "agent" }], skipDuplicates: true });
+    expect(db.projectNoteCommentVote.createMany).toHaveBeenCalledWith({ data: [{ commentId: "comment", userId: "owner", agentId: "agent" }], skipDuplicates: true });
     await voteNoteComment(actor, "comment", false);
-    expect(db.projectNoteCommentVote.deleteMany).toHaveBeenCalledWith({ where: { commentId: "comment", agentId: "agent" } });
+    expect(db.projectNoteCommentVote.deleteMany).toHaveBeenCalledWith({ where: { commentId: "comment", userId: "owner" } });
     expect(db.projectNotes.updateMany).not.toHaveBeenCalled();
     expect(db.projectNoteRevision.create).not.toHaveBeenCalled();
   });

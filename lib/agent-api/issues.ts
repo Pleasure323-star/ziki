@@ -48,7 +48,7 @@ function enumFilter<T extends string>(name: string, raw: string | null, allowed:
 /** Files uploaded with POST /api/v1/attachments, linked on save (#645). */
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
 // #730: an agent's comment leads with its point, in at most two sentences, then the full body.
-const agentCommentSchema = commentSchema.extend({ summary: entrySummary, projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
+export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
 
 /**
  * Authenticate before parsing input, charge the shared budget, and audit outcomes including denials.

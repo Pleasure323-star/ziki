@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const db = vi.hoisted(() => ({
+  ideaVerdict: { groupBy: vi.fn(async () => []) },
   agentApiKey: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn(), findMany: vi.fn() },
   agentEvent: { create: vi.fn() },
   webhookSubscription: { findMany: vi.fn() }, webhookDelivery: { createMany: vi.fn() },
@@ -13,7 +14,7 @@ const db = vi.hoisted(() => ({
   membership: { findUnique: vi.fn() }, issueWatch: { upsert: vi.fn() }, bugActivity: { create: vi.fn() },
   idempotencyKey: { findUnique: vi.fn(), deleteMany: vi.fn(), create: vi.fn(), update: vi.fn() },
   issueType: { findUnique: vi.fn() }, user: { findMany: vi.fn() }, $queryRaw: vi.fn(), $transaction: vi.fn(),
-  attachment: { updateMany: vi.fn() },
+  attachment: { updateMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
   bugRevision: { findMany: vi.fn(), findFirst: vi.fn() },
   issueConfirmation: { findMany: vi.fn() },
   pullRequestReport: { findFirst: vi.fn(async () => null) },
@@ -108,7 +109,7 @@ describe("agent issue API authentication", () => {
     const key = await db.agentApiKey.findUnique();
     db.agentApiKey.findUnique.mockResolvedValue({ ...key, agent: { ...key.agent, level } });
     expect((await list(request())).status).toBe(200);
-    expect((await comment(request("POST", { bidId: "bid-a", body: "Role-scoped assessment" }), context)).status).toBe(201);
+    expect((await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "Role-scoped assessment" }), context)).status).toBe(201);
     expect((await create(request("POST", validBody))).status).toBe(201);
     expect(db.idea.create).toHaveBeenCalledTimes(1);
     expect(db.bug.create).not.toHaveBeenCalled();
@@ -116,7 +117,7 @@ describe("agent issue API authentication", () => {
   it("fails closed without a key on every route", async () => {
     const responses = await Promise.all([
       list(request("GET", undefined, "", false)), read(request("GET", undefined, "", false), context),
-      create(request("POST", validBody, "", false)), comment(request("POST", { bidId: "bid-a", body: "hello" }, "", false), context),
+      create(request("POST", validBody, "", false)), comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "hello" }, "", false), context),
     ]);
     expect(responses.map((response) => response.status)).toEqual([401, 401, 401, 401]);
     expect(db.bug.findMany).not.toHaveBeenCalled();
@@ -139,7 +140,7 @@ describe("agent issue API authentication", () => {
     expect((await list(request())).status).toBe(403);
     expect((await read(request(), context)).status).toBe(403);
     expect((await create(request("POST", validBody))).status).toBe(403);
-    expect((await comment(request("POST", { bidId: "bid-a", body: "hello" }), context)).status).toBe(403);
+    expect((await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "hello" }), context)).status).toBe(403);
     expect(db.idea.create).not.toHaveBeenCalled();
     expect(db.comment.create).not.toHaveBeenCalled();
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "ideas.create", payload: { status: 403, request: true } }) }));
@@ -505,7 +506,7 @@ describe("agent comments", () => {
     ];
     for (const [stage, route] of cases) {
       db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, ...stage });
-      const response = await comment(request("POST", { body: "A free-standing comment" }), context);
+      const response = await comment(request("POST", { summary: "A short comment.", body: "A free-standing comment" }), context);
       expect(response.status).toBe(409);
       const body = await response.json();
       expect(body.error).toBe("use_stage_entry");
@@ -517,7 +518,7 @@ describe("agent comments", () => {
     expect(db.comment.create).not.toHaveBeenCalled();
 
     db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
-    expect((await comment(request("POST", { body: "A comment on an Open issue" }), context)).status).toBe(201);
+    expect((await comment(request("POST", { summary: "A short comment.", body: "A comment on an Open issue" }), context)).status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ parentId: null, bidId: null, confirmationId: null }),
     }));
@@ -526,18 +527,18 @@ describe("agent comments", () => {
   it("replies to a comment on an Open issue, one level deep", async () => {
     db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
     db.comment.findFirst.mockResolvedValueOnce({ authorId: "someone" });
-    expect((await comment(request("POST", { body: "Agreed", parentId: "comment-a" }), context)).status).toBe(201);
+    expect((await comment(request("POST", { summary: "A short comment.", body: "Agreed", parentId: "comment-a" }), context)).status).toBe(201);
     expect(db.comment.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: "comment-a", parentId: null, bidId: null }),
     }));
 
     db.bug.findFirst.mockResolvedValueOnce({ ...issue, reporterId: "reporter", assigneeId: null, status: "open", substatus: "open" });
     db.comment.findFirst.mockResolvedValueOnce(null);
-    expect((await comment(request("POST", { body: "Agreed", parentId: "a-reply" }), context)).status).toBe(422);
+    expect((await comment(request("POST", { summary: "A short comment.", body: "Agreed", parentId: "a-reply" }), context)).status).toBe(422);
   });
 
   it("refuses a body that names two places for the comment", async () => {
-    const response = await comment(request("POST", { body: "Reply", bidId: "bid-a", parentId: "comment-a" }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", body: "Reply", bidId: "bid-a", parentId: "comment-a" }), context);
     expect(response.status).toBe(422);
   });
 
@@ -546,7 +547,7 @@ describe("agent comments", () => {
     [{ type: "comment" }],
     [{ metadata: { confidence: 80 } }],
   ])("refuses %o with a 400 that explains entries", async (extra) => {
-    const response = await comment(request("POST", { body: "Reviewed", bidId: "bid-a", ...extra }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", body: "Reviewed", bidId: "bid-a", ...extra }), context);
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error).toBe("comment_has_no_type");
@@ -557,14 +558,14 @@ describe("agent comments", () => {
 
   it("refuses a reply to an entry that is not on the issue", async () => {
     db.issueBid.findFirst.mockResolvedValueOnce(null);
-    expect((await comment(request("POST", { body: "Reply", bidId: "elsewhere" }), context)).status).toBe(422);
+    expect((await comment(request("POST", { summary: "A short comment.", body: "Reply", bidId: "elsewhere" }), context)).status).toBe(422);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 
   it("never links a pull request from a comment: that is POST /issues/{id}/github", async () => {
     const pr = "https://github.com/Zedu-Endor/issue-tracker/pull/1230";
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", substatus: "open", reporterId: "reporter-a", assigneeId: "owner-a", pullRequestUrl: null });
-    const res = await comment(request("POST", { bidId: "bid-a", body: `Implementation ready: ${pr}` }), context);
+    const res = await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: `Implementation ready: ${pr}` }), context);
     expect(res.status).toBe(201);
     expect(db.bug.update).toHaveBeenCalledWith({ where: { id: issue.id }, data: { updatedAt: expect.any(Date) } });
     expect((await res.json()).linkedPullRequestUrl).toBeUndefined();
@@ -577,7 +578,7 @@ describe("agent comments", () => {
       if (data.action === "comments.create") throw error;
     });
 
-    const response = await comment(request("POST", { bidId: "bid-a", body: "A helpful comment" }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "A helpful comment" }), context);
 
     expect(response.status).toBe(201);
     expect((await response.json()).comment.id).toBe("comment-a");
@@ -599,14 +600,14 @@ describe("agent comments", () => {
       if (data.action === "comment.created") throw error;
       throw new Error("Request audit also failed");
     });
-    await expect(comment(request("POST", { bidId: "bid-a", body: "A helpful comment" }), context)).rejects.toBe(error);
+    await expect(comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "A helpful comment" }), context)).rejects.toBe(error);
     expect(log).toHaveBeenCalledWith("[agent-api] request audit failed", expect.objectContaining({
       payload: { status: 500, request: true },
     }), expect.any(Error));
   });
 
   it("records the person and agent with activity, watching, and audit", async () => {
-    expect((await comment(request("POST", { bidId: "bid-a", body: "A helpful comment" }), context)).status).toBe(201);
+    expect((await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "A helpful comment" }), context)).status).toBe(201);
     expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ bugId: issue.id, authorId: "owner-a", agentId: "agent-a", body: "A helpful comment", bidId: "bid-a" }) }));
     expect(db.bugActivity.create).toHaveBeenCalled();
     expect(db.agentEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
@@ -618,13 +619,13 @@ describe("agent comments", () => {
 
   it("rejects deleted/out-of-scope issues", async () => {
     db.bug.findFirst.mockResolvedValueOnce(null);
-    expect((await comment(request("POST", { bidId: "bid-a", body: "A helpful comment" }), context)).status).toBe(404);
+    expect((await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "A helpful comment" }), context)).status).toBe(404);
     expect(db.comment.create).not.toHaveBeenCalled();
   });
 
   it("normalizes mentions against tenant members only", async () => {
     db.user.findMany.mockResolvedValue([{ id: "member", name: "Real name" }]);
-    await comment(request("POST", { bidId: "bid-a", body: "@[Fake](member) @[Other](outsider)" }), context);
+    await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "@[Fake](member) @[Other](outsider)" }), context);
     expect(db.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
       id: { in: ["member", "outsider"] }, memberships: { some: { tenantId: "tenant-a" } },
     } }));
@@ -640,7 +641,7 @@ describe("agent comments and issues notify people (#533)", () => {
     db.comment.create.mockResolvedValue({ id: "comment-b", body: "@[Bob](bob) can you retest?", createdAt: new Date() });
 
     const response = await comment(
-      request("POST", { body: "@[Bob](bob) can you retest?", bidId: "bid-a" }),
+      request("POST", { summary: "A short comment.", body: "@[Bob](bob) can you retest?", bidId: "bid-a" }),
       context,
     );
     expect(response.status).toBe(201);
@@ -663,16 +664,69 @@ describe("agent comments and issues notify people (#533)", () => {
 
   it("sends nothing when the comment couldn't be saved", async () => {
     db.bug.findFirst.mockResolvedValueOnce(null);
-    expect((await comment(request("POST", { bidId: "bid-a", body: "hello" }), context)).status).toBe(404);
+    expect((await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "hello" }), context)).status).toBe(404);
     expect(notifyLater).not.toHaveBeenCalled();
   });
 
 });
 
+/** A 1×1 PNG. */
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+
+function multipart(payload: unknown, files: { name: string; bytes: Uint8Array; type: string }[]) {
+  const form = new FormData();
+  form.set("payload", JSON.stringify(payload));
+  for (const file of files) form.append("file", new Blob([new Uint8Array(file.bytes)], { type: file.type }), file.name);
+  return new NextRequest("http://localhost/api/v1/ideas?projectId=project-a", {
+    method: "POST", headers: { authorization: "Bearer ziki_test-key", "Idempotency-Key": "request-1" }, body: form,
+  });
+}
+
+describe("files in the idea create request (#722)", () => {
+  it("stores the files and links them to the new idea, in one request", async () => {
+    db.attachment.create.mockResolvedValue({ id: "att-new" });
+    db.attachment.updateMany.mockResolvedValue({ count: 1 });
+    const response = await create(multipart(validBody, [{ name: "shot.png", bytes: PNG, type: "image/png" }]));
+    expect(response.status).toBe(201);
+    expect(db.attachment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ uploaderId: "owner-a", contentType: "image/png" }) }));
+    expect(db.attachment.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: ["att-new"] } }), data: { ideaId: idea.id } }));
+  });
+
+  it("creates nothing when a file is refused", async () => {
+    const response = await create(multipart(validBody, [
+      { name: "shot.png", bytes: PNG, type: "image/png" },
+      { name: "page.html", bytes: new TextEncoder().encode("<html><script>x</script></html>"), type: "text/html" },
+    ]));
+    expect(response.status).toBe(415);
+    expect(db.attachment.create).not.toHaveBeenCalled();
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("asks for the JSON fields in a payload part", async () => {
+    const form = new FormData();
+    form.append("file", new Blob([PNG], { type: "image/png" }), "shot.png");
+    const response = await create(new NextRequest("http://localhost/api/v1/ideas?projectId=project-a", {
+      method: "POST", headers: { authorization: "Bearer ziki_test-key", "Idempotency-Key": "request-1" }, body: form,
+    }));
+    expect(response.status).toBe(400);
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent comment summaries (#730)", () => {
+  it("requires an agent's comment to lead with a summary of at most two sentences, stored apart from the body", async () => {
+    expect((await comment(request("POST", { bidId: "bid-a", body: "No summary." }), context)).status).toBe(422);
+    expect((await comment(request("POST", { bidId: "bid-a", summary: "One. Two. Three.", body: "Too long a summary." }), context)).status).toBe(422);
+    const response = await comment(request("POST", { bidId: "bid-a", summary: "The redirect drops the session.", body: "Full reasoning here." }), context);
+    expect(response.status).toBe(201);
+    expect(db.comment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ summary: "The redirect drops the session.", body: "Full reasoning here." }) }));
+  });
+});
+
 describe("agents attach files to issues and comments (#645)", () => {
   it("links the named uploads to a new comment, as the owner's own unlinked files", async () => {
     db.attachment.updateMany.mockResolvedValue({ count: 2 });
-    const response = await comment(request("POST", { bidId: "bid-a", body: "Screenshot and HAR attached.", attachmentIds: ["att-1", "att-2"] }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "Screenshot and HAR attached.", attachmentIds: ["att-1", "att-2"] }), context);
     expect(response.status).toBe(201);
     expect(db.attachment.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["att-1", "att-2"] }, uploaderId: "owner-a", bugId: null, ideaId: null, commentId: null, confirmationId: null },
@@ -682,7 +736,7 @@ describe("agents attach files to issues and comments (#645)", () => {
 
   it("refuses the write when a named upload can't be claimed", async () => {
     db.attachment.updateMany.mockResolvedValue({ count: 1 });
-    const response = await comment(request("POST", { bidId: "bid-a", body: "Two files.", attachmentIds: ["att-1", "someone-elses"] }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "Two files.", attachmentIds: ["att-1", "someone-elses"] }), context);
     expect(response.status).toBe(422);
     expect((await response.json()).error).toMatch(/attachmentIds/);
     expect(db.agentEvent.create).not.toHaveBeenCalled();
@@ -699,7 +753,7 @@ describe("agents attach files to issues and comments (#645)", () => {
   });
 
   it("caps attachmentIds at 5", async () => {
-    const response = await comment(request("POST", { bidId: "bid-a", body: "Too many.", attachmentIds: ["a", "b", "c", "d", "e", "f"] }), context);
+    const response = await comment(request("POST", { summary: "A short comment.", bidId: "bid-a", body: "Too many.", attachmentIds: ["a", "b", "c", "d", "e", "f"] }), context);
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(db.attachment.updateMany).not.toHaveBeenCalled();
   });
