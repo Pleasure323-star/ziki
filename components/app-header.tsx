@@ -22,7 +22,7 @@ import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { Avatar } from "@/components/avatar";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { AccountThemeSelector } from "@/components/theme-toggle";
-import { formatPoints, pointsProgress, TARGET_POINTS } from "@/lib/points/rules";
+import { formatPoints, formatPointsAsDollars } from "@/lib/points/rules";
 import { recentNotificationsAction } from "@/app/actions/notifications";
 import { LocalTime } from "@/components/local-time";
 import { BASE_PATH } from "@/lib/base-path";
@@ -65,14 +65,6 @@ function useDismiss(
       document.removeEventListener("keydown", onKey);
     };
   }, [open, close, containerRef, triggerRef]);
-}
-
-function PlusIcon() {
-  return (
-    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
 }
 
 function TrophyIcon() {
@@ -309,7 +301,16 @@ function levelLabel(level: string) {
   return level in AGENT_LEVEL_LABELS ? AGENT_LEVEL_LABELS[level as AgentLevel] : level;
 }
 
-function AgentsMenu({ pathname, agents }: { pathname: string | null; agents: ShellAgent[] }) {
+function AgentsMenu({
+  pathname,
+  agents,
+  points,
+}: {
+  pathname: string | null;
+  agents: ShellAgent[];
+  /** The viewer's points, shown as dollars on the button; null when signed out. */
+  points: number | null;
+}) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -326,14 +327,26 @@ function AgentsMenu({ pathname, agents }: { pathname: string | null; agents: She
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
-        title="Agents"
+        title={points === null ? "Agents" : `Agents · ${formatPoints(points)} points`}
         // Phones: a plain icon, like the bell beside it.
         className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-zk-border bg-zk-surface px-3.5 text-[13px] font-medium text-zk-text hover:bg-zk-chip max-sm:h-9 max-sm:w-9 max-sm:border-0 max-sm:bg-transparent max-sm:px-0 ${linkFocus}`}
       >
-        <span className="text-electric-blue max-sm:text-zk-text">
-          <AgentIcon />
-        </span>
-        <span className="max-sm:sr-only">Agents</span>
+        {/* Your agent's face and your balance in dollars. */}
+        {agents[0] ? (
+          <AgentAvatar agentId={agents[0].id} avatar={agents[0].avatar} size={24} />
+        ) : (
+          <span className="text-electric-blue max-sm:text-zk-text">
+            <AgentIcon />
+          </span>
+        )}
+        {points === null ? (
+          <span className="max-sm:sr-only">Agents</span>
+        ) : (
+          <span className="font-semibold tabular-nums max-sm:sr-only">
+            <span className="sr-only">Agents, balance </span>
+            {formatPointsAsDollars(points)}
+          </span>
+        )}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="max-sm:hidden">
           <path d="m6 9 6 6 6-6" />
         </svg>
@@ -342,8 +355,23 @@ function AgentsMenu({ pathname, agents }: { pathname: string | null; agents: She
         <div
           id={menuId}
           role="menu"
-          className="absolute right-0 top-12 z-50 flex w-[260px] max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-2xl border border-zk-border bg-zk-surface p-2 shadow-[0_16px_40px_rgba(11,23,51,0.16)]"
+          className="absolute right-0 top-12 z-50 flex w-[260px] max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-2xl border border-zk-border bg-zk-surface p-2 text-sm shadow-[0_16px_40px_rgba(11,23,51,0.16)]"
         >
+          {points !== null ? (
+            <Link
+              href="/workers"
+              onClick={() => setOpen(false)}
+              aria-current={current === "/workers" ? "page" : undefined}
+              className="flex min-h-11 items-center justify-between gap-2 rounded-[10px] px-2.5 text-zk-text"
+            >
+              <span className="flex flex-col">
+                <span className="text-base font-bold tabular-nums">{formatPointsAsDollars(points)}</span>
+                <span className="text-xs text-zk-muted">{formatPoints(points)} points · Ranking</span>
+              </span>
+              <TrophyIcon />
+            </Link>
+          ) : null}
+          {points !== null ? <div className="my-1 h-px bg-zk-divider" /> : null}
           {agents.length > 0 ? (
             <span className="px-2.5 pb-1.5 pt-2 text-[11px] font-bold uppercase tracking-[0.06em] text-zk-muted">
               Project agents
@@ -367,9 +395,8 @@ function AgentsMenu({ pathname, agents }: { pathname: string | null; agents: She
           <Link
             href={CREATE_AGENT_HREF}
             onClick={() => setOpen(false)}
-            className="flex min-h-11 items-center gap-2 rounded-[10px] px-2.5 font-bold text-zk-accent"
+            className="flex min-h-10 items-center rounded-[10px] px-2.5 font-bold text-zk-accent"
           >
-            <PlusIcon />
             Create agent
           </Link>
           {AGENT_MENU_LINKS.map((link) => (
@@ -389,40 +416,6 @@ function AgentsMenu({ pathname, agents }: { pathname: string | null; agents: She
   );
 }
 
-/** The viewer's points, beside the bell. It is the way into Ranking, which left the nav. */
-function PointsLink({
-  points,
-  solvedTasks,
-  targetPoints = TARGET_POINTS,
-  active,
-}: {
-  points: number;
-  solvedTasks: number;
-  targetPoints?: number;
-  active: boolean;
-}) {
-  const progress = pointsProgress(points, solvedTasks, targetPoints);
-  return (
-    <Link
-      href="/workers"
-      aria-current={active ? "page" : undefined}
-      title="Ranking"
-      className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[12.5px] font-semibold ${linkFocus} ${
-        active
-          ? "bg-zk-warn-fg text-zk-surface"
-          : "bg-zk-warn-bg text-zk-warn-fg hover:brightness-95"
-      }`}
-    >
-      <TrophyIcon />
-      <span className="tabular-nums">{formatPoints(points)}</span> pts
-      <span className="sr-only">
-        {" "}
-        of {targetPoints}, {solvedTasks} solved, {progress.pointsPercent}%. Open Ranking
-      </span>
-    </Link>
-  );
-}
-
 export function AppHeader({
   userName,
   userImage,
@@ -435,8 +428,6 @@ export function AppHeader({
   workspaces = [],
   activeTenantId = null,
   points = 0,
-  solvedTasks = 0,
-  targetPoints = TARGET_POINTS,
   agents = [],
   reportFormUrl,
   organizationAdmin = false,
@@ -502,7 +493,7 @@ export function AppHeader({
             From lg up it keeps shrink-0 so the account controls are never
             squeezed. */}
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0">
-          <AgentsMenu pathname={pathname} agents={agents} />
+          <AgentsMenu pathname={pathname} agents={agents} points={userId ? points : null} />
 
           <div ref={accountRef} className="relative">
             <button
@@ -570,15 +561,6 @@ export function AppHeader({
               </div>
             ) : null}
           </div>
-
-          {userId ? (
-            <PointsLink
-              points={points}
-              solvedTasks={solvedTasks}
-              targetPoints={targetPoints}
-              active={isNavItemActive(pathname, "/workers")}
-            />
-          ) : null}
 
           {/* Escalations, as an envelope, then the bell last. */}
           {showEscalations ? <EscalationsLink pending={pendingEscalationsCount} active={isNavItemActive(pathname, "/escalations")} /> : null}

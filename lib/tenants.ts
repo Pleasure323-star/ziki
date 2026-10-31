@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
 import { cookies } from "next/headers";
+import { awardSignupBonus } from "@/lib/points/signup-bonus";
 import { unstable_rethrow } from "next/navigation";
 import type { MembershipRole, Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
@@ -426,6 +427,7 @@ export async function createTenant(
       });
       const projectId = tenant.projects[0]?.id;
       if (!projectId) throw new Error("A new tenant was created without its first project.");
+      await awardSignupBonus(db, creator.id, tenant.id);
       return { ok: true, tenant: { id: tenant.id, slug: tenant.slug, name: tenant.name }, projectId };
     } catch (error) {
       // Only the slug is unique on a brand-new tenant: try another one.

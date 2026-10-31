@@ -28,6 +28,15 @@ export const DUPLICATE_MARKER_POINTS = 150;
 /** Ledger awards keep this many decimal places. */
 export const POINT_DECIMALS = 2;
 
+/** Points shown as money in the header: this many points make a dollar. */
+export const POINTS_PER_DOLLAR = 100;
+
+/** A points balance as dollars, e.g. 2121 points → "$21.21". */
+export function formatPointsAsDollars(points: number): string {
+  const dollars = points / POINTS_PER_DOLLAR;
+  return `$${dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 /**
  * Each later reviewer receives this share of the previous award.
  * A small step keeps the amounts close instead of falling off a cliff.

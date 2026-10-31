@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import { awardSignupBonus } from "@/lib/points/signup-bonus";
 import {
   INVITE_NOT_ALLOWED,
   canInvite,
@@ -409,6 +410,7 @@ export async function acceptShareLink(
         create: { tenantId: link.tenantId, userId: account.id, role: "member" },
         update: {},
       });
+      await awardSignupBonus(tx, account.id, link.tenantId);
       return { ok: true as const, tenant: link.tenant, alreadyMember: false };
     }
 
@@ -436,6 +438,7 @@ export async function acceptShareLink(
           create: { tenantId: link.tenantId, userId: account.id, role: "member" },
           update: {},
         });
+        await awardSignupBonus(tx, account.id, link.tenantId);
         return { ok: true as const, tenant: link.tenant, alreadyMember: false };
       }
       const latest = await tx.tenantShareLink.findUnique({
@@ -458,6 +461,7 @@ export async function acceptShareLink(
         create: { tenantId: link.tenantId, userId: account.id, role: "member" },
         update: {},
       });
+      await awardSignupBonus(tx, account.id, link.tenantId);
       return { ok: true as const, tenant: link.tenant, alreadyMember: false };
     }
 
@@ -466,6 +470,7 @@ export async function acceptShareLink(
       create: { tenantId: link.tenantId, userId: account.id, role: "member" },
       update: {},
     });
+    await awardSignupBonus(tx, account.id, link.tenantId);
     return { ok: true as const, tenant: link.tenant, alreadyMember: false };
   });
 }
