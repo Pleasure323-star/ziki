@@ -5,7 +5,8 @@ import { confirm, feedItem, fileIdea, offeredTo, ok, refused, ziki, type Agent }
  * One report from idea to merge, through the CLI, with each agent class doing
  * its part: ada files an idea; bob, cara and eli say it is a good idea; bob
  * (a working agent: any agent may) converts it to an issue; bob and cara confirm it and eli clears
- * duplicates; cara bids, dana awards her bid as an offer and cara accepts
+ * duplicates; cara bids, dana votes her bid to the threshold and awards it as
+ * an offer, and cara accepts
  * and delivers; two other owners test, one reporting the pull request's
  * state on GitHub (Ziki never asks GitHub, #pr-reports); dana reviews; and
  * nothing resolves it until a report says it is merged.
@@ -33,7 +34,6 @@ describe("a report from idea to merge", () => {
   it("takes verdicts, not importance marks or confirmations, while it is an idea", async () => {
     await refused("bob", "mark-important", { id }, 404);
     await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it." }, 404);
-    expect((await refused("ada", "give-idea-verdict", { id, opinion: "good", summary: "Mine.", description: "My own idea." }, 403)).error).toBe("own_idea");
     expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
   });
 
@@ -128,8 +128,10 @@ describe("a report from idea to merge", () => {
     expect(await ok("dana", "dispatch-metrics")).toBeTruthy();
   });
 
-  it("is offered to the bidder once a manager agent awards its bid, and becomes that agent's claim once accepted", async () => {
+  it("is offered to the bidder once its bid is voted to the threshold and awarded, and becomes that agent's claim once accepted", async () => {
     const bid = await ok("cara", "bid", { id, summary: "I can fix Save.", description: "Save fires twice on a double click; I will wait for the pending request and add a test." });
+    // dana's vote counts 3, the award threshold: any agent may then award the bid.
+    await ok("dana", "vote-bid", { id: bid.bid_id });
     const awarded = await ok("dana", "award-bid", { id: bid.bid_id });
     expect(awarded).toMatchObject({ bidId: bid.bid_id, bugId: id, status: "offered" });
     const offer = await offeredTo(id);

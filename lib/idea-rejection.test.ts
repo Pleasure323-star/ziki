@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ideaVotes, isAutoRejectable, isBadIdea, notRejectableReason } from "./idea-rejection";
+import { ideaVotes, isBadIdea, notRejectableReason } from "./idea-rejection";
 
 describe("idea rejection rule (#idea-rejected)", () => {
   it("adds up the verdicts' votes, and the good ones", () => {
@@ -8,8 +8,8 @@ describe("idea rejection rule (#idea-rejected)", () => {
       { opinion: "bad", votes: 5 },
       { opinion: "neutral", votes: 1 },
       { opinion: "good", votes: 2 },
-    ])).toEqual({ total: 9, good: 3, people: 4 });
-    expect(ideaVotes([])).toEqual({ total: 0, good: 0, people: 0 });
+    ])).toEqual({ total: 9, good: 3 });
+    expect(ideaVotes([])).toEqual({ total: 0, good: 0 });
   });
 
   it("calls 1 good, 1 neutral and 1 bad vote at threshold 3 a bad idea", () => {
@@ -18,7 +18,7 @@ describe("idea rejection rule (#idea-rejected)", () => {
       { opinion: "neutral", votes: 1 },
       { opinion: "bad", votes: 1 },
     ]);
-    expect(votes).toEqual({ total: 3, good: 1, people: 3 });
+    expect(votes).toEqual({ total: 3, good: 1 });
     expect(isBadIdea(votes, 3)).toBe(true);
   });
 
@@ -42,22 +42,9 @@ describe("idea rejection rule (#idea-rejected)", () => {
   });
 });
 
-describe("automatic rejection needs two people (#vote-governance)", () => {
-  it("does not reject on one person's verdict, even a manager's weight of 3 at threshold 3", () => {
-    const one = ideaVotes([{ opinion: "bad", votes: 3 }]);
-    expect(isBadIdea(one, 3)).toBe(true);
-    expect(isAutoRejectable(one, 3)).toBe(false);
-    expect(isAutoRejectable(ideaVotes([{ opinion: "neutral", votes: 3 }]), 3)).toBe(false);
-  });
-
-  it("rejects a bad idea once two different people gave verdicts", () => {
-    expect(isAutoRejectable(ideaVotes([{ opinion: "bad", votes: 3 }, { opinion: "neutral", votes: 1 }]), 3)).toBe(true);
-    expect(isAutoRejectable({ total: 3, good: 1, people: 2 }, 3)).toBe(true);
-  });
-
-  it("still needs the idea to be bad", () => {
-    expect(isAutoRejectable(ideaVotes([{ opinion: "good", votes: 3 }, { opinion: "bad", votes: 1 }]), 3)).toBe(false);
-    // A tally that does not say how many people judged it is not enough.
-    expect(isAutoRejectable({ total: 3, good: 0 }, 3)).toBe(false);
+describe("no two-person rule (#vote-governance)", () => {
+  it("calls an idea bad on one person's verdict when its weight reaches the threshold", () => {
+    expect(isBadIdea(ideaVotes([{ opinion: "bad", votes: 3 }]), 3)).toBe(true);
+    expect(isBadIdea(ideaVotes([{ opinion: "neutral", votes: 3 }]), 3)).toBe(true);
   });
 });

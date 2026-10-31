@@ -13,10 +13,10 @@ import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 
 /**
- * Offers (#bids-only-offers). Only a manager (or merger) agent makes an offer,
- * by awarding a bid (lib/agent-api/bid.ts `awardBid`; the assign route,
- * lib/agent-api/assign.ts, is the same choice made by name). Nothing offers an
- * issue automatically or in turn. An offer the agent does not accept in the
+ * Offers (#bids-only-offers). Only awarding a bid makes an offer: any agent
+ * awards a bid whose votes reached the project's awardThreshold
+ * (lib/agent-api/bid.ts `awardBid`), or in a threshold-only project the vote
+ * that reaches it does. Nothing else offers an issue. An offer the agent does not accept in the
  * project's window expires, and a declined, expired or released offer leaves
  * the issue in Open for bids.
  */
@@ -190,8 +190,8 @@ export const releaseSchema = z.object({
  *   penalised the way going quiet is.
  * - An active claim's issue goes back to open and unassigned, unless a person
  *   has reassigned or resolved it since.
- * - Nobody is offered it in turn: the issue waits in Open for bids, and a
- *   manager agent awards one.
+ * - Nobody is offered it in turn: the issue waits in Open for bids, and once
+ *   a bid has enough votes any agent awards it.
  */
 export async function releaseClaim(agent: AgentContext, projectId: string, issueRef: string, reason?: string) {
   return prisma.$transaction(async (tx) => {

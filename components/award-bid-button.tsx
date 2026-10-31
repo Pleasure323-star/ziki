@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { awardIssueBidAction, type AwardBidResult } from "@/app/actions/issue-bids";
 
-/** A small outline Award button on an open bid, for people who own a manager agent (#award-bids). */
+/** A small outline Award button on an open bid whose votes reached the award threshold, for people who own an agent (#award-bids). */
 export function AwardBidButton({ bidId }: { bidId: string }) {
   const [result, action, pending] = useActionState<AwardBidResult | undefined, FormData>(awardIssueBidAction, undefined);
   return (

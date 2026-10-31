@@ -79,6 +79,7 @@ function facts(over: Partial<TriageFacts> = {}): TriageFacts {
     projectId: "p1",
     repo: REPO,
     thresholdOnly: false,
+    awardThreshold: 3,
     pullRequest: pr(),
     judgements: { good: 2, notGood: 0, needed: 2, goodAtHead: 2, headSha: "head-sha" },
     bids: [],
@@ -95,7 +96,7 @@ const manager = { agentId: "agent-dana", ownerId: "dana", level: "manager" as co
 
 beforeEach(() => {
   vi.clearAllMocks();
-  workflow.workflowFor.mockResolvedValue({ verdictsNeeded: 2, offerWindowSeconds: 1800, governance: "manager" });
+  workflow.workflowFor.mockResolvedValue({ verdictsNeeded: 2, offerWindowSeconds: 1800, governance: "manager", awardThreshold: 3, managerVoteWeight: 3 });
   holders.currentHold.mockResolvedValue(null);
   stranded.strandedDelivery.mockResolvedValue(null);
   idle.idleInProgress.mockResolvedValue(null);
@@ -352,15 +353,29 @@ describe("nextActions", () => {
     expect(held[0]).toMatchObject({ action: "vote_abandoned", canAct: true });
   });
 
-  it("awards the most voted bid from another owner on an Open issue nobody holds", () => {
+  it("lets any agent award the most voted bid once it reached the threshold, its own owner's too", () => {
     const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
     const bids = [{ id: "bid-dana", votes: 5, ownerIds: ["dana"] }, { id: "bid-erin", votes: 2, ownerIds: ["erin"] }];
     expect(nextActions(manager, facts({ ...openIssue, bids }))).toEqual([expect.objectContaining({
-      action: "award_bid", route: "/api/v1/bids/bid-erin/award?projectId=p1", canAct: true,
+      action: "award_bid", route: "/api/v1/bids/bid-dana/award?projectId=p1", minimumRole: "working", canAct: true,
     })]);
-    expect(nextActions(manager, facts({ ...openIssue, bids: [bids[0]] }))[0]).toMatchObject({ canAct: false, blockedReason: "Every bid on it is from your owner." });
+    const working = { agentId: "agent-finn", ownerId: "finn", level: "working" as const };
+    expect(nextActions(working, facts({ ...openIssue, bids }))[0]).toMatchObject({ action: "award_bid", canAct: true });
     const hold = { id: "c", agentName: "Erin's agent", personName: "Erin", via: "bid" as const, dispatcherName: null, status: "offered" as const, offeredAt: new Date(), claimedAt: null, deliverBy: null };
     expect(nextActions(manager, facts({ ...openIssue, bids, hold }))[0]).toMatchObject({ canAct: false, blockedReason: "Erin's agent for Erin has a live offer on it." });
+  });
+
+  it("asks for a vote, not an award, while every bid is below the threshold", () => {
+    const openIssue = { bug: bug({ status: "open", claims: [], assigneeId: null, pullRequestUrl: null }) as unknown as TriageFacts["bug"], pullRequest: pr(null, null, null), judgements: null };
+    const bids = [{ id: "bid-dana", votes: 2, ownerIds: ["dana"] }, { id: "bid-erin", votes: 1, ownerIds: ["erin"] }];
+    // A manager may vote for its own owner's bid.
+    expect(nextActions(manager, facts({ ...openIssue, bids }))).toEqual([expect.objectContaining({
+      action: "vote_bid", route: "/api/v1/bids/bid-dana/votes?projectId=p1", canAct: true,
+    })]);
+    // A working agent votes for another owner's bid, and has none to vote for when every bid is its owner's.
+    const working = { agentId: "agent-dana-2", ownerId: "dana", level: "working" as const };
+    expect(nextActions(working, facts({ ...openIssue, bids }))[0]).toMatchObject({ action: "vote_bid", route: "/api/v1/bids/bid-erin/votes?projectId=p1" });
+    expect(nextActions(working, facts({ ...openIssue, bids: [bids[0]] }))[0]).toMatchObject({ canAct: false, blockedReason: "Every bid on it is from your owner." });
   });
 });
 
@@ -431,8 +446,8 @@ describe("triageQueue", () => {
   it("flags an Open issue's stale assignee and counts its open bids", async () => {
     db.bug.findMany.mockResolvedValue([bug({ status: "open", claims: [], pullRequestUrl: null })]);
     db.issueBid.findMany.mockResolvedValue([
-      { id: "bid1", beneficiaryUserId: "erin", agent: { ownerUserId: "erin" }, _count: { votes: 1 } },
-      { id: "bid2", beneficiaryUserId: "finn", agent: { ownerUserId: "finn" }, _count: { votes: 3 } },
+      { id: "bid1", beneficiaryUserId: "erin", agent: { ownerUserId: "erin" }, votes: [{ onBehalfOfUserId: "gus", agent: { level: "working" } }] },
+      { id: "bid2", beneficiaryUserId: "finn", agent: { ownerUserId: "finn" }, votes: [{ onBehalfOfUserId: "hana", agent: { level: "manager" } }] },
     ]);
     const page = await triageQueue(agent(), scope, { limit: 50, cursor: null }, { now: NOW });
     const [item] = page.items;

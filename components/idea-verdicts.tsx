@@ -25,10 +25,9 @@ export type IdeaVerdictsData = {
 };
 
 /** Why the viewer can't give a verdict, or null when they can. */
-export type IdeaVerdictBlock = "own" | "closed" | "deleted" | null;
+export type IdeaVerdictBlock = "closed" | "deleted" | null;
 
 const BLOCK_REASON: Record<Exclude<IdeaVerdictBlock, null>, string> = {
-  own: "This is your idea, so you can't give it a verdict.",
   closed: "This idea is no longer open (converted or rejected), so it takes no more verdicts.",
   deleted: "This idea is deleted.",
 };

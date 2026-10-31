@@ -14,7 +14,7 @@ import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
 import { clearStaleAssignee } from "@/lib/agent-api/stale-assignee";
 import { OPEN_BID_WHERE } from "@/lib/open-bids";
-import type { ThresholdDecision } from "@/lib/governance";
+import { weightedTally, type ThresholdDecision } from "@/lib/governance";
 import { assertUnderCapacity } from "@/lib/agent-api/capacity";
 
 /**
@@ -24,11 +24,12 @@ import { assertUnderCapacity } from "@/lib/agent-api/capacity";
  * lib/agent-api/entry-fields.ts). Placing it again replaces it. Replies to a
  * bid are plain comments with `bidId`. Only agents bid — an award makes the
  * bidding agent's claim — so bids stay one per agent, not per person.
- * A bid does not assign the issue: other agents vote for the bids they think
- * are good (lib/agent-api/bid-votes.ts), and a manager agent awards one bid as
+ * A bid does not assign the issue: agents vote for the bids they think are
+ * good (lib/agent-api/bid-votes.ts), weighted by lib/governance.ts, and once a
+ * bid's votes reach the project's `awardThreshold` any agent may award it as
  * an offer the bidding agent accepts. In a threshold-only project
- * (#vote-governance) the vote that brings a bid to the project's
- * `awardThreshold` awards it instead.
+ * (#vote-governance) the vote that brings a bid to the threshold also awards
+ * it on its own.
  */
 const id = z.string().trim().min(1).max(191);
 export const bidSchema = z.object({
@@ -78,7 +79,7 @@ async function competingClaim(tx: Tx, bugId: string) {
 
 /**
  * An agent bids for a task, or replaces its open bid. The issue stays open
- * until a manager agent awards a bid. `replaced` is true when it updated an open bid.
+ * until a bid is awarded. `replaced` is true when it updated an open bid.
  */
 export async function placeBid(caller: AgentContext, projectId: string, issueRef: string, input: BidInput) {
   assertKeyProject(caller, projectId);
@@ -153,7 +154,11 @@ export type BidEntry = {
   summary: string;
   description: string;
   areaMatch: boolean;
-  /** Votes other agents gave it (#bid-votes), each counting 1. */
+  /**
+   * Its weighted votes (#bid-votes, lib/governance.ts weightedTally): one per
+   * person, a manager or merger agent's counting the project's
+   * managerVoteWeight. What the project's awardThreshold counts.
+   */
   votes: number;
   /** Set on a bid that was awarded (it got the task), for the read-only history. */
   awardedAt?: Date | null;
@@ -205,7 +210,8 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       createdAt: true,
       updatedAt: true,
       beneficiary: { select: { name: true } },
-      _count: { select: { votes: true } },
+      votes: { select: { onBehalfOfUserId: true, agent: { select: { level: true } } } },
+      bug: { select: { projectId: true } },
       agent: { select: { name: true, areaPreferences: {
         where: { projectAreaId: bug.areaId ?? "" },
         select: { projectAreaId: true },
@@ -222,11 +228,14 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
     },
   });
   // An offer past the project's offer window is expired even before the sweeper releases it.
-  const projectId = rows.find((row) => row.claim)?.claim?.bug.projectId;
-  const offerWindowMs = projectId ? (await workflowFor(projectId, db)).offerWindowSeconds * 1000 : 0;
+  const projectId = rows[0]?.bug?.projectId;
+  const workflow = projectId ? await workflowFor(projectId, db) : null;
+  const offerWindowMs = workflow ? workflow.offerWindowSeconds * 1000 : 0;
+  const managerVoteWeight = workflow?.managerVoteWeight ?? 1;
   const now = Date.now();
   return rows
-    .map(({ agent, beneficiary, replies, claim, _count, ...bid }) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    .map(({ agent, beneficiary, replies, claim, votes, bug: _bug, ...bid }) => {
       const lapsed = claim?.status === "offered" && isOfferExpired(claim.offeredAt, now, offerWindowMs);
       const expired = Boolean(bid.awardedAt && claim && !claim.claimedAt
         && (lapsed || (claim.status === "released" && claim.releaseReason === "expired")));
@@ -240,7 +249,7 @@ async function bidEntries(bug: { id: string; areaId: string | null }, where: Pri
       agentName: agent.name,
       by: beneficiary.name ?? "A member",
       areaMatch: Boolean(bug.areaId && agent.areaPreferences.length),
-      votes: _count?.votes ?? 0,
+      votes: weightedTally((votes ?? []).map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight),
       replies: (replies ?? []).map(({ author, agent: replyAgent, ...reply }) => ({
         ...reply,
         authorName: author.name ?? "A member",
@@ -297,34 +306,44 @@ export async function withdrawBid(caller: AgentContext, projectId: string, issue
   });
 }
 
+/** A bid's weighted tally (lib/governance.ts): one vote per person, a manager or merger agent's counting `managerVoteWeight`. */
+export async function bidTally(bidId: string, managerVoteWeight: number, db: Db = prisma): Promise<number> {
+  const votes = await db.bidVote.findMany({ where: { bidId }, select: { onBehalfOfUserId: true, agent: { select: { level: true } } } });
+  return weightedTally(votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight);
+}
+
 /**
- * `POST /api/v1/bids/{id}/award` (manager): a manager (or merger) agent picks
- * one bid. Nothing else awards a bid: no person, no sweep, no dispatch. The
- * award is an offer to the bidding agent: once it accepts, its owner becomes
- * the assignee, the issue moves to In progress and the other bids are
- * withdrawn (acceptOffer). An offer that lapses frees the issue for another
- * award. A manager can't award a bid from its own owner (403), nor one whose
- * person already holds the project's maxActiveClaims in live offers and
- * active claims (409 `at_capacity`, lib/agent-api/capacity.ts).
+ * `POST /api/v1/bids/{id}/award` (working): any agent awards a bid whose
+ * weighted votes reached the project's `awardThreshold` (#bid-votes), in
+ * either governance mode. Below it the award is refused for everyone,
+ * managers included (409 `below_threshold`, with `votes` and `threshold`); a
+ * manager's vote counts `managerVoteWeight`, so a manager can vote a bid up
+ * to the threshold alone and then award it. There is no own-owner rule: the
+ * votes gate it. The award is an offer to the bidding agent: once it accepts,
+ * its owner becomes the assignee, the issue moves to In progress and the
+ * other bids are withdrawn (acceptOffer). An offer that lapses frees the
+ * issue for another award. 409 `at_capacity` for a bid whose person already
+ * holds the project's maxActiveClaims in live offers and active claims
+ * (lib/agent-api/capacity.ts).
  */
 export async function awardBid(agent: AgentContext, bidId: string) {
-  requireLevel(agent, "manager");
+  requireLevel(agent, "working");
   try {
     const result = await prisma.$transaction(async (tx) => {
       const bid = await tx.issueBid.findUnique({
         where: { id: bidId },
-        include: {
-          agent: { select: { ownerUserId: true } },
-          bug: { select: { id: true, title: true, tenantId: true, projectId: true, isDeleted: true } },
-        },
+        include: { bug: { select: { id: true, title: true, tenantId: true, projectId: true, isDeleted: true } } },
       });
       if (!bid || bid.bug.isDeleted || bid.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Bid not found.");
       assertKeyProject(agent, bid.bug.projectId);
-      if (agent.ownerId === bid.beneficiaryUserId || agent.ownerId === bid.agent.ownerUserId) {
-        throw new IssueApiError(403, "A manager agent cannot award a bid from its own owner.");
-      }
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${bid.bugId} AND "isDeleted" = false FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Bid not found.");
+      const { awardThreshold, managerVoteWeight } = await workflowFor(bid.bug.projectId, tx);
+      const votes = await bidTally(bid.id, managerVoteWeight, tx);
+      if (votes < awardThreshold) {
+        const message = `This bid has ${votes} of the ${awardThreshold} votes it needs before it can be awarded.`;
+        throw new IssueApiError(409, message, { error: "below_threshold", message, votes, threshold: awardThreshold });
+      }
       return awardInTransaction(tx, bidId, { userId: agent.ownerId, agentId: agent.agentId });
     });
     afterAward(result);
@@ -342,10 +361,10 @@ export type AwardResult = { bidId: string; claimId: string; bugId: string; bugTi
 /**
  * Awards an open bid as an offer, in the caller's transaction, with its issue
  * row already locked FOR UPDATE. The issue must be Open and confirmed, held by
- * nobody (a stale assignee is cleared, an expired offer released). A
- * manager's award and, in a threshold-only project, the bid vote that reaches
- * the project's `awardThreshold` (`decision`, lib/agent-api/bid-votes.ts) both
- * end here; `by` is who awarded it, or who cast the deciding vote. Throws a
+ * nobody (a stale assignee is cleared, an expired offer released). An
+ * agent's award of a bid at the threshold and, in a threshold-only project,
+ * the bid vote that reaches the project's `awardThreshold` (`decision`,
+ * lib/agent-api/bid-votes.ts) both end here; `by` is who awarded it, or who cast the deciding vote. Throws a
  * 409 `IssueApiError` before writing anything when a rule stops the award.
  * The caller runs `afterAward` once the transaction commits.
  */
@@ -415,7 +434,7 @@ export async function awardInTransaction(
       bugId: fresh.bugId,
       beneficiaryUserId: fresh.beneficiaryUserId,
       agentId: fresh.agentId,
-      // Picking a bid is not dispatching: the manager stays independent to review the fix.
+      // Picking a bid is not dispatching: whoever awarded it stays independent to review the fix.
       status: "offered",
       offeredAt: now,
     },

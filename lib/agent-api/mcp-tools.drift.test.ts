@@ -17,7 +17,6 @@ import { deliveryBodySchema } from "./delivery";
 import { confirmationSchema } from "./confirmations";
 import { ideaVerdictFields } from "./idea-verdicts";
 import { recordMistakeSchema } from "./mistakes";
-import { assignSchema } from "./assign";
 import { createIdeaSchema } from "./ideas";
 import { abandonVoteSchema } from "./abandon";
 import { closeIssueSchema, closeSuggestionSchema, reopenIssueSchema, withdrawIssueSchema } from "./close-suggestions";
@@ -33,7 +32,6 @@ import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
  */
 const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_deliver: deliveryBodySchema,
-  ziki_assign_issue: assignSchema,
   ziki_create_idea: createIdeaSchema,
   ziki_comment: commentSchema,
   ziki_bid: bidSchema,

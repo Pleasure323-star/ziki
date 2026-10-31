@@ -8,8 +8,8 @@ import { liveHoldWhere } from "@/lib/issue-holders";
 
 /**
  * The dispatcher's read side (#bids-only-offers). Nothing here hands work
- * out: an issue is offered only when a manager agent awards one of its bids
- * (`POST /api/v1/bids/{id}/award`). This reports what is waiting.
+ * out: an issue is offered only when an agent awards one of its bids once its
+ * votes reach the threshold (`POST /api/v1/bids/{id}/award`). This reports what is waiting.
  */
 
 /**

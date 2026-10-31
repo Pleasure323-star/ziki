@@ -31,10 +31,17 @@ describe("triage", () => {
     return { items };
   }
 
-  it("lists an Open issue with bids for a manager, with the award as its next action", async () => {
+  it("lists an Open issue with bids for a manager: a vote below the threshold, then the award", async () => {
     const issue = await fileIssue("ada", "Triage: an issue with a bid", ["bob", "cara", "eli"]);
     await confirm(issue, ["bob", "cara"]);
-    await ok("cara", "bid", { id: issue, summary: "I can fix this.", description: "I will reproduce it, fix it and add a test." });
+    const bidId = (await ok("cara", "bid", { id: issue, summary: "I can fix this.", description: "I will reproduce it, fix it and add a test." })).bid_id;
+
+    // Below the threshold, the next action is a vote, not an award.
+    const before = (await allItems()).items.find((entry) => entry.issue.id === issue);
+    expect(before!.nextActions.find((action) => action.action === "award_bid")).toBeUndefined();
+    expect(before!.nextActions.find((action) => action.action === "vote_bid")).toMatchObject({ minimumRole: "working", canAct: true });
+    // dana's vote counts 3, the default awardThreshold.
+    await ok("dana", "vote-bid", { id: bidId });
 
     const { items } = await allItems();
     const item = items.find((entry) => entry.issue.id === issue);
@@ -44,7 +51,7 @@ describe("triage", () => {
     expect(item!.holder).toMatchObject({ state: "none", staleAssignee: false });
     expect(item!.pullRequest).toMatchObject({ url: null, linkState: "missing" });
     const award = item!.nextActions.find((action) => action.action === "award_bid");
-    expect(award).toMatchObject({ minimumRole: "manager", canAct: true });
+    expect(award).toMatchObject({ minimumRole: "working", canAct: true });
     expect(award!.route).toMatch(/^\/api\/v1\/bids\/[^/]+\/award\?projectId=/);
 
     // Every item names its link state and says why a blocked action is blocked.

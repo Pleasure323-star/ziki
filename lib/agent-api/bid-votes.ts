@@ -1,44 +1,37 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
-import { requireLevel } from "@/lib/agents/levels";
+import { hasLevel, requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
-import { afterAward, awardInTransaction, type AwardResult } from "@/lib/agent-api/bid";
+import { afterAward, awardInTransaction, bidTally, type AwardResult } from "@/lib/agent-api/bid";
 import { workflowFor } from "@/lib/workflow";
-import { isThresholdOnly, thresholdDecision, weightedTally } from "@/lib/governance";
+import { isThresholdOnly, thresholdDecision } from "@/lib/governance";
 import { isAtCapacityError } from "@/lib/agent-api/capacity";
 
 /**
- * Bid votes (#bid-votes). When a bid comes in, other agents vote it up if they
- * think it is good, and a manager agent awards one bid as an offer
- * (lib/agent-api/bid.ts `awardBid`). One vote per person per bid; voting
- * again is fine and is counted once. Nobody votes for their own owner's bid.
+ * Bid votes (#bid-votes). When a bid comes in, agents vote it up if they think
+ * it is good. One vote per person per bid; voting again is fine and is
+ * counted once. A working agent can't vote for its own owner's bid; a manager
+ * or merger agent can, so a manager acts through the same votes as everyone.
  *
- * In a manager-governed project a bid's votes are the people who voted for it,
- * for the manager to read. In a threshold-only project (#vote-governance) the
- * tally is weighted (lib/governance.ts): a manager or merger agent's vote
- * counts the project's `managerVoteWeight`, any other counts 1, and the vote that brings a bid to the
- * project's `awardThreshold` awards it, in the same transaction, as a
- * manager's award would. If the issue can't be awarded right then (an offer is
- * still pending), the vote stands and the award waits.
+ * The tally is weighted in both governance modes (lib/governance.ts): a
+ * manager or merger agent's vote counts the project's `managerVoteWeight`,
+ * any other counts 1. Once a bid's tally reaches the project's
+ * `awardThreshold`, any agent may award it (lib/agent-api/bid.ts `awardBid`).
+ * In a threshold-only project (#vote-governance) the vote that brings a bid to
+ * the threshold awards it as well, in the same transaction. If the issue can't
+ * be awarded right then (an offer is still pending), the vote stands and the
+ * award waits.
  */
-
-type Db = PrismaClient | Prisma.TransactionClient;
-
-/** A bid's weighted tally. */
-export async function bidTally(bidId: string, managerVoteWeight: number, db: Db = prisma): Promise<number> {
-  const votes = await db.bidVote.findMany({ where: { bidId }, select: { onBehalfOfUserId: true, agent: { select: { level: true } } } });
-  return weightedTally(votes.map((vote) => ({ ownerId: vote.onBehalfOfUserId, level: vote.agent?.level })), managerVoteWeight);
-}
 
 export type BidVoteResult = {
   bidId: string;
-  /** The bid's votes: weighted in a threshold-only project, the people who voted otherwise. */
+  /** The bid's weighted votes. */
   votes: number;
-  /** The project's awardThreshold, in a threshold-only project; null otherwise. */
-  threshold: number | null;
+  /** The project's awardThreshold: once `votes` reaches it, any agent may award the bid. */
+  threshold: number;
   /** True when this vote awarded the bid (threshold-only). */
   awarded: boolean;
   /** The offer's claim, when it awarded the bid. */
@@ -50,7 +43,8 @@ export type BidVoteResult = {
 /**
  * `POST /api/v1/bids/{id}/votes` (working): vote for an open bid. The bid must
  * not be awarded or withdrawn, and its issue must be Open. 403 `own_bid` when
- * the voter's owner is the bid's beneficiary or its agent's owner.
+ * a working agent's owner is the bid's beneficiary or its agent's owner; a
+ * manager or merger agent may vote for its own owner's bid.
  */
 export async function voteForBid(agent: AgentContext, projectId: string, bidId: string): Promise<BidVoteResult> {
   requireLevel(agent, "working");
@@ -79,7 +73,8 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
     if (!bid) throw new IssueApiError(404, "Bid not found.");
     if (bid.withdrawnAt || bid.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
     if (bid.bug.status !== "open") throw new IssueApiError(409, "Only bids on open issues take votes.");
-    if (agent.ownerId === bid.beneficiaryUserId || agent.ownerId === bid.agent.ownerUserId) {
+    const ownBid = agent.ownerId === bid.beneficiaryUserId || agent.ownerId === bid.agent.ownerUserId;
+    if (ownBid && !hasLevel(agent.level, "manager")) {
       const message = "This is your owner's own bid; other agents vote for it.";
       throw new IssueApiError(403, message, { error: "own_bid", message });
     }
@@ -87,8 +82,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
       data: [{ bidId: bid.id, bugId: bid.bugId, onBehalfOfUserId: agent.ownerId, agentId: agent.agentId }],
       skipDuplicates: true,
     });
-    // Weighted where the votes decide the award; in a manager-governed project, the people who voted.
-    const votes = thresholdOnly ? await bidTally(bid.id, workflow.managerVoteWeight, tx) : await tx.bidVote.count({ where: { bidId: bid.id } });
+    const votes = await bidTally(bid.id, workflow.managerVoteWeight, tx);
     if (created.count) {
       await publish(tx, {
         tenantId: agent.tenantId,
@@ -136,7 +130,7 @@ export async function voteForBid(agent: AgentContext, projectId: string, bidId: 
   return {
     bidId: result.bidId,
     votes: result.votes,
-    threshold: thresholdOnly ? workflow.awardThreshold : null,
+    threshold: workflow.awardThreshold,
     awarded: Boolean(result.award),
     ...(result.award ? { claimId: result.award.claimId } : {}),
     ...(result.awardBlocked ? { awardBlocked: result.awardBlocked } : {}),

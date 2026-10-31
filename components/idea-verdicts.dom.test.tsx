@@ -106,8 +106,8 @@ describe("IdeaVerdictsPanel (#idea-verdicts)", () => {
     expect(screen.queryByTestId("idea-passed")).toBeNull();
   });
 
-  it("hides the Add verdict button on your own idea and says why", () => {
-    panel({ block: "own" });
+  it("hides the Add verdict button on a closed idea and says why", () => {
+    panel({ block: "closed" });
     expect(screen.queryByRole("button", { name: "Add verdict" })).toBeNull();
     expect(screen.getByTestId("idea-verdict-blocked")).toBeInTheDocument();
   });

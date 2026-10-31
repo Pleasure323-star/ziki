@@ -66,19 +66,17 @@ describe("IssueRowStatus", () => {
 });
 
 describe("ConfirmationCountBadge", () => {
-  it("shows just the count, neutral, while the issue is not confirmed", () => {
-    const { getByTestId } = render(<ConfirmationCountBadge accepts={1} needed={2} confirmed={false} />);
-    const badge = getByTestId("confirmation-count");
-    expect(badge.textContent).toBe("1");
-    expect(badge).toHaveAttribute("aria-label", expect.stringMatching(/1 of 2/));
-    expect(badge).toHaveAttribute("data-tone", "neutral");
+  it("shows the confirms and the rejects, neutral, while the issue is not confirmed", () => {
+    const { getByTestId } = render(<ConfirmationCountBadge accepts={1} rejects={2} needed={2} confirmed={false} />);
+    expect(getByTestId("confirmation-accepts").textContent).toBe("1");
+    expect(getByTestId("confirmation-rejects").textContent).toBe("2");
+    expect(getByTestId("confirmation-count")).toHaveAttribute("data-tone", "neutral");
   });
 
-  it("says it is confirmed once confirmed", () => {
-    const { getByTestId } = render(<ConfirmationCountBadge accepts={2} needed={2} confirmed />);
-    const badge = getByTestId("confirmation-count");
-    expect(badge.textContent).toBe("2");
-    expect(badge).toHaveAttribute("aria-label", expect.stringMatching(/confirmed.*2 of 2/i));
+  it("turns green once confirmed", () => {
+    const { getByTestId } = render(<ConfirmationCountBadge accepts={2} rejects={0} needed={2} confirmed />);
+    expect(getByTestId("confirmation-accepts").textContent).toBe("2");
+    expect(getByTestId("confirmation-count")).toHaveAttribute("data-tone", "ok");
   });
 });
 

@@ -1,4 +1,3 @@
-import { AUTO_REJECT_MIN_PEOPLE } from "@/lib/idea-rejection";
 import { closeReasonLabel } from "@/lib/close-reasons";
 
 /**
@@ -60,7 +59,7 @@ export type IssueNextStepInput = {
   /** Why a closed issue was closed (lib/close-reasons.ts). */
   closeReason?: string | null;
   governance?: NextStepGovernance | null;
-  /** Threshold-only: the leading open bid's weighted votes. */
+  /** The leading open bid's weighted votes. */
   topBidVotes?: number;
   /** Threshold-only: the weighted merge reviews on the pull request linked now. */
   mergeReviews?: { accepts: number; rejects: number } | null;
@@ -133,21 +132,36 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
           offeredAt: input.holder.offeredAt ?? null,
         };
       }
-      if (input.openBids > 0 && governance) {
-        const threshold = governance.awardThreshold ?? 3;
+      // Bids are awarded by votes in either governance mode (#bid-votes): once a
+      // bid's weighted votes reach awardThreshold, any agent can award it.
+      const bidGovernance = input.governance;
+      if (input.openBids > 0 && bidGovernance) {
+        const threshold = bidGovernance.awardThreshold ?? 3;
+        const top = input.topBidVotes ?? 0;
+        if (top >= threshold) {
+          return {
+            tone: "info",
+            title: "Open: a bid can be awarded",
+            detail: `Leading bid: ${top} of ${threshold} votes; ${weightNote(bidGovernance)}.`,
+            actor: "Agents",
+            action: "award the leading bid: it has enough votes, so any agent can award it.",
+          };
+        }
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: `Leading bid: ${input.topBidVotes ?? 0} of ${threshold} votes; ${weightNote(governance)}.`,
+          detail: `Leading bid: ${top} of ${threshold} votes; ${weightNote(bidGovernance)}.`,
           actor: "Agents",
-          action: `vote for the bids you think are good; a bid is awarded at ${threshold}.`,
+          action: bidGovernance.thresholdOnly
+            ? `vote for the bids you think are good; the vote that brings one to ${threshold} awards it.`
+            : `vote for the bids you think are good; once one has ${threshold} votes, any agent can award it.`,
         };
       }
       if (input.openBids > 0) {
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: "Agents: vote for the bids you think are good, and managers: award one of the bids.",
+          detail: "Agents: vote for the bids you think are good; once one has 3 votes, any agent can award it.",
           actor: null,
           action: null,
         };
@@ -238,8 +252,6 @@ export type IdeaNextStepInput = {
   archiveLabel?: string | null;
   /** True when its owner withdrew it (#idea-withdraw) rather than a manager agent archiving it. */
   withdrawn?: boolean;
-  /** How many people gave it verdicts: a threshold-only project rejects it on its own only from two (lib/idea-rejection.ts). */
-  people?: number;
   governance?: NextStepGovernance | null;
 };
 
@@ -272,16 +284,6 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       };
   }
   // Threshold-only: a bad or accepted idea still open had its threshold lowered after its verdicts; the next verdict decides it.
-  if (input.bad && governance && (input.people ?? AUTO_REJECT_MIN_PEOPLE) < AUTO_REJECT_MIN_PEOPLE) {
-    // One person's verdict never rejects an idea on its own (isAutoRejectable).
-    return {
-      tone: "bad",
-      title: "Reject advised",
-      detail: `More bad and neutral votes than good ones (${plural(input.totalVotes, "vote")}), all from one person; it is rejected on its own only once at least ${AUTO_REJECT_MIN_PEOPLE} people have judged it, and ${weightNote(governance)}.`,
-      actor: "Everyone but its reporter",
-      action: "please give it a verdict; a second person's verdict rejects it if it stays bad.",
-    };
-  }
   if (input.bad && governance) {
     return {
       tone: "bad",

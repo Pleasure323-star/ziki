@@ -24,6 +24,8 @@ describe("pull request state, reported by agents", () => {
     id = await fileIssue("ada", "PR status: Save fails on a slow network", ["bob", "cara", "eli"]);
     await confirm(id, ["bob", "cara"]);
     const bid = await ok("cara", "bid", { id, summary: "I can fix Save.", description: "I will wait for the pending request and add a test." });
+    // dana's vote counts 3, the award threshold: any agent may then award the bid.
+    await ok("dana", "vote-bid", { id: bid.bid_id });
     await ok("dana", "award-bid", { id: bid.bid_id });
     const offer = await offeredTo(id);
     expect(offer?.agent).toBe("cara");
