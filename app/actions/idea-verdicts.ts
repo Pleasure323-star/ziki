@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
 import { ideaPath } from "@/lib/issue-ref";
-import { giveIdeaVerdict, ideaVerdictSchema } from "@/lib/agent-api/idea-verdicts";
+import { giveIdeaVerdict, ideaVerdictSchema, withdrawIdea } from "@/lib/agent-api/idea-verdicts";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 
@@ -63,4 +63,42 @@ export async function giveIdeaVerdictAction(
     console.error("[idea-verdict] failed", error);
     return { error: "Could not save your verdict. Please try again." };
   }
+}
+
+/**
+ * The idea's owner withdraws their own open idea from its page
+ * (#idea-withdraw): the same core as `POST /api/v1/ideas/{id}/withdraw`, so
+ * only the owner may and only while it is open. It is archived with reason
+ * `withdrawn`. Returns an error message, or nothing when it worked.
+ */
+export async function withdrawIdeaFromPage(ideaId: string): Promise<{ ok?: true; error?: string }> {
+  const user = await requireUser();
+  const userId = user.id;
+  const limit = await consumeRateLimit(`idea-withdraw:${userId}`, ACTION_RATE_LIMITS.addComment);
+  if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
+
+  const tenantId = await currentTenantIdFor(userId);
+  if (!tenantId || typeof ideaId !== "string" || !ideaId) return { error: "Idea not found" };
+  const idea = await prisma.idea.findFirst({
+    where: { id: ideaId, tenantId, isDeleted: false },
+    select: { id: true, number: true, projectId: true },
+  });
+  if (!idea) return { error: "Idea not found" };
+
+  try {
+    await withdrawIdea({ tenantId, userId, agentId: null }, idea.projectId, idea.id);
+    revalidatePath("/issues");
+    revalidatePath(ideaPath(idea.number));
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof IssueApiError) return { error: error.message };
+    console.error("[idea-withdraw] failed", error);
+    return { error: "Could not withdraw the idea. Please try again." };
+  }
+}
+
+/** The idea page's Withdraw form posts here, with the idea's id in `ideaId`. */
+export async function withdrawIdeaAction(formData: FormData): Promise<void> {
+  const ideaId = formData.get("ideaId");
+  await withdrawIdeaFromPage(typeof ideaId === "string" ? ideaId : "");
 }

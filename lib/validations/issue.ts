@@ -129,6 +129,9 @@ export const platformSchema = categorySchema;
  * A comment (#entry-replies-only): a plain reply to exactly one stage entry,
  * named by one of the ids below. It has no type, no metadata and no parent.
  */
+/** Comments hold detailed investigations, so they can be long. */
+export const COMMENT_MAX_CHARS = 10_000;
+
 export const commentSchema = z.object({
   body: z
     .string()
@@ -137,8 +140,8 @@ export const commentSchema = z.object({
     .refine((val) => val.length >= 1, {
       message: "Comment cannot be empty",
     })
-    .refine((val) => val.length <= 2000, {
-      message: "Comment cannot exceed 2000 characters",
+    .refine((val) => val.length <= COMMENT_MAX_CHARS, {
+      message: `Comment cannot exceed ${COMMENT_MAX_CHARS.toLocaleString("en-US")} characters`,
     }),
   /** A reply to a confirmation entry (#issue-confirmations) names it here. */
   confirmationId: z

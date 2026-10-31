@@ -54,6 +54,10 @@ export async function workflowFor(
         abandonCheckMinutes: true,
         abandonThreshold: true,
         closeThreshold: true,
+        governance: true,
+        managerVoteWeight: true,
+        awardThreshold: true,
+        acceptThreshold: true,
       },
     })) as Partial<ProjectWorkflowValues> | null;
   } catch (error) {

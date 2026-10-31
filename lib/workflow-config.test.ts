@@ -21,6 +21,10 @@ describe("project workflow defaults (#595)", () => {
       abandonCheckMinutes: 120,
       abandonThreshold: 3,
       closeThreshold: 3,
+      governance: "manager",
+      managerVoteWeight: 3,
+      awardThreshold: 3,
+      acceptThreshold: 3,
     });
   });
 

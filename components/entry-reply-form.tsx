@@ -2,6 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 import { addCommentAction } from "@/app/actions/issues";
+import { COMMENT_MAX_CHARS } from "@/lib/validations/issue";
 
 /**
  * What a reply is under: a stage entry (a confirmation, a bid, a test verdict
@@ -86,7 +87,7 @@ export function EntryReplyForm({ bugId, target, label, icon = false }: { bugId: 
         id={`${id}-reply`}
         name="body"
         rows={2}
-        maxLength={2000}
+        maxLength={COMMENT_MAX_CHARS}
         value={body}
         onChange={(event) => setBody(event.target.value)}
         className="w-full rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"

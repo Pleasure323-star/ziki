@@ -22,7 +22,7 @@ import { createIdeaSchema } from "./ideas";
 import { abandonVoteSchema } from "./abandon";
 import { closeIssueSchema, closeSuggestionSchema } from "./close-suggestions";
 import { repairPullRequestSchema } from "./repair-pull-request";
-import { archiveIdeaSchema } from "@/lib/idea-archive";
+import { archiveIdeaSchema, withdrawIdeaSchema } from "@/lib/idea-archive";
 
 /**
  * The MCP server (packages/mcp-server) builds its tool inputs from its own zod
@@ -60,6 +60,7 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_close_issue: closeIssueSchema,
   ziki_repair_pull_request: repairPullRequestSchema,
   ziki_archive_idea: archiveIdeaSchema,
+  ziki_withdraw_idea: withdrawIdeaSchema,
 };
 
 // The agent comment route extends the shared comment schema with attachmentIds; idea

@@ -123,6 +123,12 @@ export interface GitHubClient {
   /** Review threads CodeRabbit started that are not resolved yet. Throws when they can't be read. */
   unresolvedCodeRabbitThreads(ref: PullRequestRef): Promise<number>;
   getPullRequestFiles?(ref: PullRequestRef): Promise<string[]>;
+  /**
+   * GitHub's compare of `base...head` in `repo`: its `status` is "ahead",
+   * "behind", "identical" or "diverged". Throws when GitHub can't answer.
+   * Optional so a client without it still works (`commitInBranch` answers null).
+   */
+  compareCommits?(repo: RepoRef, base: string, head: string): Promise<{ status: string }>;
 }
 
 /** The login GitHub's GraphQL API reports for CodeRabbit's review comments. */
@@ -506,7 +512,31 @@ export function createInstallationClient(
         if (!after) throw new GitHubError("Could not read the pull request's review threads.");
       }
     },
+    async compareCommits(repo, base, head) {
+      const segment = (value: string) => value.split("/").map(encodeURIComponent).join("/");
+      const response = await request(`/repos/${repo.owner}/${repo.repo}/compare/${segment(base)}...${segment(head)}?per_page=1`);
+      if (!response.ok) {
+        const errBody = (await response.json().catch(() => null)) as { message?: string } | null;
+        const detail = errBody?.message ? `: ${errBody.message}` : ` (HTTP ${response.status})`;
+        throw new GitHubError(`Could not compare the commits${detail}.`, response.status);
+      }
+      const body = (await response.json()) as { status?: string };
+      return { status: body.status ?? "unknown" };
+    },
   };
+}
+
+/**
+ * True when commit `sha` is already in `branch` of `repo` (#triage): GitHub's
+ * compare `branch...sha` says the commit is "behind" the branch or
+ * "identical" to it. Used for a pull request merged into another branch, such
+ * as `staging`, that has since been released to the default branch. Null when
+ * the client can't compare; throws when GitHub doesn't answer.
+ */
+export async function commitInBranch(client: GitHubClient, repo: RepoRef, branch: string, sha: string): Promise<boolean | null> {
+  if (!client.compareCommits) return null;
+  const { status } = await client.compareCommits(repo, branch, sha);
+  return status === "behind" || status === "identical";
 }
 
 /** The client for a project's GitHub App installation, when it has one (#489). */

@@ -128,4 +128,21 @@ describe("ideaNextStep (#next-step)", () => {
     expect(ideaNextStep(idea({ status: "converted", issueNumber: 42 }))).toMatchObject({ title: "Converted to issue #42", actor: null });
     expect(ideaNextStep(idea({ status: "rejected" }))).toMatchObject({ tone: "bad", title: "Idea rejected", actor: null });
   });
+
+  it("in a threshold-only project, says a bad idea judged by one person waits for a second verdict (#vote-governance)", () => {
+    const governance = { thresholdOnly: true, managerVoteWeight: 3 };
+    const one = ideaNextStep(idea({ bad: true, totalVotes: 3, people: 1, governance }));
+    expect(one).toMatchObject({ tone: "bad", actor: "Everyone but its reporter" });
+    expect(one.detail).toContain("at least 2 people");
+    expect(ideaNextStep(idea({ bad: true, totalVotes: 4, people: 2, governance }))).toMatchObject({ actor: "Agents", action: expect.stringContaining("rejects it") });
+    // A manager still decides in a manager-governed project, whoever judged it.
+    expect(ideaNextStep(idea({ bad: true, totalVotes: 3, people: 1 }))).toMatchObject({ actor: "Managers" });
+  });
+
+  it("says when the owner withdrew the idea (#idea-withdraw)", () => {
+    expect(ideaNextStep(idea({ status: "archived", archiveLabel: "Withdrawn by its owner", withdrawn: true }))).toMatchObject({
+      title: "Archived: Withdrawn by its owner",
+      detail: expect.stringContaining("Its owner withdrew it"),
+    });
+  });
 });

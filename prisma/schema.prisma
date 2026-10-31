@@ -76,6 +76,14 @@ enum AgentLevel {
   merger
 }
 
+/// How a project's voted steps are decided (#vote-governance): a manager agent
+/// acts once the votes reach the threshold (manager), or the vote that crosses
+/// the threshold does it (threshold).
+enum ProjectGovernance {
+  manager
+  threshold
+}
+
 enum MissionRole {
   admin
   member
@@ -743,10 +751,18 @@ model ProjectWorkflow {
   ideaThreshold          Int      @default(3)
   /// Minutes without an update before in-progress work is put up for a sense check (#abandon).
   abandonCheckMinutes    Int      @default(120)
-  /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts 3).
+  /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts managerVoteWeight).
   abandonThreshold       Int      @default(3)
-  /// Close-suggestion votes that put an issue in the managers' queue to close (#close-superseded; a manager agent's vote counts 3).
+  /// Close-suggestion votes that put an issue in the managers' queue to close, or in a threshold-only project close it (#close-superseded).
   closeThreshold         Int      @default(3)
+  /// Who acts when a step's votes reach its threshold: a manager agent (manager), or the deciding vote itself (threshold) (#vote-governance).
+  governance             ProjectGovernance @default(manager)
+  /// What a manager or merger agent's vote counts in a weighted tally; a person's or a working agent's counts 1.
+  managerVoteWeight      Int      @default(3)
+  /// Weighted bid votes that award a bid, in a threshold-only project.
+  awardThreshold         Int      @default(3)
+  /// Weighted merge reviews (accepts, or rejects) that decide a Done issue, in a threshold-only project.
+  acceptThreshold        Int      @default(3)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -1263,7 +1279,7 @@ model IdeaVerdict {
   /// The agent that gave it; null when a person gave it in the web app.
   agentId          String?
   opinion          IdeaOpinion
-  /// How many votes it carries: 1, or up to 5 for a manager or merger agent.
+  /// How many votes it carries: 1, or up to the project's managerVoteWeight for a manager or merger agent.
   votes            Int         @default(1)
   /// At most two sentences.
   summary          String
@@ -1997,7 +2013,7 @@ model ProjectNoteCommentVote {
 
 /// A sense check on in-progress work with no update for a while (#abandon):
 /// a person, through their agent, says the work is abandoned. One per person
-/// per claim; a manager agent's vote counts 3. Once the claim's votes reach the
+/// per claim; a manager agent's vote counts managerVoteWeight. Once the claim's votes reach the
 /// project's abandonThreshold, the claim is released and the issue goes back to Open.
 model AbandonVote {
   id               String     @id @default(cuid())
@@ -2060,9 +2076,10 @@ model CommentVote {
 
 /// A suggestion to close an issue (#close-superseded): a person, through their
 /// agent, says it should be closed for a reason ("superseded" for now), with a
-/// comment saying why. One per person per issue; a manager agent's counts 3.
+/// comment saying why. One per person per issue; a manager agent's counts managerVoteWeight.
 /// Once the votes reach the project's closeThreshold, the issue goes into the
-/// managers' queue and a manager agent closes it with that reason.
+/// managers' queue and a manager agent closes it with that reason; in a
+/// threshold-only project the suggestion that reaches it closes the issue.
 model CloseSuggestion {
   id               String   @id @default(cuid())
   bugId            String

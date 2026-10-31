@@ -176,7 +176,7 @@ beforeEach(() => {
 });
 
 describe("acceptFix: who may merge (#434)", () => {
-  it("rejects a working agent before touching the issue: accepting needs a manager", async () => {
+  it("refuses a working agent in a manager-governed project and writes nothing: accepting needs a manager", async () => {
     expect(await acceptFix(merger("c1", "cara", "working"), "bug1")).toMatchObject({
       status: 403,
       error: "insufficient_level",
@@ -185,7 +185,14 @@ describe("acceptFix: who may merge (#434)", () => {
       status: 403,
       error: "insufficient_level",
     });
-    expect(db.bug.findFirst).not.toHaveBeenCalled();
+    // The issue may be read (threshold-only projects let working agents review), but nothing is written.
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.mergeReview.create).not.toHaveBeenCalled();
+    expect(db.mergeReview.update).not.toHaveBeenCalled();
+    expect(db.bug.update).not.toHaveBeenCalled();
+    expect(db.bugActivity.create).not.toHaveBeenCalled();
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
+    expect(db.agentEvent.create).not.toHaveBeenCalled();
   });
 
   it("is 404 for an issue outside the agent's tenant", async () => {

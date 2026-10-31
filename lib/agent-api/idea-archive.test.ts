@@ -16,8 +16,8 @@ vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish }));
 vi.mock("@/lib/agents/audit", () => ({ audit }));
 
-import { archiveIdea, giveIdeaVerdict } from "./idea-verdicts";
-import { archiveIdeaSchema, archiveReasonLabel, duplicateRef } from "@/lib/idea-archive";
+import { archiveIdea, giveIdeaVerdict, withdrawIdea } from "./idea-verdicts";
+import { archiveIdeaSchema, archiveReasonLabel, duplicateRef, withdrawIdeaSchema } from "@/lib/idea-archive";
 
 /** The locked idea row: filed by Ada. */
 const idea = (overrides: Record<string, unknown> = {}) => ({
@@ -147,5 +147,73 @@ describe("archiveIdea (#idea-archive)", () => {
     await expect(
       giveIdeaVerdict({ tenantId: "t1", userId: "bob" }, "p1", "7", { opinion: "good", summary: "Useful.", description: "Saves a click." }),
     ).rejects.toMatchObject({ status: 409, body: { error: "idea_archived" } });
+  });
+});
+
+describe("the archive route refuses the reason withdrawn (#idea-withdraw)", () => {
+  it("does not parse withdrawn, and names the withdraw route", () => {
+    const parsed = archiveIdeaSchema.safeParse({ reason: "withdrawn", evidence: "The owner says so." });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]).toMatchObject({ path: ["reason"], message: expect.stringContaining("/withdraw") });
+  });
+
+  it("refuses withdrawn in the archive core too, before touching the idea", async () => {
+    await expect(archiveIdea(manager(), "p1", "7", { reason: "withdrawn", evidence: "Owner says so." }))
+      .rejects.toMatchObject({ status: 422, body: { error: "invalid_reason" } });
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("withdrawIdea (#idea-withdraw)", () => {
+  const ada = { tenantId: "t1", userId: "ada", agentId: "agent-ada" };
+
+  it("lets the idea's owner withdraw it: archived as withdrawn, audited, with the event, and no points", async () => {
+    const result = await withdrawIdea(ada, "p1", "7", { evidence: "The new search page replaced it." });
+    expect(result).toMatchObject({ ideaId: "i1", ideaNumber: 7, status: "archived", reason: "withdrawn", evidence: "The new search page replaced it." });
+    expect(db.idea.update).toHaveBeenCalledWith({
+      where: { id: "i1" },
+      data: {
+        status: "archived",
+        archiveReason: "withdrawn",
+        archiveEvidence: "The new search page replaced it.",
+        archiveDuplicateOf: null,
+        archivedAt: expect.any(Date),
+        archivedByAgentId: "agent-ada",
+      },
+    });
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({
+      type: "idea.archived",
+      payload: expect.objectContaining({ ideaId: "i1", reason: "withdrawn", withdrawnByUserId: "ada" }),
+    }));
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ agentId: "agent-ada" }), "idea.archived", "idea:i1", expect.objectContaining({ reason: "withdrawn" }));
+    expect(db.pointEntry.createMany).not.toHaveBeenCalled();
+  });
+
+  it("lets the person it is for withdraw it too, from the web with no evidence and no agent audit row", async () => {
+    db.$queryRaw.mockResolvedValue([idea({ reporterId: "bob-agent-owner", beneficiaryUserId: "ada", createdByOwnerId: "bob-agent-owner" })]);
+    const result = await withdrawIdea({ tenantId: "t1", userId: "ada", agentId: null }, "p1", "7");
+    expect(result).toMatchObject({ status: "archived", reason: "withdrawn", evidence: null });
+    expect(db.idea.update.mock.calls[0][0].data).toMatchObject({ archiveEvidence: null, archivedByAgentId: null });
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("refuses anyone who does not own the idea (403 not_idea_owner), whatever their agent's level", async () => {
+    await expect(withdrawIdea({ tenantId: "t1", userId: "dana", agentId: "agent-dana" }, "p1", "7"))
+      .rejects.toMatchObject({ status: 403, body: { error: "not_idea_owner" } });
+    expect(db.idea.update).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it.each(["converted", "rejected", "archived"])("refuses an idea that is %s (409 idea_not_open)", async (status) => {
+    db.$queryRaw.mockResolvedValue([idea({ status })]);
+    await expect(withdrawIdea(ada, "p1", "7")).rejects.toMatchObject({ status: 409, body: { error: "idea_not_open" } });
+    expect(db.idea.update).not.toHaveBeenCalled();
+  });
+
+  it("takes optional evidence only, and labels the reason for the lists", () => {
+    expect(withdrawIdeaSchema.safeParse({}).success).toBe(true);
+    expect(withdrawIdeaSchema.safeParse({ evidence: "Obsolete." }).success).toBe(true);
+    expect(withdrawIdeaSchema.safeParse({ reason: "duplicate" }).success).toBe(false);
+    expect(archiveReasonLabel("withdrawn")).toBe("Withdrawn by its owner");
   });
 });

@@ -13,6 +13,10 @@ const db = vi.hoisted(() => {
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 vi.mock("@/lib/agent-api/events", () => ({ publish: vi.fn(async () => ({ id: "evt" })) }));
 vi.mock("@/lib/agents/audit", () => ({ audit: vi.fn(async () => undefined) }));
+// A manager-governed project (the default): votes are counted for the manager to read, never award.
+vi.mock("@/lib/workflow", () => ({
+  workflowFor: vi.fn(async () => ({ governance: "manager", managerVoteWeight: 3, awardThreshold: 3 })),
+}));
 
 import { publish } from "@/lib/agent-api/events";
 import { audit } from "@/lib/agents/audit";
@@ -46,7 +50,7 @@ beforeEach(() => {
 
 describe("voteForBid (#bid-votes)", () => {
   it("records one vote for the voter's owner, publishes issue.bid_voted and audits it", async () => {
-    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 1 });
+    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 1, threshold: null, awarded: false });
     expect(db.bidVote.createMany).toHaveBeenCalledWith({
       data: [{ bidId: "bid1", bugId: "issue1", onBehalfOfUserId: "eli", agentId: "eli-agent" }],
       skipDuplicates: true,
@@ -62,7 +66,7 @@ describe("voteForBid (#bid-votes)", () => {
   it("is idempotent: voting again counts once and publishes nothing new", async () => {
     db.bidVote.createMany.mockResolvedValue({ count: 0 });
     db.bidVote.count.mockResolvedValue(2);
-    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 2 });
+    await expect(voteForBid(eli, "project", "bid1")).resolves.toEqual({ bidId: "bid1", votes: 2, threshold: null, awarded: false });
     expect(publish).not.toHaveBeenCalled();
     expect(audit).not.toHaveBeenCalled();
   });

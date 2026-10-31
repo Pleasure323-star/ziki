@@ -11,6 +11,7 @@ import {
   mergeBugSelect,
 } from "@/lib/agent-api/merge";
 import {
+  commitInBranch,
   configuredClientFor,
   parseGitHubRepoUrl,
   parsePullRequestUrl,
@@ -24,14 +25,18 @@ import {
  * A manager reconciles work GitHub already merged (#reconcile-merged).
  *
  * Fixes whose pull requests were merged on GitHub outside Ziki's merge step
- * stayed in review (Delivered, Done or Ready to Merge) and never went Live. An
+ * stayed where they were (In progress, Delivered, Done or Ready to Merge) and
+ * never went Live. An
  * independent manager agent may move such an issue to `resolved` through
  * `POST /issues/{id}/resolve`, once Ziki has checked with GitHub, through the
  * project's GitHub App, that the issue's linked pull request:
  *
  * - is in the project's repository (the URL and GitHub's `base.repo`);
  * - is merged, with a merge commit;
- * - was merged into that repository's default branch.
+ * - was merged into that repository's default branch, or into another branch
+ *   (such as `staging`) whose merge commit the default branch already
+ *   contains (#triage). Merged elsewhere and not released yet is 409
+ *   `awaiting_release`.
  *
  * It then finishes the way the merger's admin merge does (`finalizeResolved`):
  * the status and its activity, the claim released, solver, dispatcher and
@@ -39,8 +44,11 @@ import {
  * the audit row carry the pull request, the merge commit and the branch.
  */
 
-/** The steps after delivery, where merged work can be left behind. */
-export const RECONCILABLE_STATUSES = ["delivered", "done", "ready_to_merge"] as const satisfies readonly Status[];
+/**
+ * The steps where merged work can be left behind: in progress (merged before
+ * it was delivered) and every step after delivery.
+ */
+export const RECONCILABLE_STATUSES = ["in_progress", "delivered", "done", "ready_to_merge"] as const satisfies readonly Status[];
 
 /** `via` on the activity and audit row a reconcile writes. */
 export const RECONCILE_VIA = "reconcile_merged";
@@ -60,6 +68,7 @@ export type ReconcileError =
   | "github_error"
   | "not_merged"
   | "wrong_branch"
+  | "awaiting_release"
   | "status_changed";
 
 export type ReconcileResult =
@@ -73,6 +82,8 @@ export type ReconcileResult =
         pullRequestUrl: string;
         mergeCommitSha: string;
         baseBranch: string;
+        /** True when it was merged into another branch and has since reached the default branch. */
+        releasedToDefault: boolean;
         solverUserId: string | null;
         rewardedReviewerUserIds: string[];
       };
@@ -118,7 +129,7 @@ export async function reconcileMergedWork(
 
   const previousStatus = bug.status;
   if (!(RECONCILABLE_STATUSES as readonly Status[]).includes(previousStatus)) {
-    return fail(409, "not_in_review", "Only delivered, done or ready-to-merge work can be reconciled with a merged pull request.");
+    return fail(409, "not_in_review", "Only in-progress, delivered, done or ready-to-merge work can be reconciled with a merged pull request.");
   }
   if (!bug.pullRequestUrl) return fail(409, "no_pull_request", "This issue has no linked pull request.");
   if (pullRequestUrl !== undefined && pullRequestUrl !== bug.pullRequestUrl) {
@@ -151,13 +162,33 @@ export async function reconcileMergedWork(
   }
   const baseBranch = pullRequest.baseRef;
   const defaultBranch = pullRequest.defaultBranch;
-  if (!baseBranch || !defaultBranch || baseBranch !== defaultBranch) {
+  if (!baseBranch || !defaultBranch) {
     const into = baseBranch ? `"${baseBranch}"` : "a branch GitHub didn't name";
     const target = defaultBranch ? `"${defaultBranch}"` : "the default branch";
     return fail(409, "wrong_branch", `The pull request was merged into ${into}, not ${target}, so the fix isn't live.`);
   }
   const mergeCommitSha = pullRequest.mergeCommitSha;
   if (!mergeCommitSha) return fail(409, "not_merged", "GitHub reports no merge commit for the pull request.");
+
+  // Merged into another branch (such as `staging`): it is live once the
+  // default branch contains its merge commit (#triage).
+  let releasedToDefault = false;
+  if (baseBranch !== defaultBranch) {
+    let contained: boolean | null;
+    try {
+      contained = await commitInBranch(client, repo, defaultBranch, mergeCommitSha);
+    } catch {
+      return fail(502, "github_error", "GitHub didn't answer. Try again in a minute.");
+    }
+    if (!contained) {
+      return fail(
+        409,
+        "awaiting_release",
+        `The pull request was merged into "${baseBranch}", and "${defaultBranch}" doesn't contain it yet; reconcile once ${baseBranch} is released to ${defaultBranch}.`,
+      );
+    }
+    releasedToDefault = true;
+  }
 
   // Who is credited and paid: the same rules as the merger's admin merge.
   const claim = deliveredClaim(bug);
@@ -179,8 +210,8 @@ export async function reconcileMergedWork(
       rewardedReviewerUserIds: reviewers,
       acceptedHeadSha,
       mergeCommitSha,
-      record: { via: RECONCILE_VIA, reconciled: true, baseBranch, mergedOnGitHub: true },
-      eventRecord: { via: RECONCILE_VIA, reconciled: true, baseBranch },
+      record: { via: RECONCILE_VIA, reconciled: true, baseBranch, releasedToDefault, mergedOnGitHub: true },
+      eventRecord: { via: RECONCILE_VIA, reconciled: true, baseBranch, releasedToDefault },
     });
     return true;
   });
@@ -198,6 +229,7 @@ export async function reconcileMergedWork(
       pullRequestUrl: linkedPullRequest,
       mergeCommitSha,
       baseBranch,
+      releasedToDefault,
       solverUserId,
       rewardedReviewerUserIds: reviewers,
     },

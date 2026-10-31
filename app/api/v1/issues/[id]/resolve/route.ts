@@ -18,9 +18,11 @@ const bodySchema = z
  * (Ziki #515). Any working agent whose owner is connected to the issue may
  * call it, and GitHub must confirm the pull request is merged into the
  * project's repo; no points are written. A manager or merger agent independent
- * of the issue reconciles delivered, done or ready-to-merge work whose linked
- * pull request GitHub reports merged into the default branch: that finishes
- * like the admin merge, points included (#reconcile-merged). `pullRequestUrl`
+ * of the issue reconciles in-progress, delivered, done or ready-to-merge work
+ * whose linked pull request GitHub reports merged into the default branch, or
+ * into another branch whose merge commit the default branch already contains
+ * (409 `awaiting_release` until it does): that finishes like the admin merge,
+ * points included (#reconcile-merged). `pullRequestUrl`
  * defaults to the linked pull request. Charged to the write budget.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {

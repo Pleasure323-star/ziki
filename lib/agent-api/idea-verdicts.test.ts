@@ -75,11 +75,13 @@ describe("the verdict rules", () => {
     expect(ideaVerdictSchema.safeParse({ ...input, opinion: "great" }).success).toBe(false);
   });
 
-  it("gives managers and mergers up to 5 votes, everyone else 1", () => {
-    expect(maxVotesFor(person)).toBe(1);
-    expect(maxVotesFor({ ...person, agent: { id: "a", level: "working" } })).toBe(1);
-    expect(maxVotesFor({ ...person, agent: { id: "a", level: "manager" } })).toBe(5);
-    expect(maxVotesFor({ ...person, agent: { id: "a", level: "merger" } })).toBe(5);
+  it("gives managers and mergers up to the project's manager vote weight, everyone else 1", () => {
+    for (const weight of [3, 4]) {
+      expect(maxVotesFor(person, weight)).toBe(1);
+      expect(maxVotesFor({ ...person, agent: { id: "a", level: "working" } }, weight)).toBe(1);
+      expect(maxVotesFor({ ...person, agent: { id: "a", level: "manager" } }, weight)).toBe(weight);
+      expect(maxVotesFor({ ...person, agent: { id: "a", level: "merger" } }, weight)).toBe(weight);
+    }
   });
 
   it("scores good minus bad, neutral adding nothing", () => {
@@ -130,9 +132,15 @@ describe("giveIdeaVerdict", () => {
   });
 
   it("says when the idea reaches the threshold", async () => {
-    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 5 }]);
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "good", votes: 3 }]);
     const manager = { ...person, agent: { id: "a-dana", level: "manager" as const } };
-    await expect(giveIdeaVerdict(manager, "p1", "i1", { ...input, votes: 5 })).resolves.toMatchObject({ ideaScore: 5, convertible: true });
+    await expect(giveIdeaVerdict(manager, "p1", "i1", { ...input, votes: 3 })).resolves.toMatchObject({ ideaScore: 3, convertible: true });
+  });
+
+  it("refuses a manager agent's verdict above the project's manager vote weight (3 by default)", async () => {
+    const manager = { ...person, agent: { id: "a-dana", level: "manager" as const } };
+    await expect(giveIdeaVerdict(manager, "p1", "i1", { ...input, votes: 4 })).rejects.toMatchObject({ status: 422, body: { error: "too_many_votes", maxVotes: 3 } });
+    expect(db.ideaVerdict.upsert).not.toHaveBeenCalled();
   });
 
   it("refuses another good verdict once the idea reached the threshold, and pays nothing (#727)", async () => {
@@ -287,5 +295,32 @@ describe("rejectIdea (#idea-rejected)", () => {
     db.$queryRaw.mockResolvedValue([idea({ status: "converted" })]);
     await expect(rejectIdea(manager("manager"), "p1", "i1")).rejects.toMatchObject({ status: 409, body: { error: "idea_converted" } });
     expect(db.idea.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("threshold-only automatic reject needs two people (#vote-governance)", () => {
+  const dana = { tenantId: "t1", userId: "dana", agent: { id: "agent-dana", level: "manager" as const } };
+  const bad = { opinion: "bad" as const, summary: "Not worth it.", description: "The log is fine as it is." };
+  const rejectedWrite = expect.objectContaining({ data: expect.objectContaining({ status: "rejected" }) });
+
+  beforeEach(() => {
+    db.projectWorkflow.findUnique.mockResolvedValue({ governance: "threshold", ideaThreshold: 3, managerVoteWeight: 3 });
+    db.$queryRaw.mockResolvedValue([idea({ score: 0 })]);
+  });
+
+  it("does not reject on one manager's bad verdict alone, though its weight of 3 makes the idea bad", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "bad", votes: 3 }]);
+    const result = await giveIdeaVerdict(dana, "p-threshold-one", "7", bad);
+    expect(result.decided).toBeNull();
+    expect(db.idea.update).not.toHaveBeenCalledWith(rejectedWrite);
+    expect(publish).not.toHaveBeenCalledWith(db, expect.objectContaining({ type: "idea.rejected" }));
+  });
+
+  it("rejects once a second person's verdict leaves it bad", async () => {
+    db.ideaVerdict.findMany.mockResolvedValue([{ opinion: "bad", votes: 3 }, { opinion: "neutral", votes: 1 }]);
+    const result = await giveIdeaVerdict({ tenantId: "t1", userId: "eli" }, "p-threshold-two", "7", { ...bad, opinion: "neutral" });
+    expect(result.decided).toEqual({ outcome: "rejected" });
+    expect(db.idea.update).toHaveBeenCalledWith(rejectedWrite);
+    expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "idea.rejected", payload: expect.objectContaining({ via: "threshold" }) }));
   });
 });

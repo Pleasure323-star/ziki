@@ -115,8 +115,8 @@ describe("resolveMergedFix (Ziki #515)", () => {
   });
 
   it("hands a manager not connected to the issue to the reconcile path, with its stricter rules (#reconcile-merged)", async () => {
-    // In progress is not work in review, so the reconcile refuses it; the connected path would have resolved it.
-    db.bug.findFirst.mockResolvedValue(bug({ assigneeId: "someone", reporterId: "rep" }));
+    // Open is not a step merged work is left at, so the reconcile refuses it; the connected path would have resolved it.
+    db.bug.findFirst.mockResolvedValue(bug({ assigneeId: "someone", reporterId: "rep", status: "open" }));
     const gh = github();
     const result = await resolveMergedFix(agent("stranger", "manager"), scope, "bug1", PR, () => gh.client);
     expect(result).toMatchObject({ status: 409, body: { error: "not_in_review" } });

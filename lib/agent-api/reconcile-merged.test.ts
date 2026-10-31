@@ -46,12 +46,17 @@ const merged: PullRequest = {
   baseRef: "main", baseRepo: "emerjent/ziki", defaultBranch: "main", mergeCommitSha: "merge-sha",
 };
 
-function github(pr: Partial<PullRequest> = {}, fails = false) {
+function github(pr: Partial<PullRequest> = {}, fails = false, compare?: string | Error) {
   const getPullRequest = vi.fn(async () => {
     if (fails) throw new Error("boom");
     return { ...merged, ...pr };
   });
-  return { client: { getPullRequest } as unknown as GitHubClient, getPullRequest };
+  const compareCommits = vi.fn(async () => {
+    if (compare instanceof Error) throw compare;
+    return { status: compare ?? "ahead" };
+  });
+  const client = (compare === undefined ? { getPullRequest } : { getPullRequest, compareCommits }) as unknown as GitHubClient;
+  return { client, getPullRequest, compareCommits };
 }
 
 beforeEach(() => {
@@ -70,7 +75,7 @@ describe("reconcileMergedWork (#reconcile-merged)", () => {
       status: 200,
       body: {
         resolved: true, reconciled: true, issueId: "bug1", previousStatus: "ready_to_merge", pullRequestUrl: PR,
-        mergeCommitSha: "merge-sha", baseBranch: "main", solverUserId: "cara", rewardedReviewerUserIds: ["erin", "finn"],
+        mergeCommitSha: "merge-sha", baseBranch: "main", releasedToDefault: false, solverUserId: "cara", rewardedReviewerUserIds: ["erin", "finn"],
       },
     });
     expect(gh.getPullRequest).toHaveBeenCalledWith({ owner: "emerjent", repo: "ziki", number: 552 });
@@ -95,7 +100,7 @@ describe("reconcileMergedWork (#reconcile-merged)", () => {
     expect(merge.finalizeResolved.mock.calls[0][1]).toMatchObject({ solverUserId: "gus", claim: null });
   });
 
-  it.each(["delivered", "done", "ready_to_merge"])("reconciles from %s", async (status) => {
+  it.each(["in_progress", "delivered", "done", "ready_to_merge"])("reconciles from %s", async (status) => {
     db.bug.findFirst.mockResolvedValue(bug({ status }));
     db.tx.bug.findUnique.mockResolvedValue({ status, pullRequestUrl: PR });
     expect((await reconcileMergedWork(manager(), scope, "bug1", PR, () => github().client)).status).toBe(200);
@@ -108,7 +113,8 @@ describe("reconcileMergedWork (#reconcile-merged)", () => {
     ["an issue already Live", manager(), bug({ status: "resolved" }), github(), 409, "already_resolved", undefined],
     ["the filer's own manager", manager("ada"), bug(), github(), 403, "not_independent", undefined],
     ["the claim holder's own manager", manager("cara"), bug(), github(), 403, "not_independent", undefined],
-    ["work not in review", manager(), bug({ status: "in_progress" }), github(), 409, "not_in_review", undefined],
+    ["work still Open", manager(), bug({ status: "open" }), github(), 409, "not_in_review", undefined],
+    ["work awaiting confirmation", manager(), bug({ status: "requires_confirmation" }), github(), 409, "not_in_review", undefined],
     ["no linked PR", manager(), bug({ pullRequestUrl: null }), github(), 409, "no_pull_request", undefined],
     ["a different PR than the linked one", manager(), bug(), github(), 409, "pr_mismatch", "https://github.com/emerjent/ziki/pull/9"],
     ["a project with no repository", manager(), bug({ project: { repoUrl: null, githubInstallationId: "inst" } }), github(), 422, "no_repo", undefined],
@@ -117,13 +123,50 @@ describe("reconcileMergedWork (#reconcile-merged)", () => {
     ["an unmerged PR", manager(), bug(), github({ merged: false, mergeCommitSha: null }), 409, "not_merged", undefined],
     ["a merge with no merge commit", manager(), bug(), github({ mergeCommitSha: null }), 409, "not_merged", undefined],
     ["a merge into another repository", manager(), bug(), github({ baseRepo: "someone/fork" }), 422, "wrong_repository", undefined],
-    ["a merge into another branch", manager(), bug(), github({ baseRef: "staging" }), 409, "wrong_branch", undefined],
+    ["a merge into staging not yet in main", manager(), bug(), github({ baseRef: "staging" }, false, "ahead"), 409, "awaiting_release", undefined],
+    ["a merge into staging that diverged from main", manager(), bug(), github({ baseRef: "staging" }, false, "diverged"), 409, "awaiting_release", undefined],
+    ["a merge into staging when the client can't compare", manager(), bug(), github({ baseRef: "staging" }), 409, "awaiting_release", undefined],
+    ["a merge into staging when the compare fails", manager(), bug(), github({ baseRef: "staging" }, false, new Error("boom")), 502, "github_error", undefined],
     ["a branch GitHub didn't name", manager(), bug(), github({ baseRef: undefined }), 409, "wrong_branch", undefined],
   ])("refuses %s", async (_label, agent, row, gh, status, error, url: string | undefined) => {
     db.bug.findFirst.mockResolvedValue(row);
     const result = await reconcileMergedWork(agent, scope, "bug1", url, () => gh.client);
     expect(result).toMatchObject({ status, body: { error } });
     expect(merge.finalizeResolved).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an In progress issue whose PR is already merged into main (production #682)", async () => {
+    db.bug.findFirst.mockResolvedValue(bug({ status: "in_progress" }));
+    db.tx.bug.findUnique.mockResolvedValue({ status: "in_progress", pullRequestUrl: PR });
+    const result = await reconcileMergedWork(manager(), scope, "bug1", undefined, () => github().client);
+    expect(result).toMatchObject({ status: 200, body: { previousStatus: "in_progress", baseBranch: "main" } });
+    expect(merge.finalizeResolved).toHaveBeenCalledTimes(1);
+    expect(merge.finalizeResolved.mock.calls[0][1]).toMatchObject({ solverUserId: "cara", mergeCommitSha: "merge-sha" });
+  });
+
+  it.each(["behind", "identical"])("reconciles a PR merged into staging once main contains it (compare %s)", async (status) => {
+    const gh = github({ baseRef: "staging" }, false, status);
+    const result = await reconcileMergedWork(manager(), scope, "bug1", undefined, () => gh.client);
+    expect(result).toMatchObject({ status: 200, body: { baseBranch: "staging", releasedToDefault: true, mergeCommitSha: "merge-sha" } });
+    expect(gh.compareCommits).toHaveBeenCalledWith({ owner: "emerjent", repo: "ziki" }, "main", "merge-sha");
+    expect(merge.finalizeResolved.mock.calls[0][1]).toMatchObject({
+      record: { via: "reconcile_merged", baseBranch: "staging", releasedToDefault: true },
+      eventRecord: { baseBranch: "staging", releasedToDefault: true },
+    });
+  });
+
+  it("names the branch when the fix waits for a release", async () => {
+    const result = await reconcileMergedWork(manager(), scope, "bug1", undefined, () => github({ baseRef: "staging" }, false, "ahead").client);
+    expect(result.status).toBe(409);
+    expect(result.body).toMatchObject({ error: "awaiting_release" });
+    expect((result.body as { message: string }).message).toContain("merged into \"staging\"");
+    expect((result.body as { message: string }).message).toContain("once staging is released to main");
+  });
+
+  it("does not compare when the PR was merged into the default branch", async () => {
+    const gh = github({}, false, "ahead");
+    expect((await reconcileMergedWork(manager(), scope, "bug1", undefined, () => gh.client)).status).toBe(200);
+    expect(gh.compareCommits).not.toHaveBeenCalled();
   });
 
   it("answers 503 when GitHub isn't configured for the project, without asking it", async () => {

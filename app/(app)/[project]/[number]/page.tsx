@@ -54,6 +54,7 @@ import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
 import { managerAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
+import { markAtCapacity } from "@/lib/agent-api/capacity";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { deliveryEntries } from "@/lib/agent-api/delivery";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
@@ -97,6 +98,9 @@ import { senseCheck } from "@/lib/agent-api/abandon";
 import { closeSuggestionsFor, type CloseSuggestionsData } from "@/lib/agent-api/close-suggestions";
 import { CloseSuggestionsPanel } from "@/components/close-suggestions";
 import { workflowFor } from "@/lib/workflow";
+import { isThresholdOnly } from "@/lib/governance";
+import { bidTally } from "@/lib/agent-api/bid-votes";
+import { mergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
 import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
 import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
@@ -411,7 +415,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const [hold, bidList] = pastConfirmation
     ? await Promise.all([
         loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)),
-        loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
+        // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
+        loadOptional<BidEntryView[]>("bids", [], async () => {
+          const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
+          return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
+        }),
       ])
     : [null as IssueHold | null, [] as BidEntryView[]];
 
@@ -808,7 +816,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const keptCounts = deletionCounts(comments.visibleCount, voterSummary);
 
   // The next step, always shown under the progress report (#next-step).
-  const { verdictsNeeded } = await workflowFor(bug.projectId);
+  const workflow = await workflowFor(bug.projectId);
+  const { verdictsNeeded } = workflow;
+  // Threshold-only (#vote-governance): the bar says which vote decides the step, and how far it has got.
+  const thresholdOnly = isThresholdOnly(workflow);
+  const openBidIds = bidList.filter(isOpenBid).map((bid) => bid.id);
+  const topBidVotes = thresholdOnly && !bug.isDeleted && bug.status === "open" && openBidIds.length
+    ? await loadOptional("bid votes", 0, async () =>
+      Math.max(0, ...(await Promise.all(openBidIds.map((bidId) => bidTally(bidId, workflow.managerVoteWeight))))))
+    : 0;
+  const mergeReviewVotesNow = thresholdOnly && !bug.isDeleted && bug.status === "done"
+    ? await loadOptional("merge review votes", null, () => mergeReviewVotes(prisma, reviewBug, workflow.managerVoteWeight))
+    : null;
   const stale = bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null;
   const abandonCheck = bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id));
   const closeSuggestions = await loadOptional<CloseSuggestionsData | null>("close suggestions", null, () => closeSuggestionsFor(bug.id));
@@ -827,6 +846,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       ? { votes: closeSuggestions.votes, threshold: closeSuggestions.threshold }
       : null,
     closeReason: bug.closeReason,
+    governance: {
+      thresholdOnly,
+      managerVoteWeight: workflow.managerVoteWeight,
+      awardThreshold: workflow.awardThreshold,
+      acceptThreshold: workflow.acceptThreshold,
+    },
+    topBidVotes,
+    mergeReviews: mergeReviewVotesNow,
   });
 
   // The flags agents raised, under the status chip in the side rail (#close-superseded).
