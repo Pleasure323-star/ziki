@@ -158,12 +158,6 @@ enum ThemePreference {
   dark
 }
 
-enum TenantJoinRequestStatus {
-  pending
-  approved
-  rejected
-}
-
 /// A goal's lifecycle (#616). Only `active` goals accept new splits.
 enum GoalStatus {
   active
@@ -255,8 +249,6 @@ model User {
   membershipChangesReceived MembershipChange[]      @relation("MembershipChangeTarget")
   shareLinksSent            TenantShareLink[]
   shareRedemptions          TenantShareRedemption[]
-  tenantJoinRequests        TenantJoinRequest[]     @relation("TenantJoinRequester")
-  joinRequestsReviewed      TenantJoinRequest[]     @relation("TenantJoinReviewer")
   projectAuditEvents        ProjectAuditEvent[]
   jobsCreated               Job[]                   @relation("JobCreator")
   goalsCreated              Goal[]                  @relation("GoalCreator")
@@ -648,7 +640,6 @@ model Tenant {
   slug               String              @unique
   name               String
   description        String?             @db.VarChar(500)
-  discoverable       Boolean             @default(false)
   /// Set when an owner archives the tenant (#573). Archived tenants are
   /// hidden from the switcher and cannot be selected.
   archivedAt         DateTime?
@@ -675,7 +666,6 @@ model Tenant {
   shareLinks         TenantShareLink[]
   events             AgentEvent[]
   membershipChanges  MembershipChange[]
-  joinRequests       TenantJoinRequest[]
   notifications      Notification[]
   projectAuditEvents ProjectAuditEvent[]
   jobs               Job[]
@@ -896,25 +886,6 @@ model MembershipChange {
   target       User?           @relation("MembershipChangeTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
-}
-
-/// A request to join a workspace listed in discovery. Approval is the only
-/// path from this record to membership; the unique pair prevents duplicates.
-model TenantJoinRequest {
-  id           String                  @id @default(cuid())
-  tenantId     String
-  userId       String
-  status       TenantJoinRequestStatus @default(pending)
-  requestedAt  DateTime                @default(now())
-  reviewedAt   DateTime?
-  reviewedById String?
-  tenant       Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user         User                    @relation("TenantJoinRequester", fields: [userId], references: [id], onDelete: Cascade)
-  reviewedBy   User?                   @relation("TenantJoinReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-
-  @@unique([tenantId, userId])
-  @@index([tenantId, status, requestedAt])
-  @@index([userId, requestedAt])
 }
 
 /// A named agent working for its owner inside a tenant (#427). It always acts

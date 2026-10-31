@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { extractMentionedAgentIds, extractMentionedUserIds } from "@/lib/mentions";
 import { commentPermalinkPath } from "@/lib/comment-window";
+import { issueHref } from "@/lib/issue-ref";
 import { absoluteUrl } from "@/lib/site-url";
 import { markMessagesRead } from "@/lib/agent-messages";
 import {
@@ -240,10 +241,25 @@ export async function pollInbox(
   }
 }
 
-/** The JSON shape of one item. `url` links to the comment when there is one, else the issue. */
-export function serializeInboxItem(item: InboxItemRow) {
-  const url = item.bugId
-    ? absoluteUrl(item.commentId ? commentPermalinkPath(item.bugId, item.commentId) : `/issues/${item.bugId}`)
+/** The address of each item's issue, `/<project-slug>/<number>` (#project-urls), by issue id. */
+export async function inboxIssuePaths(items: readonly InboxItemRow[]): Promise<Map<string, string>> {
+  const ids = [...new Set(items.map((item) => item.bugId).filter((id): id is string => Boolean(id)))];
+  if (ids.length === 0) return new Map();
+  const bugs = await prisma.bug.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, number: true, project: { select: { slug: true } } },
+  });
+  return new Map(bugs.map((bug) => [bug.id, issueHref(bug)]));
+}
+
+/**
+ * The JSON shape of one item. `url` links to the comment when there is one,
+ * else the issue; `issuePaths` comes from `inboxIssuePaths`.
+ */
+export function serializeInboxItem(item: InboxItemRow, issuePaths: ReadonlyMap<string, string>) {
+  const issuePath = item.bugId ? issuePaths.get(item.bugId) : undefined;
+  const url = issuePath
+    ? absoluteUrl(item.commentId ? commentPermalinkPath(issuePath, item.commentId) : issuePath)
     : null;
   return {
     id: item.id,

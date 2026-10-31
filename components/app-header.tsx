@@ -9,6 +9,8 @@ import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-
 import {
   AGENT_MENU_LINKS,
   CREATE_AGENT_HREF,
+  ORGANIZATION_HREF,
+  SITE_ADMIN_HREF,
   agentPageHref,
   headerNavItems,
   isNavItemActive,
@@ -437,6 +439,7 @@ export function AppHeader({
   targetPoints = TARGET_POINTS,
   agents = [],
   reportFormUrl,
+  organizationAdmin = false,
 }: {
   userName?: string | null;
   userImage?: string | null;
@@ -454,6 +457,8 @@ export function AppHeader({
   targetPoints?: number;
   agents?: ShellAgent[];
   reportFormUrl?: string;
+  /** Owner or admin of the current organization, or the site super admin: shows /org in the menus. */
+  organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
   const [accountOpen, setAccountOpen] = useState(false);
@@ -487,7 +492,7 @@ export function AppHeader({
             </span>
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} tone="bar" className="min-w-0 max-sm:max-w-44" />
+          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} tone="bar" className="min-w-0 max-sm:max-w-44" />
         </div>
 
         <TopNav pathname={pathname} />
@@ -538,9 +543,14 @@ export function AppHeader({
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
                   Activity &amp; Approvals
                 </MenuLink>
+                {organizationAdmin ? (
+                  <MenuLink href={ORGANIZATION_HREF} active={isNavItemActive(pathname, ORGANIZATION_HREF)}>
+                    Organization
+                  </MenuLink>
+                ) : null}
                 {isSuperAdmin(role) ? (
-                  <MenuLink href="/admin/users" active={isNavItemActive(pathname, "/admin/users")}>
-                    Admins
+                  <MenuLink href={SITE_ADMIN_HREF} active={isNavItemActive(pathname, SITE_ADMIN_HREF)}>
+                    Site admin
                   </MenuLink>
                 ) : null}
                 <MenuLink href="/settings" active={isNavItemActive(pathname, "/settings")}>

@@ -51,8 +51,6 @@ describe("NotificationsPage (#520)", () => {
     const html = renderToStaticMarkup(page);
 
     expect(html).toContain("Acme");
-    expect(html).toContain("This workspace");
-    expect(html).toContain("All workspaces");
     expect(html).toContain("notifications?scope=all");
     expect(mocks.findMany.mock.calls[0]?.[0].where).toEqual({ userId: "user-1" });
   });

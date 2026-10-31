@@ -18,7 +18,6 @@ describe("issue-types helpers", () => {
       const result = canDeleteIssueType(1);
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain("in use by 1 issue");
-      expect(result.reason).toContain("Deactivate it instead");
     });
 
     it("prevents deletion when multiple issues are using the type (plural)", () => {
@@ -83,7 +82,8 @@ describe("issue-types helpers", () => {
     });
 
     it("returns fallback class for custom types", () => {
-      expect(getIssueTypeBadgeClass("CustomType")).toContain("indigo");
+      expect(getIssueTypeBadgeClass("CustomType")).toBeTruthy();
+      expect(getIssueTypeBadgeClass("CustomType")).toBe(getIssueTypeBadgeClass("OtherCustomType"));
     });
   });
 });

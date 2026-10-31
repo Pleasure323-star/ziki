@@ -137,24 +137,24 @@ describe("tenant lifecycle actions (#573)", () => {
     mocks.memberTenantById.mockResolvedValue(OWNER);
   });
 
-  it("renames a tenant and returns to its page", async () => {
+  it("renames a tenant and returns to the organization's settings tab", async () => {
     mocks.renameTenant.mockResolvedValue({ ok: true, tenant: OWNER });
     const path = await redirectedTo(() =>
       renameTenantAction(form({ tenantId: ACME.id, name: "Acme Corp" })),
     );
 
-    expect(path).toBe("/tenants/acme?notice=Organization%20renamed.");
+    expect(path).toBe("/org/settings?notice=Organization%20renamed.");
     expect(mocks.renameTenant).toHaveBeenCalledWith({}, "ada", ACME.id, "Acme Corp");
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/tenants/acme");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/", "layout");
   });
 
-  it("shows a rename refusal on the tenant page", async () => {
+  it("shows a rename refusal on the organization's settings tab", async () => {
     mocks.renameTenant.mockResolvedValue({ ok: false, error: "Only the tenant's owner can rename it." });
     const path = await redirectedTo(() =>
       renameTenantAction(form({ tenantId: ACME.id, name: "Acme Corp" })),
     );
 
-    expect(path).toContain("/tenants/acme?error=");
+    expect(path).toContain("/org/settings?error=");
     expect(decodeURIComponent(path)).toContain("Only the tenant's owner can rename it.");
   });
 
@@ -176,6 +176,20 @@ describe("tenant lifecycle actions (#573)", () => {
     expect(mocks.setTenantArchived).toHaveBeenLastCalledWith({}, "ada", ACME.id, false);
   });
 
+  it("shows an archive refusal in /org, and a restore refusal on the picker", async () => {
+    mocks.setTenantArchived.mockResolvedValue({ ok: false, error: "Only the tenant's owner can archive it." });
+    expect(
+      await redirectedTo(() =>
+        setTenantArchivedAction(form({ tenantId: ACME.id, archived: "true" })),
+      ),
+    ).toContain("/org/settings?error=");
+    expect(
+      await redirectedTo(() =>
+        setTenantArchivedAction(form({ tenantId: ACME.id, archived: "false" })),
+      ),
+    ).toContain("/tenants?error=");
+  });
+
   it("deletes a tenant after the confirmation, and reports a refusal", async () => {
     mocks.deleteTenant.mockResolvedValue({ ok: true, tenant: OWNER });
     expect(
@@ -189,7 +203,7 @@ describe("tenant lifecycle actions (#573)", () => {
     const path = await redirectedTo(() =>
       deleteTenantAction(form({ tenantId: ACME.id, confirmName: ACME.name })),
     );
-    expect(path).toContain("/tenants/acme?error=");
+    expect(path).toContain("/org/settings?error=");
   });
 });
 
@@ -209,7 +223,7 @@ describe("createTenantAction (#444)", () => {
 
   it("points at the field to fix, without counting a typo against the limit", async () => {
     const result = await createTenantAction(undefined, form({ name: "A" }));
-    expect(result).toMatchObject({ field: "name", error: "Workspace name must be at least 2 characters." });
+    expect(result).toMatchObject({ field: "name", error: expect.any(String) });
     expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
     expect(mocks.createTenant).not.toHaveBeenCalled();
   });
@@ -269,7 +283,7 @@ describe("createInviteAction (#444)", () => {
       tenantName: "Acme",
       inviter: { id: "ada", name: "Ada" },
     });
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/tenants/acme");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/org/invites");
   });
 
   it("still hands over the link when telling the invitee fails", async () => {
@@ -334,11 +348,11 @@ describe("the other tenant actions (#444)", () => {
     });
   });
 
-  it("revokes as the signed-in person and refreshes that tenant's page", async () => {
+  it("revokes as the signed-in person and refreshes the organization's invites tab", async () => {
     mocks.revokeInvite.mockResolvedValue({ ok: true, tenantSlug: "acme" });
     await revokeInviteAction(form({ inviteId: "inv-1" }));
     expect(mocks.revokeInvite).toHaveBeenCalledWith({}, ADA, "inv-1");
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/tenants/acme");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/org/invites");
   });
 
   it("asks lib/tenants whether this person may choose Zedu's owner", async () => {

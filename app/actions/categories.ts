@@ -17,7 +17,7 @@ export type CategoryActionResult = {
 
 function revalidatePlatforms() {
   expireTag(TAGS.platforms);
-  revalidatePath("/admin/categories");
+  revalidatePath("/org/platforms");
   revalidatePath("/issues/new");
   revalidatePath("/issues");
   revalidatePath("/bugs/new");
@@ -172,7 +172,7 @@ export async function updateCategoryAction(
 
   revalidatePlatforms();
   for (const bugId of linkedBugIds) {
-    revalidateIssue(bugId);
+    revalidateIssue();
     revalidatePath(`/bugs/${bugId}`);
   }
   return { ok: true };

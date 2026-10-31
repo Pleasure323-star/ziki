@@ -3,7 +3,6 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  EscalationTypeBadge,
   QuickResolveButtons,
   EscalationAnswerForm,
 } from "@/app/(app)/escalations/escalation-controls";
@@ -19,19 +18,6 @@ vi.mock("@/app/(app)/escalations/actions", () => ({
 }));
 
 afterEach(() => cleanup());
-
-describe("EscalationTypeBadge (#763)", () => {
-  it("renders distinct badge labels", () => {
-    const { rerender } = render(<EscalationTypeBadge type="Blocker" />);
-    expect(screen.getByText("Blocker")).toBeTruthy();
-
-    rerender(<EscalationTypeBadge type="Work Authorization" />);
-    expect(screen.getByText("Work Authorization")).toBeTruthy();
-
-    rerender(<EscalationTypeBadge type="Human Approval" />);
-    expect(screen.getByText("Human Approval")).toBeTruthy();
-  });
-});
 
 describe("QuickResolveButtons (#763)", () => {
   it("triggers quick resolve action with approve", async () => {
@@ -109,7 +95,7 @@ describe("EscalationAnswerForm (#763)", () => {
   it("renders textarea and submit button", () => {
     render(<EscalationAnswerForm escalationId="esc-456" />);
 
-    expect(screen.getByPlaceholderText(/provide decision/i)).toBeTruthy();
+    expect(screen.getByRole("textbox")).toBeTruthy();
     expect(screen.getByRole("button", { name: /send response/i })).toBeTruthy();
   });
 });

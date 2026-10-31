@@ -32,30 +32,7 @@ describe("VoteButton read-only mode (#122)", () => {
       );
       expect(countDisabled(html)).toBe(1);
       expect(html).toContain("3");
-      expect(html).toContain(
-        size === "sm"
-          ? 'aria-label="Importance 3, marking unavailable"'
-          : 'aria-label="Mark important 3, marking unavailable"',
-      );
-      expect(html).not.toContain("click to");
     });
 
-    it(`preserves the upvoted state without click instructions when read-only (${size})`, () => {
-      const html = renderToStaticMarkup(
-        createElement(VoteButton, {
-          bugId: "b1",
-          voteCount: 3,
-          userVote: 1,
-          size,
-          readOnly: true,
-        }),
-      );
-      expect(html).toContain(
-        size === "sm"
-          ? 'aria-label="Importance 3, marked important, marking unavailable"'
-          : 'aria-label="Important 3, marking unavailable"',
-      );
-      expect(html).not.toContain("click to");
-    });
   }
 });

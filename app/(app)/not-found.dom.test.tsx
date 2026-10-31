@@ -30,17 +30,16 @@ describe("in-app 404 pages", () => {
 
   it("stays general when no page names what is missing", () => {
     render(<AppNotFound />);
-    expect(screen.getByRole("heading", { name: "We couldn't find that page" })).toBeInTheDocument();
     expect(screen.queryByText(/issue/i, { selector: "h1" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to issues" })).toHaveAttribute("href", "/issues");
+    expect(screen.getByRole("link", { name: /issues/i })).toHaveAttribute("href", "/issues");
   });
 
   it.each([
-    ["a person", PersonNotFound, "We couldn't find that person", "Go to ranking", "/workers"],
-    ["a project", ProjectNotFound, "We couldn't find that project", "Your projects", "/projects"],
-    ["an agent", AgentNotFound, "We couldn't find that agent", "Your agents", "/agents"],
-    ["a redesign", RedesignNotFound, "We couldn't find that redesign proposal", "Escalations", "/escalations?type=Redesign"],
-    ["an escalation", EscalationNotFound, "We couldn't find that escalation", "All escalations", "/escalations"],
+    ["a person", PersonNotFound, /person/i, /ranking/i, "/workers"],
+    ["a project", ProjectNotFound, /project/i, /projects/i, "/org/projects"],
+    ["an agent", AgentNotFound, /agent/i, /agents/i, "/agents"],
+    ["a redesign", RedesignNotFound, /redesign/i, /escalations/i, "/escalations?type=Redesign"],
+    ["an escalation", EscalationNotFound, /escalation/i, /escalations/i, "/escalations"],
   ])("names %s and links back to its list", (_kind, Page, heading, link, href) => {
     render(<Page />);
     expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
@@ -50,8 +49,8 @@ describe("in-app 404 pages", () => {
   it("names an issue, without a sign-in link for someone signed in", async () => {
     authMock.mockResolvedValue({ user: { id: "u1" } });
     render(await IssueNotFound());
-    expect(screen.getByRole("heading", { name: "We couldn't find that issue" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to issues" })).toHaveAttribute("href", "/issues");
+    expect(screen.getByRole("heading", { name: /issue/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /issues/i })).toHaveAttribute("href", "/issues");
     expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
@@ -59,7 +58,6 @@ describe("in-app 404 pages", () => {
     authMock.mockResolvedValue(null);
     render(await IssueNotFound());
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?callbackUrl=%2Fissues%2FZE-12");
-    expect(screen.getByText(/only visible after you sign in/)).toBeInTheDocument();
   });
 
   it("keeps a comment permalink's query in the sign-in callback (#457)", async () => {

@@ -22,14 +22,14 @@ afterEach(cleanup);
 describe("AwardBox", () => {
   it("names who it was awarded to, for whom and how", () => {
     render(<AwardBox hold={base} />);
-    expect(screen.getByRole("heading", { name: "Awarded to Vida" })).toBeInTheDocument();
-    expect(screen.getByText(/For Daniel Olaleye · won its bid/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Vida/ })).toBeInTheDocument();
+    expect(screen.getByText(/Daniel Olaleye.*bid/)).toBeInTheDocument();
   });
 
   it("says who assigned an active claim, with when it is due", () => {
     render(<AwardBox hold={{ ...base, via: "assigned", dispatcherName: "Mark", deliverBy: new Date("2026-10-29T10:00:00Z") }} />);
-    expect(screen.getByRole("heading", { name: "Awarded to Vida" })).toBeInTheDocument();
-    expect(screen.getByText(/For Daniel Olaleye · assigned by Mark/)).toBeInTheDocument();
-    expect(screen.getByText(/· due/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Vida/ })).toBeInTheDocument();
+    expect(screen.getByText(/Daniel Olaleye.*Mark/)).toBeInTheDocument();
+    expect(screen.getByText(/due/i)).toBeInTheDocument();
   });
 });

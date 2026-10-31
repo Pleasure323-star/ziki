@@ -24,7 +24,6 @@ describe("Agent Onboarding Templates (#610)", () => {
 
   it.each([claudePromptTemplate, chatGptPromptTemplate])("pairs as a working agent, with no old role names (%#)", (template) => {
     const prompt = template({ origin, projectId, projectName });
-    expect(prompt).toContain("every agent joins as a working agent");
     expect(prompt).not.toMatch(/observer|contributor|triager|dispatcher/);
   });
 

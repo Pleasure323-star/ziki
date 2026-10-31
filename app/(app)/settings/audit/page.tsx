@@ -8,6 +8,7 @@ import { auditAccess, auditWhere } from "@/lib/agent-audit/visibility";
 import { AuditLog, type AuditLogRow } from "@/components/audit-log";
 import { undoAuditEventAction } from "@/app/actions/audit";
 import { parseIssueRef } from "@/lib/duplicates";
+import { issueHref } from "@/lib/issue-ref";
 import { AUDIT_PAGE_SIZE, auditPageHref, splitAuditPage } from "@/lib/agent-audit/paging";
 
 export const metadata = { title: "Agent audit log" };
@@ -95,7 +96,7 @@ export default async function AuditLogPage({ searchParams }: Props) {
             payload: true,
             undoneAt: true,
             agent: { select: { name: true } },
-            bug: { select: { number: true, title: true } },
+            bug: { select: { number: true, title: true, project: { select: { slug: true } } } },
           },
         }),
     // Only the agents this viewer may filter by.
@@ -116,7 +117,7 @@ export default async function AuditLogPage({ searchParams }: Props) {
     agentName: event.agent.name,
     action: event.action,
     target: event.bug ? `#${event.bug.number} ${event.bug.title}` : event.target,
-    issueHref: event.bugId ? `/issues/${event.bugId}` : null,
+    issueHref: event.bug ? issueHref(event.bug) : null,
     agentId: event.agentId,
     bugId: event.bugId,
     payload: event.payload,

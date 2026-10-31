@@ -37,13 +37,12 @@ import {
   type IssueSuggestion,
 } from "@/lib/issue-suggest";
 import { isTypingTarget } from "@/lib/keyboard-shortcuts";
-import { issuePath } from "@/lib/issue-ref";
 
 type TagType = { id: string; name: string; isActive?: boolean };
 
 type Suggestion =
   | { kind: "tag"; id: string; name: string }
-  | { kind: "issue"; id: string; number: number; title: string };
+  | { kind: "issue"; id: string; number: number; title: string; path: string };
 
 /** Long enough not to query on every keystroke, short enough to feel live. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -326,6 +325,7 @@ export function IssueFilters({
           id: issue.id,
           number: issue.number,
           title: issue.title,
+          path: issue.path,
         }))
       : [];
   const suggestions = [...tagSuggestions, ...titleSuggestions];
@@ -363,7 +363,7 @@ export function IssueFilters({
     }
     setOpen(false);
     setActive(-1);
-    router.push(issuePath(suggestion.number));
+    router.push(suggestion.path);
   }
 
   function removeTag(name: string) {

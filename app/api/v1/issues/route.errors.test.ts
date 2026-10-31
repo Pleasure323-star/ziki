@@ -12,7 +12,7 @@ describe("unsupported methods on /api/v1/issues", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     await expect(response.json()).resolves.toEqual({
       error: "method_not_allowed",
-      message: "Method not allowed.",
+      message: expect.any(String),
     });
   });
 

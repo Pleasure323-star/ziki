@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { issuePath, parseIssueRef, queryString, resolveIssueRef } from "./issue-ref";
+import { issueHref, issuePath, parseIssueRef, queryString, resolveIssueRef } from "./issue-ref";
 
 describe("parseIssueRef (#457)", () => {
   it("reads a bare issue number", () => {
@@ -25,8 +25,17 @@ describe("parseIssueRef (#457)", () => {
 
 describe("issuePath and queryString", () => {
   it("builds readable paths", () => {
-    expect(issuePath(42)).toBe("/issues/42");
-    expect(issuePath(42, "/history")).toBe("/issues/42/history");
+    expect(issuePath("ziki", 42)).toBe("/ziki/42");
+    expect(issuePath("ziki", 42, "/history")).toBe("/ziki/42/history");
+  });
+
+  it("encodes the project slug", () => {
+    expect(issuePath("a b", 7)).toBe("/a%20b/7");
+  });
+
+  it("builds an issue's path from its project", () => {
+    expect(issueHref({ number: 42, project: { slug: "ziki" } })).toBe("/ziki/42");
+    expect(issueHref({ number: 42, project: { slug: "ziki" } }, "/history")).toBe("/ziki/42/history");
   });
 
   it("keeps every query parameter, repeated ones included", () => {

@@ -16,6 +16,7 @@ import { roleLabels } from "@/lib/roles";
 import { Badge } from "@/components/ui/badge";
 import { LocalTime } from "@/components/local-time";
 import { statusClass, statusLabels } from "@/lib/labels";
+import { issueHref } from "@/lib/issue-ref";
 import { teamAgentsForMember, teamAssignedWorkForMember } from "@/lib/team-directory";
 import { TeamAgentList } from "@/components/team-agent-list";
 import { MemberAssignedWork } from "@/components/member-assigned-work";
@@ -65,13 +66,13 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
     }),
     prisma.bug.findMany({
       where: { reporterId: id, isDeleted: false, ...scope },
-      select: { id: true, title: true, status: true, createdAt: true },
+      select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true } } },
       orderBy: { createdAt: "desc" },
       take: RECENT,
     }),
     prisma.bug.findMany({
       where: { assigneeId: id, isDeleted: false, ...scope },
-      select: { id: true, title: true, status: true, updatedAt: true },
+      select: { id: true, number: true, title: true, status: true, updatedAt: true, project: { select: { slug: true } } },
       orderBy: { updatedAt: "desc" },
       take: RECENT,
     }),
@@ -231,6 +232,8 @@ function Stat({ label, value }: { label: string; value: number }) {
 
 type ProfileIssue = {
   id: string;
+  number: number;
+  project: { slug: string };
   title: string;
   status: keyof typeof statusLabels;
 };
@@ -263,7 +266,7 @@ function IssueList({
           {issues.map((issue) => (
             <li key={issue.id}>
               <Link
-                href={`/issues/${issue.id}`}
+                href={issueHref(issue)}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm transition hover:bg-zk-chip"
               >
                 <span className="min-w-0 flex-1 break-words font-medium text-zk-text">

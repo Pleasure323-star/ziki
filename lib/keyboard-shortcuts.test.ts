@@ -84,22 +84,17 @@ describe("shortcutFor (#287)", () => {
 });
 
 describe("shortcutGroups", () => {
-  const labels = (groups: ReturnType<typeof shortcutGroups>) =>
-    groups.flatMap((group) => group.items.map((item) => item.label));
   const actions = (groups: ReturnType<typeof shortcutGroups>) =>
     groups.flatMap((group) => group.items.map((item) => item.action));
 
   it("lists the common actions", () => {
     const groups = shortcutGroups();
-    expect(labels(groups)).toEqual(
-      expect.arrayContaining(["Report a new issue", "Search", "Go to issues", "Go to dashboard"]),
-    );
     expect(actions(groups)).toContain("new-issue");
     expect(actions(groups)).toContain("go-dashboard");
   });
 
   it("omits the dashboard for users who can't open it", () => {
-    expect(labels(shortcutGroups({ dashboard: false }))).not.toContain("Go to dashboard");
+    expect(actions(shortcutGroups({ dashboard: false }))).not.toContain("go-dashboard");
   });
 
   it("marks n and c as alternatives", () => {

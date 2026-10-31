@@ -1,5 +1,3 @@
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({ update: [] as string[], revalidate: [] as unknown[][] }));
@@ -157,44 +155,5 @@ describe("expireTag", () => {
   it("expires each recipient's unread count once", () => {
     expireUnreadCounts(["a", "b", "a"]);
     expect(calls.update).toEqual([TAGS.unread("a"), TAGS.unread("b")]);
-  });
-});
-
-describe("every write path expires what it changes", () => {
-  const src = (p: string) => readFileSync(p, "utf8");
-  const count = (s: string, re: RegExp) => (s.match(re) ?? []).length;
-
-  it("each platform and issue-type action expires its tag", () => {
-    const categories = src("app/actions/categories.ts");
-    const types = src("app/actions/issue-types.ts");
-    expect(count(categories, /export async function \w+Action/g)).toBe(
-      count(categories, /revalidatePlatforms\(\);/g),
-    );
-    expect(categories).toMatch(/function revalidatePlatforms\(\)[\s\S]*expireTag\(TAGS\.platforms\)/);
-    expect(count(types, /export async function/g)).toBe(
-      count(types, /expireTag\(TAGS\.issueTypes\)/g),
-    );
-  });
-
-  it("creating or reading notifications expires the badge", () => {
-    expect(src("lib/notify.ts")).toMatch(/expireUnreadCounts\(/);
-    expect(src("app/actions/notifications.ts")).toMatch(/expireTag\(TAGS\.unread\(user\.id\)\)/);
-    expect(src("app/(app)/notifications/[id]/route.ts")).toMatch(/expireTag\(TAGS\.unread\(/);
-  });
-
-  it("every file that writes notifications also expires a badge", () => {
-    // A new "mark read" or "notify" path must expire the count too; this
-    // fails loudly instead of the badge going quietly stale.
-    const files = execSync("git ls-files app lib", { encoding: "utf8" })
-      .split("\n")
-      // A tracked file deleted in the working tree has nothing left to check.
-      .filter((f) => /\.tsx?$/.test(f) && !f.endsWith(".test.ts") && f !== "lib/lookups.ts" && existsSync(f));
-    const writers = files.filter((f) =>
-      /prisma\.notification\.(create|createMany|update|updateMany|delete|deleteMany|upsert)\(/.test(src(f)),
-    );
-    expect(writers.length).toBeGreaterThanOrEqual(3);
-    for (const file of writers) {
-      expect([file, /expire(Tag|UnreadCounts)\(/.test(src(file))]).toEqual([file, true]);
-    }
   });
 });

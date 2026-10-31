@@ -15,6 +15,7 @@ describe("issue-type-styles (#145)", () => {
   });
 
   it("returns fallback class for unknown / custom types", () => {
-    expect(getIssueTypeBadgeClass("UnknownType")).toContain("indigo");
+    expect(getIssueTypeBadgeClass("UnknownType")).toBeTruthy();
+    expect(getIssueTypeBadgeClass("UnknownType")).toBe(getIssueTypeBadgeClass("AnotherCustomType"));
   });
 });

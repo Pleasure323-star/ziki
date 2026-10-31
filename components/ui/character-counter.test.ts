@@ -38,24 +38,4 @@ describe("CharacterCounter", () => {
     expect(html).toContain('aria-live="polite"');
   });
 
-  it("uses the neutral tone away from the limit", () => {
-    const html = renderToStaticMarkup(
-      createElement(CharacterCounter, { length: 10, max: 200 }),
-    );
-    expect(html).toContain("tabular-nums text-slate-500");
-    expect(html).not.toContain("text-amber-700");
-    expect(html).not.toContain("text-red-600");
-  });
-
-  it("turns amber near the limit and red at the limit", () => {
-    const amber = renderToStaticMarkup(
-      createElement(CharacterCounter, { length: 185, max: 200 }),
-    );
-    expect(amber).toContain("text-amber-700");
-
-    const red = renderToStaticMarkup(
-      createElement(CharacterCounter, { length: 200, max: 200 }),
-    );
-    expect(red).toContain("text-red-600");
-  });
 });

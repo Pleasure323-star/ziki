@@ -12,14 +12,10 @@ import { prisma } from "@/lib/prisma";
 
 export type MembershipActionResult = { error?: string; ok?: boolean };
 
-async function revalidateTenant(tenantId: string) {
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: { slug: true },
-  });
-  revalidatePath("/admin/users");
+/** Members are listed in /org; a person's own organizations in /tenants. */
+function revalidateTenant() {
+  revalidatePath("/org", "layout");
   revalidatePath("/tenants");
-  if (tenant) revalidatePath(`/tenants/${tenant.slug}`);
 }
 
 function cleanId(value: string): string | null {
@@ -48,7 +44,7 @@ export async function setMemberRoleAction(
     nextRole,
   });
   if (!result.ok) return { error: result.error };
-  await revalidateTenant(tenant);
+  revalidateTenant();
   return { ok: true };
 }
 
@@ -64,7 +60,7 @@ export async function removeMemberAction(
 
   const result = await removeMembership(prisma, actor, { tenantId: tenant, targetUserId: target });
   if (!result.ok) return { error: result.error };
-  await revalidateTenant(tenant);
+  revalidateTenant();
   return { ok: true };
 }
 
@@ -76,6 +72,6 @@ export async function leaveTenantAction(tenantId: string): Promise<MembershipAct
 
   const result = await leaveMembership(prisma, actor, tenant);
   if (!result.ok) return { error: result.error };
-  await revalidateTenant(tenant);
+  revalidateTenant();
   return { ok: true };
 }

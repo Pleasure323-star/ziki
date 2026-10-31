@@ -21,37 +21,28 @@ beforeEach(() => {
 });
 
 describe("CopyProjectIdButton (#629)", () => {
-  it("renders with accessible button name", () => {
-    render(<CopyProjectIdButton projectId="proj-123" />);
-    expect(screen.getByRole("button", { name: "Copy Project ID" })).toBeDefined();
-    expect(screen.getByText("Copy ID")).toBeDefined();
-  });
-
-  it("copies project ID and shows confirmation on click", async () => {
+  it("copies project ID and confirms it on click", async () => {
     vi.spyOn(clipboard, "copyText").mockResolvedValue(true);
 
     render(<CopyProjectIdButton projectId="proj-123" />);
-    fireEvent.click(screen.getByRole("button", { name: "Copy Project ID" }));
+    fireEvent.click(screen.getByRole("button", { name: /copy project id/i }));
 
     await waitFor(() => {
       expect(clipboard.copyText).toHaveBeenCalledWith("proj-123");
-      expect(mockToast).toHaveBeenCalledWith("Project ID copied to clipboard.");
-      expect(screen.getByText("Copied")).toBeDefined();
+      expect(mockToast).toHaveBeenCalled();
+      expect(mockToast).not.toHaveBeenCalledWith(expect.anything(), "error");
     });
   });
 
-  it("handles copy failure gracefully", async () => {
+  it("shows the ID in an error toast when copying fails, so it can be copied by hand", async () => {
     vi.spyOn(clipboard, "copyText").mockResolvedValue(false);
 
     render(<CopyProjectIdButton projectId="proj-123" />);
-    fireEvent.click(screen.getByRole("button", { name: "Copy Project ID" }));
+    fireEvent.click(screen.getByRole("button", { name: /copy project id/i }));
 
     await waitFor(() => {
       expect(clipboard.copyText).toHaveBeenCalledWith("proj-123");
-      expect(mockToast).toHaveBeenCalledWith(
-        "Couldn't copy automatically. Project ID: proj-123",
-        "error",
-      );
+      expect(mockToast).toHaveBeenCalledWith(expect.stringContaining("proj-123"), "error");
     });
   });
 });

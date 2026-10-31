@@ -31,6 +31,5 @@ describe("points backfill on server start", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     startPointsBackfill(() => Promise.reject(new Error("ledger down")));
     await vi.waitFor(() => expect(error).toHaveBeenCalled());
-    expect(String(error.mock.calls[0]?.[0])).toContain("server keeps running");
   });
 });

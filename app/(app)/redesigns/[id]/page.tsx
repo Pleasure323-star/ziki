@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
 import { prisma } from "@/lib/prisma";
+import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
 import { DecisionButtons } from "../decision-buttons";
 
@@ -13,7 +14,8 @@ export default async function RedesignPage({ params }: { params: Promise<{ id: s
   if (!tenantId) notFound();
   const { id } = await params;
   const proposal = await prisma.redesignProposal.findFirst({ where: { id, tenantId },
-    include: { authorAgent: { select: { name: true } }, onBehalfOf: { select: { name: true } }, approver: { select: { name: true } } },
+    include: { authorAgent: { select: { name: true } }, onBehalfOf: { select: { name: true } }, approver: { select: { name: true } },
+      bug: { select: { number: true, project: { select: { slug: true } } } } },
   });
   if (!proposal) notFound();
 
@@ -45,8 +47,8 @@ export default async function RedesignPage({ params }: { params: Promise<{ id: s
       <div className="whitespace-pre-wrap rounded-[20px] border border-zk-border bg-zk-surface p-5 text-zk-text">
         {proposal.body}
       </div>
-      {proposal.bugId ? (
-        <Link href={`/issues/${proposal.bugId}`} className="block text-sm font-semibold text-zk-accent hover:underline">
+      {proposal.bug ? (
+        <Link href={issueHref(proposal.bug)} className="block text-sm font-semibold text-zk-accent hover:underline">
           View linked issue
         </Link>
       ) : null}

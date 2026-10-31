@@ -10,69 +10,6 @@ afterEach(() => {
 });
 
 describe("MarkdownEditor responsive toolbar on 360px phones (#696)", () => {
-  it("renders a single-row non-wrapping container on mobile with horizontal scroll", () => {
-    const { container } = render(
-      <MarkdownEditor
-        value="Hello world"
-        onChange={() => {}}
-        aria-label="Description"
-      />,
-    );
-
-    // The header row containing tabs and formatting toolbar
-    const headerRow = container.querySelector('[role="group"][aria-label="Editor view"]')?.parentElement;
-    expect(headerRow).not.toBeNull();
-    expect(headerRow).toHaveClass("flex-nowrap");
-    expect(headerRow).toHaveClass("sm:flex-wrap");
-
-    // The view switcher is shrink-0 so it keeps its layout beside the toolbar
-    const switcher = screen.getByRole("group", { name: "Editor view" });
-    expect(switcher).toHaveClass("shrink-0");
-
-    // The toolbar itself is flex-nowrap and overflow-x-auto on mobile
-    const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
-    expect(toolbar).toHaveClass("flex-nowrap");
-    expect(toolbar).toHaveClass("overflow-x-auto");
-    expect(toolbar).toHaveClass("sm:flex-wrap");
-    expect(toolbar).toHaveClass("sm:overflow-visible");
-  });
-
-  it("provides 36px (h-9 w-9) touch targets on mobile / coarse pointers and preserves 28px (sm:h-7 sm:w-7) on desktop", () => {
-    render(
-      <MarkdownEditor
-        value="Hello world"
-        onChange={() => {}}
-        aria-label="Description"
-      />,
-    );
-
-    const boldBtn = screen.getByRole("button", { name: "Bold" });
-    expect(boldBtn).toHaveClass("h-9");
-    expect(boldBtn).toHaveClass("w-9");
-    expect(boldBtn).toHaveClass("sm:h-7");
-    expect(boldBtn).toHaveClass("sm:w-7");
-    expect(boldBtn).toHaveClass("shrink-0");
-    expect(boldBtn).toHaveClass("[@media(pointer:coarse)]:h-9");
-    expect(boldBtn).toHaveClass("[@media(pointer:coarse)]:w-9");
-  });
-
-  it("renders the Write and Preview buttons with touch target padding on mobile and compact padding on desktop", () => {
-    render(
-      <MarkdownEditor
-        value="Hello world"
-        onChange={() => {}}
-        aria-label="Description"
-      />,
-    );
-
-    const writeTab = screen.getByRole("button", { name: "Write" });
-    expect(writeTab).toHaveClass("shrink-0");
-    expect(writeTab).toHaveClass("px-2.5");
-    expect(writeTab).toHaveClass("py-1.5");
-    expect(writeTab).toHaveClass("sm:px-2");
-    expect(writeTab).toHaveClass("sm:py-1");
-  });
-
   it("supports keyboard Tab navigation through all toolbar tools", async () => {
     const user = userEvent.setup({ delay: null });
     render(
@@ -132,8 +69,6 @@ describe("MarkdownEditor responsive toolbar on 360px phones (#696)", () => {
     const rightCue = screen.getByTestId("fade-cue-right");
     expect(rightCue).toBeInTheDocument();
     expect(rightCue).toHaveAttribute("aria-hidden", "true");
-    expect(rightCue).toHaveClass("pointer-events-none");
-    expect(rightCue).toHaveClass("sm:hidden");
     expect(screen.queryByTestId("fade-cue-left")).toBeNull();
 
     // Scroll to the middle (scrollLeft = 100): both left and right cues should be visible

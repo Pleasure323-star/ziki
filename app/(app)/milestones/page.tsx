@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
-import { isAdmin } from "@/lib/roles";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentTenantAccess } from "@/lib/tenant-access";
 import { loadMilestoneSummaries, type MilestoneSummary } from "@/lib/milestone-stats";
 import { dueDateValue, milestoneIssuesHref } from "@/lib/milestones";
 import { MilestoneProgressBar } from "@/components/milestone-progress";
@@ -38,7 +37,7 @@ function MilestoneCard({ m }: { m: MilestoneSummary }) {
 /** Every milestone with its progress (#289): "what's left for this release?" */
 export default async function MilestonesPage() {
   const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
+  const { tenantId, admin } = await currentTenantAccess(user.id, user.role);
   const all = tenantId ? await loadMilestoneSummaries({ tenantId }) : [];
   const open = all.filter((m) => !m.isClosed);
   const closed = all.filter((m) => m.isClosed);
@@ -50,9 +49,9 @@ export default async function MilestonesPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">Milestones</h1>
           <p className="text-sm text-zk-text2">Releases and sprints, soonest due first.</p>
         </div>
-        {isAdmin(user.role) ? (
+        {admin ? (
           <Link
-            href="/admin/milestones"
+            href="/org/milestones"
             className="inline-flex items-center rounded-full border border-zk-border bg-zk-surface px-3.5 py-2 text-sm font-medium text-zk-text hover:bg-zk-chip"
           >
             Manage milestones

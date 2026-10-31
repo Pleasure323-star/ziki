@@ -36,7 +36,7 @@ vi.mock("./escalation-controls", () => ({
 import EscalationsPage from "./page";
 import EscalationDetailPage from "./[id]/page";
 
-const bug = { id: "bug-1", number: 42, title: "Login button broken" };
+const bug = { id: "bug-1", number: 42, title: "Login button broken", project: { slug: "ziki" } };
 const question = {
   id: "q-1",
   body: "[Question] Which locale?",
@@ -62,6 +62,7 @@ describe("escalation linked issue label (#559)", () => {
     const html = renderToStaticMarkup(await EscalationsPage({ searchParams: Promise.resolve({ status: "all" }) })).replace(/<!-- -->/g, "");
 
     expect(html).toContain("#42 Login button broken");
+    expect(html).toContain('href="/ziki/42"');
   });
 
   it("labels the associated issue on the detail page with #<number> <title>", async () => {
@@ -70,5 +71,6 @@ describe("escalation linked issue label (#559)", () => {
     const html = renderToStaticMarkup(await EscalationDetailPage({ params: Promise.resolve({ id: "q-1" }) })).replace(/<!-- -->/g, "");
 
     expect(html).toContain("#42 Login button broken");
+    expect(html).toContain('href="/ziki/42"');
   });
 });

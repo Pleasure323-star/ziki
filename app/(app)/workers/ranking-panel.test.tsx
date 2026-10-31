@@ -94,7 +94,7 @@ beforeEach(() => {
       claims: [{
         claimedAt: new Date(),
         lastHeartbeatAt: new Date(),
-        bug: { id: "issue-1", title: "Fix the app", categoryId: "cat-web", category: { name: "Web" }, areaId: "area-1", area: { name: "Checkout" } },
+        bug: { id: "issue-1", number: 1, project: { slug: "ziki" }, title: "Fix the app", categoryId: "cat-web", category: { name: "Web" }, areaId: "area-1", area: { name: "Checkout" } },
       }],
     },
   ] as never);
@@ -126,7 +126,6 @@ describe("ranking: leaderboard on top", () => {
     expect(html).toContain("of 3 people");
     expect(html).toContain("120 pts ahead of #2");
     expect(html).toContain("Goal reached · +16");
-    expect(html).toContain('aria-label="Sort by"');
     expect(html).toContain('href="/workers?page=1&amp;limit=50&amp;sort=solved"');
     expect(listOrder(html)).toEqual(["Ann", "Bo", "Cy"]);
     expect(html).toContain(">You<");
@@ -144,9 +143,8 @@ describe("ranking: leaderboard on top", () => {
     expect(listOrder(await render({ sort: "solved" }))).toEqual(["Cy", "Ann", "Bo"]);
   });
 
-  it("says there are no points yet but still lists the whole team", async () => {
+  it("lists the whole team when nobody has points yet", async () => {
     const html = await render();
-    expect(html).toContain("No points yet");
     expect(html).not.toContain("Your standing");
     expect(listOrder(html)).toEqual(["Ada", "Grace"]);
   });
@@ -165,30 +163,28 @@ describe("ranking: the whole team below", () => {
     const doc = new DOMParser().parseFromString(html, "text/html");
     expect(html).toContain(">Admin<");
     expect(html).toContain("+12 in 30d");
-    expect(html).toMatch(/1<span[^>]*> \/ 2<\/span>/);
+    expect(doc.body.textContent).toContain("1 / 2");
     const toggle = doc.querySelector('button[aria-controls="team-agents-viewer-1"]');
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     const agents = doc.getElementById("team-agents-viewer-1");
     expect(agents?.hasAttribute("hidden")).toBe(true);
-    expect(agents?.querySelector('a[href="/issues/issue-1"]')).not.toBeNull();
-    expect(doc.querySelector(".team-agent-role")?.textContent).toBe("Working agent");
+    expect(agents?.querySelector('a[href="/ziki/1"]')).not.toBeNull();
     expect(html).toContain("No agents");
-    expect(html).toContain("active claims count the selected project");
   });
 
   it("counts an agent's work and lists unclaimed assigned issues once for the member (Ziki #447)", async () => {
     vi.mocked(prisma.bug.findMany).mockResolvedValue([
       // Claimed by Ada's agent and assigned to Ada: stays on the agent's row only.
-      { id: "issue-1", title: "Fix the app", assigneeId: "viewer-1", categoryId: null, category: null, areaId: null, area: null },
-      { id: "issue-2", title: "Assigned by hand", assigneeId: "viewer-1", categoryId: null, category: null, areaId: null, area: null },
+      { id: "issue-1", number: 1, project: { slug: "ziki" }, title: "Fix the app", assigneeId: "viewer-1", categoryId: null, category: null, areaId: null, area: null },
+      { id: "issue-2", number: 2, project: { slug: "ziki" }, title: "Assigned by hand", assigneeId: "viewer-1", categoryId: null, category: null, areaId: null, area: null },
     ] as never);
     const html = await render();
     const doc = new DOMParser().parseFromString(html, "text/html");
     const panel = doc.getElementById("team-agents-viewer-1");
-    expect(panel?.querySelector(".team-agent-table")?.textContent).toContain("Working on 1 issue");
+    expect(panel?.textContent).toContain("Working on 1 issue");
     expect(panel?.textContent).toContain("Assigned, no agent claim (1)");
-    expect(panel?.querySelectorAll('a[href="/issues/issue-1"]')).toHaveLength(1);
-    expect(panel?.querySelectorAll('a[href="/issues/issue-2"]')).toHaveLength(1);
+    expect(panel?.querySelectorAll('a[href="/ziki/1"]')).toHaveLength(1);
+    expect(panel?.querySelectorAll('a[href="/ziki/2"]')).toHaveLength(1);
     expect(prisma.bug.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { tenantId: "tenant-1", isDeleted: false, status: { in: ["requires_confirmation", "open", "in_progress"] }, assigneeId: { in: ["viewer-1", "member-2"] } },
     }));
@@ -223,15 +219,13 @@ describe("ranking: the whole team below", () => {
       { id: "agent-2", ownerUserId: "member-2", name: "Grace's agent", model: "Claude", level: "working", apiKeys: [{ lastUsedAt: null }], claims: [] },
     ] as never);
     const html = await render();
-    expect(html).toContain("change anyone&#x27;s agent class here, including manager and merger");
     expect(html).toContain('aria-label="Agent class for Grace&#x27;s agent"');
     expect(html).toContain(">Merger agent</option>");
   });
 
   it("does not query or display workspace data without a workspace", async () => {
     currentTenantIdFor.mockResolvedValue(null);
-    const html = await render();
-    expect(html).toContain("Join or create a workspace");
+    await render();
     expect(prisma.membership.findMany).not.toHaveBeenCalled();
     expect(leaderboard).not.toHaveBeenCalled();
   });
@@ -250,7 +244,7 @@ describe("ranking pagination", () => {
 
   it("doesn't redirect when there is nothing to page through", async () => {
     vi.mocked(prisma.membership.findMany).mockResolvedValue([] as never);
-    expect(await render({ page: "5" })).toContain("This workspace has no members yet.");
+    await render({ page: "5" });
     expect(redirect).not.toHaveBeenCalled();
   });
 

@@ -605,9 +605,10 @@ describe("deliverInvite (#444)", () => {
       email: "new@example.com",
       link: "https://ziki.dev/tenants/invite/abc",
     });
-    expect(subject).toBe("[Ziki Issues] Olu invited you to Acme");
-    expect(text).toContain("Accept the invite: https://ziki.dev/tenants/invite/abc");
-    expect(text).toContain("works once and expires in 7 days");
+    expect(subject).toContain("Olu");
+    expect(subject).toContain("Acme");
+    expect(text).toContain("https://ziki.dev/tenants/invite/abc");
+    expect(text).toMatch(/\b7 days\b/);
     expect(text).toContain("new@example.com");
   });
 });

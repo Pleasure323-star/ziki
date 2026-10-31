@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-li
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { toggleVoteAction } from "@/app/actions/issues";
 import { VoteButton } from "./vote-button";
+import { labelInNameMismatches } from "@/lib/a11y/label-in-name";
 
 vi.mock("@/app/actions/issues", () => ({
   toggleVoteAction: vi.fn(),
@@ -154,25 +155,24 @@ describe("VoteButton optimistic update and rollback", () => {
 
 describe("VoteButton large size accessible name", () => {
   it("starts with the text it shows, so speech users can say what they see", () => {
-    const { unmount } = render(<VoteButton bugId="b1" voteCount={2} size="md" />);
-    const button = screen.getByRole("button", { name: /^Mark important 2$/ });
-    expect(button.textContent?.replace(/\s+/g, " ").trim()).toBe("Mark important 2");
+    const { container, unmount } = render(<VoteButton bugId="b1" voteCount={2} size="md" />);
+    expect(labelInNameMismatches(container)).toEqual([]);
     unmount();
-    render(<VoteButton bugId="b1" voteCount={3} userVote={1} size="md" />);
-    expect(screen.getByRole("button", { name: /^Important 3, click to remove your mark$/ })).toBeTruthy();
+    const marked = render(<VoteButton bugId="b1" voteCount={3} userVote={1} size="md" />);
+    expect(labelInNameMismatches(marked.container)).toEqual([]);
   });
 });
 
 describe("VoteButton compact accessible name", () => {
   it.each([
-    { voteCount: 0, name: "Importance 0, click to mark important" },
-    { voteCount: 1, name: "Importance 1, click to mark important" },
-    { voteCount: 2, name: "Importance 2, click to mark important" },
-    { voteCount: 3, userVote: 1, name: "Importance 3, marked important, click to remove" },
-  ])("includes its visible count in '$name'", ({ voteCount, userVote, name }) => {
+    { voteCount: 0 },
+    { voteCount: 1 },
+    { voteCount: 2 },
+    { voteCount: 3, userVote: 1 },
+  ])("includes its visible count $voteCount in its name", ({ voteCount, userVote }) => {
     render(<VoteButton bugId="b1" voteCount={voteCount} userVote={userVote} size="sm" />);
 
-    const button = screen.getByRole("button", { name });
+    const button = screen.getByRole("button", { name: new RegExp(`\\b${voteCount}\\b`) });
     expect(within(button).getByText(String(voteCount))).toBeTruthy();
     expect(button.getAttribute("aria-pressed")).toBe(userVote === 1 ? "true" : "false");
   });

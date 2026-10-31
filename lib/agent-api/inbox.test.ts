@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const db = vi.hoisted(() => ({
   agentInboxItem: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+  bug: { findMany: vi.fn() },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 const markMessagesRead = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agent-messages", () => ({ markMessagesRead }));
 
-import { inboxRecipients, listInbox, markInboxRead, markInboxReadSchema, pollInbox, serializeInboxItem, writeInbox, type InboxEvent } from "./inbox";
+import { inboxIssuePaths, inboxRecipients, listInbox, markInboxRead, markInboxReadSchema, pollInbox, serializeInboxItem, writeInbox, type InboxEvent } from "./inbox";
 import { publish } from "./events";
 
 /** A transaction double with every table the inbox routing reads. */
@@ -194,10 +195,27 @@ describe("inbox reads", () => {
   });
 
   it("links an item to its comment or issue", () => {
-    expect(serializeInboxItem(item)).toMatchObject({ kind: "offer", issueId: "bug-1", read: false, readAt: null, createdAt: "2026-10-20T10:00:00.000Z" });
-    expect(serializeInboxItem(item).url).toMatch(/\/issues\/bug-1$/);
-    expect(serializeInboxItem({ ...item, commentId: "c1" }).url).toMatch(/\/issues\/bug-1\?comment=c1#comment-c1$/);
-    expect(serializeInboxItem({ ...item, bugId: null }).url).toBeNull();
+    const paths = new Map([["bug-1", "/ziki/7"]]);
+    expect(serializeInboxItem(item, paths)).toMatchObject({ kind: "offer", issueId: "bug-1", read: false, readAt: null, createdAt: "2026-10-20T10:00:00.000Z" });
+    expect(serializeInboxItem(item, paths).url).toMatch(/\/ziki\/7$/);
+    expect(serializeInboxItem({ ...item, commentId: "c1" }, paths).url).toMatch(/\/ziki\/7\?comment=c1#comment-c1$/);
+    expect(serializeInboxItem({ ...item, bugId: null }, paths).url).toBeNull();
+  });
+
+  it("reads each item's issue address once, by its project and number", async () => {
+    db.bug.findMany.mockResolvedValueOnce([{ id: "bug-1", number: 7, project: { slug: "ziki" } }]);
+    const paths = await inboxIssuePaths([item, { ...item, id: "other" }, { ...item, bugId: null }]);
+    expect(paths).toEqual(new Map([["bug-1", "/ziki/7"]]));
+    expect(db.bug.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["bug-1"] } },
+      select: { id: true, number: true, project: { select: { slug: true } } },
+    });
+  });
+
+  it("skips the issue query when no item names an issue", async () => {
+    db.bug.findMany.mockClear();
+    expect(await inboxIssuePaths([{ ...item, bugId: null }])).toEqual(new Map());
+    expect(db.bug.findMany).not.toHaveBeenCalled();
   });
 });
 

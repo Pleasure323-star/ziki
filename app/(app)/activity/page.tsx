@@ -6,6 +6,7 @@ import { loadAgentCenter } from "@/lib/agent-center/queries";
 import { activityFilters, activityHref, type ActivityParams, type ActivityStream } from "@/lib/agent-center/paging";
 import { parseEscalationBody } from "@/lib/agent-questions";
 import { statusLabel } from "@/lib/labels";
+import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
 import { IssueApprovalBanner } from "@/components/issue-approval-banner";
 import { EscalationTypeBadge, QuickResolveButtons } from "@/app/(app)/escalations/escalation-controls";
@@ -14,10 +15,10 @@ export const metadata = { title: "Human–Agent Activity & Approvals" };
 const panel = "space-y-4 rounded-2xl border border-zk-border bg-zk-surface p-4 sm:p-6";
 const link = "font-semibold text-zk-accent underline-offset-2 hover:underline";
 
-function IssueLinks({ bug }: { bug: { id: string; number: number; title: string; pullRequestUrl: string | null } | null }) {
+function IssueLinks({ bug }: { bug: { id: string; number: number; title: string; pullRequestUrl: string | null; project: { slug: string } } | null }) {
   if (!bug) return <p className="text-sm text-zk-muted">No linked issue</p>;
   return <div className="flex flex-wrap gap-3 text-sm">
-    <Link className={link} href={`/issues/${bug.id}`}>#{bug.number} {bug.title}</Link>
+    <Link className={link} href={issueHref(bug)}>#{bug.number} {bug.title}</Link>
     {bug.pullRequestUrl ? <a className={link} href={bug.pullRequestUrl} target="_blank" rel="noopener noreferrer">Pull request ↗</a> : null}
   </div>;
 }

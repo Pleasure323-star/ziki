@@ -24,7 +24,7 @@ export async function setWatchingAction(
     create: { userId: user.id, bugId, watching: Boolean(watching) },
     update: { watching: Boolean(watching) },
   });
-  revalidateIssue(bugId);
+  revalidateIssue();
   revalidatePath("/issues");
   revalidatePath(`/bugs/${bugId}`);
   // The "Issues I'm watching" list (#312).

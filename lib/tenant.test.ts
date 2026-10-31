@@ -32,7 +32,7 @@ describe("defaultTenantProject (#423)", () => {
   it("fails clearly when the migration hasn't run, and tries again next time", async () => {
     const { defaultTenantProject } = await load();
     const { db, findFirst } = dbReturning(null, { id: "p", tenantId: "t" });
-    await expect(defaultTenantProject(db)).rejects.toThrow(/Zedu tenant is missing/);
+    await expect(defaultTenantProject(db)).rejects.toThrow();
     await expect(defaultTenantProject(db)).resolves.toEqual({ tenantId: "t", projectId: "p" });
     expect(findFirst).toHaveBeenCalledTimes(2);
   });

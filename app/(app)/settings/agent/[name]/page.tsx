@@ -9,6 +9,7 @@ import { isTenantAdmin } from "@/lib/agents/membership";
 import { settableLevels } from "@/lib/agents/levels";
 import { currentTenantIdFor } from "@/lib/tenant-context";
 import { LocalTime } from "@/components/local-time";
+import { issueHref } from "@/lib/issue-ref";
 import { InstructionsForm, SendMessageForm } from "./message-forms";
 import { AgentActivity, AgentProfileCard, type AgentActivityItem, type AgentProfileData } from "./agent-profile";
 import { AgentSettingsForm } from "./agent-settings-form";
@@ -96,7 +97,7 @@ async function loadAgentProfile(
         action: true,
         target: true,
         undoneAt: true,
-        bug: { select: { id: true, number: true, title: true } },
+        bug: { select: { id: true, number: true, title: true, project: { select: { slug: true } } } },
       },
     }),
   ]);
@@ -221,7 +222,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
                       {entry.bug ? (
                         <>
                           {" "}about{" "}
-                          <Link href={`/issues/${entry.bug.id}`} className={agentsLink}>
+                          <Link href={issueHref(entry.bug)} className={agentsLink}>
                             {entry.bug.title}
                           </Link>
                         </>

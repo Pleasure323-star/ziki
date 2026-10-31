@@ -65,12 +65,12 @@ describe("GET /api/issues/suggest (#671)", () => {
 
   it("searches the tenant's active project for title matches", async () => {
     findMany.mockResolvedValue([
-      { id: "i1", number: 4, title: "Login button broken", status: "open" },
+      { id: "i1", number: 4, title: "Login button broken", status: "open", project: { slug: "ziki" } },
     ]);
     const body = await (await get("login")).json();
 
     expect(body.issues).toEqual([
-      { id: "i1", number: 4, title: "Login button broken", status: "open" },
+      { id: "i1", number: 4, title: "Login button broken", status: "open", path: "/ziki/4" },
     ]);
     const where = findMany.mock.calls[0][0].where;
     expect(where.tenantId).toBe("tenant-zedu");

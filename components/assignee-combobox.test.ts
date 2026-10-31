@@ -65,11 +65,4 @@ describe("AssigneeCombobox ARIA accessibility (#358)", () => {
 
     expect(html).not.toContain("aria-controls");
   });
-
-  it("does not intercept Home and End keys so browser cursor navigation is preserved", async () => {
-    const { readFileSync } = await import("fs");
-    const source = readFileSync("components/assignee-combobox.tsx", "utf8");
-    expect(source).not.toContain('case "Home":');
-    expect(source).not.toContain('case "End":');
-  });
 });

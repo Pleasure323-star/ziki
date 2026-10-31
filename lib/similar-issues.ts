@@ -45,6 +45,9 @@ export type SimilarIssue = {
   kind?: "issue" | "idea";
 };
 
+/** A match as the report form shows it, with the issue's address (#project-urls). */
+export type SimilarIssueLink = SimilarIssue & { path: string };
+
 export type ScoredIssue = SimilarIssue & { score: number };
 
 /** Drops weak matches, keeps the best few, best first. */

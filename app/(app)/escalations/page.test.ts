@@ -29,7 +29,7 @@ describe("EscalationsPage", () => {
     mocks.requireUser.mockResolvedValue({ id: "user-1" });
     mocks.currentTenantIdFor.mockResolvedValue("tenant-1");
     mocks.listOwnerQuestions.mockResolvedValue([
-      { id: "q-1", body: "[Question] Which locale?", answer: null, answeredAt: null, bugId: "b", createdAt: at(20), agent: { id: "a", name: "Helper" }, bug: { id: "b", number: 42, title: "Login broken" } },
+      { id: "q-1", body: "[Question] Which locale?", answer: null, answeredAt: null, bugId: "b", createdAt: at(20), agent: { id: "a", name: "Helper" }, bug: { id: "b", number: 42, title: "Login broken", project: { slug: "ziki" } } },
       { id: "q-2", body: "[Blocker] Need a key", answer: "Use the test key", answeredAt: at(19), bugId: null, createdAt: at(18), agent: { id: "a", name: "Helper" }, bug: null },
     ]);
     mocks.findMany.mockResolvedValue([
@@ -46,8 +46,8 @@ describe("EscalationsPage", () => {
     expect(html).toContain("Which locale?");
     expect(html).not.toContain("Need a key");
     expect(html.indexOf("New header")).toBeLessThan(html.indexOf("Which locale?"));
-    expect(html).toContain('href="/issues/42"');
-    expect(html).toMatch(/aria-current="page"[^>]*>Waiting<span[^>]*>2</);
+    expect(html).toContain('href="/ziki/42"');
+    expect(html).toMatch(/aria-current="page"[^>]*>[^<]*<span[^>]*>2</);
   });
 
   it("shows resolved questions with your answer", async () => {

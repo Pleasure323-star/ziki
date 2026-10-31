@@ -17,7 +17,7 @@ describe("describeAuthError", () => {
   });
 
   it("falls back to a generic detail", () => {
-    expect(describeAuthError({}).detail).toBe("Authentication failure");
+    expect(describeAuthError({}).detail).toMatch(/\S/);
   });
 });
 

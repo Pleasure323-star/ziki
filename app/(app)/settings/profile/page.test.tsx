@@ -7,7 +7,7 @@ vi.mock("@/components/display-name-form", () => ({
   DisplayNameForm: ({ initialName }: { initialName: string }) => <input aria-label="Display name" defaultValue={initialName} />,
 }));
 
-import ProfilePage, { metadata } from "./page";
+import ProfilePage from "./page";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -18,17 +18,15 @@ describe("Profile settings (#576)", () => {
   it("uses the signed-in person's name and email and links to settings and their public profile", async () => {
     const markup = renderToStaticMarkup(await ProfilePage());
     expect(requireUser).toHaveBeenCalledTimes(1);
-    expect(metadata.title).toBe("Profile");
     expect(markup).toContain('aria-label="Display name" value="Ada Lovelace"');
     expect(markup).toContain("ada@example.com");
     expect(markup).not.toMatch(/<input[^>]*(?:type="email"|name="email")/);
     expect(markup).toContain('href="/settings?section=account"');
     expect(markup).toContain('href="/users/user-1"');
-    expect(markup).toContain("Profile picture");
-    expect(markup).toContain("Upload photo");
+    expect(markup).not.toMatch(/>Remove</);
   });
 
-  it("renders Change photo and Remove options when user already has an image", async () => {
+  it("offers to remove the photo when the user already has an image", async () => {
     requireUser.mockResolvedValue({
       id: "user-1",
       name: "Ada Lovelace",
@@ -36,8 +34,7 @@ describe("Profile settings (#576)", () => {
       image: "https://example.com/ada.png",
     });
     const markup = renderToStaticMarkup(await ProfilePage());
-    expect(markup).toContain("Change photo");
-    expect(markup).toContain("Remove");
+    expect(markup).toMatch(/>Remove</);
   });
 
   it("allows a missing display name to be edited", async () => {

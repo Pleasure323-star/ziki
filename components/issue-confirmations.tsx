@@ -14,7 +14,7 @@ export type ConfirmationEntryView = {
   verdict: ConfirmationVerdictName;
   summary: string;
   description: string;
-  duplicateOf: { id: string; number: number } | null;
+  duplicateOf: { id: string; number: number; projectSlug: string } | null;
   onBehalfOfUserId: string;
   by: string;
   agentName: string | null;
@@ -149,7 +149,7 @@ export function IssueConfirmationsPanel({
                 {entry.duplicateOf ? (
                   <span className="text-zk-muted">
                     · duplicate of{" "}
-                    <Link href={issuePath(entry.duplicateOf.number)} className="font-bold text-zk-accent hover:underline">
+                    <Link href={issuePath(entry.duplicateOf.projectSlug, entry.duplicateOf.number)} className="font-bold text-zk-accent hover:underline">
                       #{entry.duplicateOf.number}
                     </Link>
                   </span>

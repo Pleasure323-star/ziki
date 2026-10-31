@@ -19,8 +19,6 @@ import { InviteCard } from "./invite-card";
 import { InviteLinkForm } from "./invite-link-form";
 import { ZeduOwnerForm } from "./zedu-owner-form";
 import { LocalTime } from "@/components/local-time";
-import { discoverableTenants, requestsForUser } from "@/lib/tenant-join-requests";
-import { JoinWorkspaceForm } from "./join-workspace-form";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Workspaces" };
@@ -28,9 +26,9 @@ export const metadata = { title: "Workspaces" };
 const card = "rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-6";
 
 /**
- * Where a person picks the tenant to work in, creates one, or accepts an
- * invite (#444). Memberships are listed under Your tenants. An invite that
- * is still open for this account is listed above them, with a join button.
+ * A person's own memberships (#444): pick the tenant to work in, accept an
+ * invite or open an invite link, create a tenant, or restore an archived
+ * one. Nothing here administers a tenant; that is /org, for the current one.
  */
 export default async function TenantsPage({
   searchParams,
@@ -72,10 +70,6 @@ export default async function TenantsPage({
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1);
   }
   const sharesName = (name: string) => (nameCounts.get(name.toLocaleLowerCase()) ?? 0) > 1;
-  const [discoverable, joinRequests] = await Promise.all([
-    !hasTenants && !inviteId ? discoverableTenants(prisma, user.id) : Promise.resolve([]),
-    requestsForUser(prisma, user.id),
-  ]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -129,27 +123,6 @@ export default async function TenantsPage({
         </section>
       ) : null}
 
-      {joinRequests.length > 0 ? (
-        <section aria-labelledby="your-join-requests" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
-          <h2 id="your-join-requests" className="border-b border-zk-border bg-zk-tint px-4 py-3 text-base font-semibold text-zk-text sm:px-6">
-            Your workspace requests
-          </h2>
-          <ul className="divide-y divide-zk-border">
-            {joinRequests.map((request) => (
-              <li key={request.id} className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-zk-text">{request.tenant.name}</p>
-                  <p className="mt-0.5 text-xs text-zk-muted">Requested <LocalTime date={request.requestedAt} /></p>
-                </div>
-                <Badge className={request.status === "approved" ? "bg-zk-tint text-zk-accent ring-1 ring-zk-border" : request.status === "rejected" ? "bg-zk-bad-bg text-zk-bad-fg" : "bg-zk-warn-bg text-zk-warn-fg ring-1 ring-zk-warn-bd"}>
-                  {request.status === "pending" ? "Request Pending" : request.status[0]!.toUpperCase() + request.status.slice(1)}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
       {!hasTenants && !inviteId ? (
         <>
           {/* #641: a newcomer's first step is their own workspace, explained. */}
@@ -181,27 +154,6 @@ export default async function TenantsPage({
             </p>
             <CreateTenantForm nameMax={TENANT_NAME_MAX} />
           </section>
-          <section aria-labelledby="discover-workspaces" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
-            <h2 id="discover-workspaces" className="border-b border-zk-border bg-zk-tint px-4 py-3 text-base font-semibold text-zk-text sm:px-6">
-              Discover workspaces
-            </h2>
-            {discoverable.length === 0 ? (
-              <p className="px-4 py-4 text-sm text-zk-text2 sm:px-6">No workspaces are currently accepting join requests. You can still join with an invite or create a workspace.</p>
-            ) : (
-              <ul className="divide-y divide-zk-border">
-                {discoverable.map((tenant) => (
-                  <li key={tenant.id} className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-6">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-zk-text">{tenant.name}</p>
-                      {tenant.description ? <p className="mt-1 whitespace-pre-wrap text-sm text-zk-text2">{tenant.description}</p> : null}
-                      {tenant.memberships[0]?.user.name ? <p className="mt-1 text-xs text-zk-muted">Owner: {tenant.memberships[0].user.name}</p> : null}
-                    </div>
-                    <JoinWorkspaceForm tenantId={tenant.id} pending={tenant.joinRequests[0]?.status === "pending"} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
         </>
       ) : null}
 
@@ -227,10 +179,15 @@ export default async function TenantsPage({
                     </p>
                     <p className="mt-0.5 text-xs text-zk-muted">
                       {/* #537: the slug tells tenants with the same name apart. */}
-                      <span className="font-mono">{tenant.slug}</span> · {MEMBERSHIP_ROLE_LABELS[tenant.role]} ·{" "}
-                      <Link href={`/tenants/${tenant.slug}`} className="text-zk-accent hover:underline">
-                        People and invites
-                      </Link>
+                      <span className="font-mono">{tenant.slug}</span> · {MEMBERSHIP_ROLE_LABELS[tenant.role]}
+                      {current ? (
+                        <>
+                          {" · "}
+                          <Link href="/org" className="text-zk-accent hover:underline">
+                            {tenant.role === "member" ? "Members and projects" : "Manage organization"}
+                          </Link>
+                        </>
+                      ) : null}
                     </p>
                   </div>
                   <form action={selectTenantAction}>

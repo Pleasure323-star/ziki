@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
 import { resolveSessionUserId } from "@/lib/session-user";
+import { issueHref } from "@/lib/issue-ref";
 import { consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import {
   fallbackTerms,
@@ -13,6 +14,7 @@ import {
   SIMILAR_STATUSES,
   type ScoredIssue,
   type SimilarIssue,
+  type SimilarIssueLink,
 } from "@/lib/similar-issues";
 
 /** Searched over, then cut to SIMILAR_LIMIT once scored. */
@@ -78,7 +80,21 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json(
-    { issues },
+    { issues: await withPaths(issues) },
     { headers: { "Cache-Control": "private, no-store" } },
   );
+}
+
+/** Each match with its address, `/<project-slug>/<number>` (#project-urls). */
+async function withPaths(issues: SimilarIssue[]): Promise<SimilarIssueLink[]> {
+  if (issues.length === 0) return [];
+  const projects = await prisma.bug.findMany({
+    where: { id: { in: issues.map((issue) => issue.id) } },
+    select: { id: true, project: { select: { slug: true } } },
+  });
+  const slugs = new Map(projects.map((row) => [row.id, row.project.slug]));
+  return issues.flatMap((issue) => {
+    const slug = slugs.get(issue.id);
+    return slug ? [{ ...issue, path: issueHref({ number: issue.number, project: { slug } }) }] : [];
+  });
 }

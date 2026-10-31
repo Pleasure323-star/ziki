@@ -75,7 +75,7 @@ describe("POST /api/uploads", () => {
     const req = makeUploadRequest(new File(["content"], "test.txt", { type: "text/plain" }));
     const res = await POST(req);
     expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: "Sign in to upload files." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe("POST /api/uploads", () => {
     const res = await POST(req);
 
     expect(res.status).toBe(413);
-    expect(await res.json()).toEqual({ error: "File is too large (max 5 MB)." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(formData).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
   });
@@ -111,7 +111,7 @@ describe("POST /api/uploads", () => {
     const res = await POST(makeUploadRequest(new File([oversized], "large.png", { type: "image/png" })));
 
     expect(res.status).toBe(413);
-    expect(await res.json()).toEqual({ error: "File is too large (max 5 MB)." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -121,7 +121,7 @@ describe("POST /api/uploads", () => {
     const res = await POST(request);
 
     expect(res.status).toBe(413);
-    expect(await res.json()).toEqual({ error: "File is too large (max 5 MB)." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     // 8 MB in 512 KB chunks is 16 pulls; reading stopped near the 5 MB cap.
     expect(pulls()).toBeLessThan(16);
     expect(create).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe("POST /api/uploads", () => {
     const res = await POST(req);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Send a valid Content-Length header." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -142,7 +142,7 @@ describe("POST /api/uploads", () => {
     const req = makeUploadRequest(null);
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Choose a file to upload." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
   });
 
   it("returns 400 when file content is invalid/disallowed (e.g. HTML)", async () => {

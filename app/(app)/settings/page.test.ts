@@ -167,61 +167,32 @@ it("renders the display-name form on Account and keeps the profile route (#576)"
   expect(nodes.some((node) => node.props?.href === "/settings/security")).toBe(true);
 });
 
-describe("SettingsPage projects section", () => {
+describe("SettingsPage and the organization's projects", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireUser.mockResolvedValue({ id: "user-1", name: "Ada", email: "ada@example.com", role: "admin" });
     vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: "Ada", email: "ada@example.com" } as never);
-    mockCurrentTenantIdFor.mockResolvedValue("tenant-1");
-    mockIsTenantAdmin.mockResolvedValue(true);
   });
 
-  it("renders projects list with settings links for tenant admins", async () => {
-    vi.mocked(prisma.project.findMany).mockResolvedValueOnce([
-      {
-        id: "proj-web",
-        name: "Ziki Web",
-        slug: "web",
-        repoUrl: "https://github.com/emerjent/bug-tracker",
-        githubInstallationId: "12345",
-        createdAt: new Date("2026-01-01"),
-        _count: { bugs: 12 },
-      },
-      {
-        id: "proj-mobile",
-        name: "Ziki Mobile",
-        slug: "mobile",
-        repoUrl: null,
-        githubInstallationId: null,
-        createdAt: new Date("2026-01-02"),
-        _count: { bugs: 3 },
-      },
-    ] as never);
-
+  it("no longer has a Projects section: ?section=projects opens Account", async () => {
     const page = await SettingsPage({
       searchParams: Promise.resolve({ section: "projects" }),
     });
-    expect(page).toBeDefined();
-
+    const nodes = visitNodes(page);
+    expect(nodes.some((node) => node.type === DisplayNameForm)).toBe(true);
+    expect(prisma.project.findMany).not.toHaveBeenCalled();
     const hrefs = collectHrefs(page);
-    expect(hrefs).toContain("/projects/web/settings");
-    expect(hrefs).toContain("/projects/web/settings/github");
-    expect(hrefs).toContain("/issues?project=web");
-    expect(hrefs).toContain("/projects/mobile/settings");
-    expect(hrefs).toContain("/projects/mobile/settings/github");
-    expect(hrefs).toContain("/issues?project=mobile");
-    expect(hrefs).toContain("/projects");
+    expect(hrefs).not.toContain("/settings?section=projects");
+    expect(hrefs).not.toContain("/projects");
   });
 
-  it("renders empty state when tenant has no projects", async () => {
-    vi.mocked(prisma.project.findMany).mockResolvedValueOnce([]);
-
+  it("points project settings and members at the organization admin in /org", async () => {
     const page = await SettingsPage({
-      searchParams: Promise.resolve({ section: "projects" }),
+      searchParams: Promise.resolve({ section: "agents" }),
     });
-    expect(page).toBeDefined();
-
     const hrefs = collectHrefs(page);
-    expect(hrefs).toContain("/projects");
+    expect(hrefs).toContain("/org/projects");
+    expect(hrefs).toContain("/org/members");
+    expect(hrefs).not.toContain("/settings?section=projects");
   });
 });

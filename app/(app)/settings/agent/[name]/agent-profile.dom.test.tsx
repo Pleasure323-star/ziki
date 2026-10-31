@@ -58,7 +58,7 @@ describe("AgentActivity", () => {
             createdAt: new Date("2026-10-03T10:00:00Z"),
             action: "issue.created",
             target: null,
-            bug: { id: "bug_1", number: 12, title: "Login button overlaps" },
+            bug: { id: "bug_1", number: 12, title: "Login button overlaps", project: { slug: "ziki" } },
             undone: false,
           },
           {
@@ -72,14 +72,8 @@ describe("AgentActivity", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Filed")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "#12 Login button overlaps" }).getAttribute("href")).toBe("/issues/bug_1");
-    expect(screen.getByText("Got a new key")).toBeTruthy();
-    expect(screen.getByText("Undone")).toBeTruthy();
-  });
-
-  it("says so when the agent hasn't done anything yet", () => {
-    render(<AgentActivity items={[]} />);
-    expect(screen.getByText("No activity yet.")).toBeTruthy();
+    expect(screen.queryByText(/issue\.created|agent\.key_rotated/)).toBeNull();
+    expect(screen.getByRole("link", { name: /#12 Login button overlaps/ }).getAttribute("href")).toBe("/ziki/12");
+    expect(screen.getByText(/undone/i)).toBeTruthy();
   });
 });

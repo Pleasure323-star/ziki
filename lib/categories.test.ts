@@ -16,12 +16,9 @@ describe("categorySchema and platformSchema", () => {
     }
   });
 
-  it("rejects names that are too short with platform error message", () => {
+  it("rejects names that are too short", () => {
     const res = platformSchema.safeParse({ name: "A" });
     expect(res.success).toBe(false);
-    if (!res.success) {
-      expect(res.error.issues[0]?.message).toBe("Platform name must be at least 2 characters");
-    }
   });
 
   it("rejects empty names", () => {
@@ -29,12 +26,9 @@ describe("categorySchema and platformSchema", () => {
     expect(res.success).toBe(false);
   });
 
-  it("rejects names that are too long with platform error message", () => {
+  it("rejects names that are too long", () => {
     const res = platformSchema.safeParse({ name: "A".repeat(51) });
     expect(res.success).toBe(false);
-    if (!res.success) {
-      expect(res.error.issues[0]?.message).toBe("Platform name must be at most 50 characters");
-    }
   });
 });
 

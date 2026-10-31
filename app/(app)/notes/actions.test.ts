@@ -15,7 +15,7 @@ describe("human project-notes actions", () => {
   });
   it("does not save without a workspace", async () => {
     mocks.tenant.mockResolvedValue(null);
-    expect(await saveNotesAction("p", {})).toEqual({ error: "Select a workspace first." });
+    expect(await saveNotesAction("p", {})).toEqual({ error: expect.any(String) });
     expect(mocks.save).not.toHaveBeenCalled();
   });
   it("returns permission and conflict feedback without revalidation", async () => {

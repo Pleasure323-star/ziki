@@ -10,8 +10,6 @@ import { KeyboardShortcutSettings } from "@/components/keyboard-shortcut-setting
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { AccountDataSettings } from "@/components/account-data-settings";
 import { DisplayNameForm } from "@/components/display-name-form";
-import { currentTenantIdFor } from "@/lib/tenant-context";
-import { isTenantAdmin } from "@/lib/agents/membership";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
 export const metadata = { title: "Settings" };
@@ -28,12 +26,6 @@ const SECTIONS = [
     label: "Preferences",
     hint: "Theme, emails, shortcuts",
     icon: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
-  },
-  {
-    id: "projects",
-    label: "Projects",
-    hint: "Workflows, repos, areas",
-    icon: "M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z",
   },
   {
     id: "agents",
@@ -53,7 +45,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 function parseSection(value: string | string[] | undefined): SectionId {
   const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === "prefs" || raw === "projects" || raw === "agents" || raw === "data" || raw === "account") return raw;
+  if (raw === "prefs" || raw === "agents" || raw === "data" || raw === "account") return raw;
   return "account";
 }
 
@@ -139,42 +131,6 @@ export default async function SettingsPage(props: {
   }
 
   const displayName = settings?.name ?? user.name ?? "";
-
-  let projects: Array<{
-    id: string;
-    name: string;
-    slug: string;
-    repoUrl: string | null;
-    githubInstallationId: string | null;
-    createdAt: Date;
-    _count: { bugs: number };
-  }> = [];
-  let canManageProjects = false;
-  let tenantId: string | null = null;
-
-  if (section === "projects") {
-    try {
-      tenantId = await currentTenantIdFor(user.id);
-      if (tenantId) {
-        canManageProjects = await isTenantAdmin(user, tenantId);
-        projects = await prisma.project.findMany({
-          where: { tenantId, archivedAt: null },
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            repoUrl: true,
-            githubInstallationId: true,
-            createdAt: true,
-            _count: { select: { bugs: true } },
-          },
-          orderBy: { createdAt: "asc" },
-        });
-      }
-    } catch (err) {
-      console.error("[settings] projects query failed:", err);
-    }
-  }
 
   return (
     <div className="settings-page settings-design mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
@@ -318,138 +274,6 @@ export default async function SettingsPage(props: {
             </div>
           ) : null}
 
-          {section === "projects" ? (
-            <div className="flex flex-col gap-4">
-              <section className={card}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-col gap-1">
-                    <h2 className="m-0 text-lg font-bold text-zk-text">Workspace Projects</h2>
-                    <span className="text-[13px] text-zk-muted">
-                      Configure workflow rules, code boundaries, GitHub App installations, and approval gates.
-                    </span>
-                  </div>
-                  <Link
-                    href="/projects"
-                    className="inline-flex h-[38px] items-center gap-1.5 rounded-full border border-zk-border px-3.5 text-[13px] font-bold text-zk-text hover:bg-zk-chip"
-                  >
-                    View all projects &rarr;
-                  </Link>
-                </div>
-              </section>
-
-              {!tenantId ? (
-                <section className={card}>
-                  <p className="m-0 text-sm text-zk-muted">
-                    You are not currently in a workspace. Join or create a workspace to manage projects.
-                  </p>
-                  <div>
-                    <Link
-                      href="/tenants"
-                      className="inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-xs font-bold text-white hover:brightness-105"
-                    >
-                      Workspaces &rarr;
-                    </Link>
-                  </div>
-                </section>
-              ) : projects.length === 0 ? (
-                <section className={card}>
-                  <p className="m-0 text-sm text-zk-muted">
-                    No active projects found in this workspace.
-                  </p>
-                  <div>
-                    <Link
-                      href="/projects"
-                      className="inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-xs font-bold text-white hover:brightness-105"
-                    >
-                      Create a project
-                    </Link>
-                  </div>
-                </section>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {projects.map((p) => {
-                    const isGhConnected = p.githubInstallationId !== null;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`${card} flex-col justify-between gap-4 sm:flex-row sm:items-center`}
-                      >
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="m-0 text-base font-bold text-zk-text">{p.name}</h3>
-                            <span className="rounded-md bg-zk-chip px-2 py-0.5 text-xs font-semibold text-zk-muted">
-                              {p.slug}
-                            </span>
-                            {isGhConnected ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-zk-ok-bg px-2 py-0.5 text-xs font-semibold text-zk-ok-fg">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M20 6 9 17l-5-5" />
-                                </svg>
-                                GitHub App connected
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-zk-warn-bg px-2 py-0.5 text-xs font-semibold text-zk-warn-fg">
-                                GitHub App not connected
-                              </span>
-                            )}
-                          </div>
-                          {p.repoUrl ? (
-                            <span className="text-xs text-zk-muted">
-                              Repository:{" "}
-                              <a
-                                href={p.repoUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium text-zk-accent hover:underline"
-                              >
-                                {p.repoUrl}
-                              </a>
-                            </span>
-                          ) : null}
-                          <span className="text-xs text-zk-muted">
-                            {p._count.bugs} issue{p._count.bugs === 1 ? "" : "s"}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {canManageProjects ? (
-                            <>
-                              <Link
-                                href={`/projects/${encodeURIComponent(p.slug)}/settings`}
-                                className="inline-flex h-9 items-center justify-center rounded-full bg-electric-blue-strong px-4 text-xs font-bold text-white hover:brightness-105"
-                              >
-                                Configure settings
-                              </Link>
-                              <Link
-                                href={`/projects/${encodeURIComponent(p.slug)}/settings/github`}
-                                className="inline-flex h-9 items-center justify-center rounded-full border border-zk-border bg-zk-chip px-3.5 text-xs font-bold text-zk-text hover:bg-zk-tint"
-                              >
-                                GitHub
-                              </Link>
-                            </>
-                          ) : (
-                            <Link
-                              href="/projects"
-                              className="inline-flex h-9 items-center justify-center rounded-full border border-zk-border bg-zk-chip px-3.5 text-xs font-bold text-zk-text hover:bg-zk-tint"
-                            >
-                              View details
-                            </Link>
-                          )}
-                          <Link
-                            href={`/issues?project=${encodeURIComponent(p.slug)}`}
-                            className="inline-flex h-9 items-center justify-center rounded-full border border-zk-border px-3 text-xs font-bold text-zk-muted hover:text-zk-text"
-                          >
-                            Issues
-                          </Link>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ) : null}
-
           {section === "agents" ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
               {agentsEnabled ? (
@@ -489,6 +313,7 @@ export default async function SettingsPage(props: {
                   Workspace members and their active agents.
                 </p>
                 <div className="flex flex-col gap-0.5">
+                  <LinkRow href="/org/members" label="Organization members" />
                   <LinkRow href="/workers" label="View ranking" />
                 </div>
               </section>
@@ -506,7 +331,7 @@ export default async function SettingsPage(props: {
                   Developer documentation, cURL references and machine-readable specs for AI agents and automated tools.
                 </p>
                 <div className="flex flex-col gap-0.5">
-                  <LinkRow href="/settings?section=projects" label="Project settings & workflows" />
+                  <LinkRow href="/org/projects" label="Project settings & workflows" />
                   <LinkRow href="/docs" label="API documentation" />
                   <LinkRow href="/llms.txt" label="AI specs (/llms.txt)" external />
                 </div>

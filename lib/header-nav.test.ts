@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ORGANIZATION_HREF,
+  SITE_ADMIN_HREF,
   SWITCH_TENANT_LINK,
   headerNavItems,
   initialsOf,
@@ -11,7 +13,7 @@ describe("SWITCH_TENANT_LINK (#444)", () => {
   it("goes to the tenant picker, and is marked current on it and its pages", () => {
     expect(SWITCH_TENANT_LINK).toEqual({ href: "/tenants", label: "Switch workspace" });
     expect(isNavItemActive("/tenants", SWITCH_TENANT_LINK.href)).toBe(true);
-    expect(isNavItemActive("/tenants/acme", SWITCH_TENANT_LINK.href)).toBe(true);
+    expect(isNavItemActive("/tenants/invite/abc", SWITCH_TENANT_LINK.href)).toBe(true);
     expect(isNavItemActive("/issues", SWITCH_TENANT_LINK.href)).toBe(false);
   });
 
@@ -59,13 +61,22 @@ describe("headerNavItems (#761)", () => {
     expect(quiet?.badge).toBeUndefined();
   });
 
-  it("adds Admins for super admins (#761)", () => {
-    expect(headerNavItems("super_admin").map((i) => i.label)).toEqual([
+  it("adds Site admin for super admins (#761)", () => {
+    const items = headerNavItems("super_admin");
+    expect(items.map((i) => i.label)).toEqual([
       "Dashboard",
       "Issues",
       "Escalations",
-      "Admins",
+      "Site admin",
     ]);
+    expect(items.find((i) => i.label === "Site admin")?.href).toBe(SITE_ADMIN_HREF);
+    expect(SITE_ADMIN_HREF).toBe("/admin/users");
+  });
+
+  it("keeps Site admin away from admins and normal users", () => {
+    for (const role of ["user", "admin"] as const) {
+      expect(headerNavItems(role).map((i) => i.href)).not.toContain(SITE_ADMIN_HREF);
+    }
   });
 });
 
@@ -87,10 +98,10 @@ describe("isNavItemActive", () => {
   });
 
   it("matches admin pages by prefix only on a path boundary", () => {
-    expect(isNavItemActive("/admin/types", "/admin/types")).toBe(true);
-    expect(isNavItemActive("/admin/types/x", "/admin/types")).toBe(true);
-    expect(isNavItemActive("/admin/typesx", "/admin/types")).toBe(false);
-    expect(isNavItemActive("/settings", "/admin/types")).toBe(false);
+    expect(isNavItemActive("/org/types", "/org/types")).toBe(true);
+    expect(isNavItemActive("/org/types/x", "/org/types")).toBe(true);
+    expect(isNavItemActive("/org/typesx", "/org/types")).toBe(false);
+    expect(isNavItemActive("/settings", "/org/types")).toBe(false);
     expect(isNavItemActive(null, "/issues")).toBe(false);
   });
 
@@ -104,15 +115,22 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive("/issues", "/escalations")).toBe(false);
   });
 
-  it("marks Manage Workspace active on grouped sub-routes (#761)", () => {
-    expect(isNavItemActive("/projects", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/projects/p1", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/milestones", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/milestones/m1", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/admin/categories", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/admin/types", "/manage-project")).toBe(true);
-    expect(isNavItemActive("/issues", "/manage-project")).toBe(false);
-    expect(isNavItemActive("/escalations", "/manage-project")).toBe(false);
+  it("marks Organization active on every /org tab", () => {
+    expect(ORGANIZATION_HREF).toBe("/org");
+    expect(isNavItemActive("/org", ORGANIZATION_HREF)).toBe(true);
+    expect(isNavItemActive("/org/members", ORGANIZATION_HREF)).toBe(true);
+    expect(isNavItemActive("/org/projects", ORGANIZATION_HREF)).toBe(true);
+    expect(isNavItemActive("/org/milestones", ORGANIZATION_HREF)).toBe(true);
+    expect(isNavItemActive("/organic", ORGANIZATION_HREF)).toBe(false);
+    expect(isNavItemActive("/issues", ORGANIZATION_HREF)).toBe(false);
+  });
+
+  it("marks Site admin active on every /admin page, not only the users list", () => {
+    expect(isNavItemActive("/admin", SITE_ADMIN_HREF)).toBe(true);
+    expect(isNavItemActive("/admin/users", SITE_ADMIN_HREF)).toBe(true);
+    expect(isNavItemActive("/admin/rewards", SITE_ADMIN_HREF)).toBe(true);
+    expect(isNavItemActive("/administer", SITE_ADMIN_HREF)).toBe(false);
+    expect(isNavItemActive("/org", SITE_ADMIN_HREF)).toBe(false);
   });
 });
 

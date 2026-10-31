@@ -32,7 +32,7 @@ function revalidate(...bugIds: (string | null | undefined)[]) {
   revalidatePath("/bugs");
   for (const id of new Set(bugIds)) {
     if (id) {
-      revalidateIssue(id);
+      revalidateIssue();
       revalidatePath(`/bugs/${id}`);
     }
   }

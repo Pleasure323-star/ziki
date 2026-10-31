@@ -28,6 +28,18 @@ const limit = vi.mocked(consumeRateLimit) as unknown as ReturnType<typeof vi.fn>
 const raw = vi.mocked(prisma.$queryRaw) as unknown as ReturnType<typeof vi.fn>;
 const findMany = vi.mocked(prisma.bug.findMany) as unknown as ReturnType<typeof vi.fn>;
 
+/**
+ * The word-matching fallback answers `fallback`; the follow-up lookup of each
+ * match's project (#project-urls) answers every asked id with project "ziki".
+ */
+function bugs(fallback: unknown[]) {
+  findMany.mockImplementation(async ({ where }: { where: { id?: { in: string[] } } }) =>
+    where.id ? where.id.in.map((id) => ({ id, project: { slug: "ziki" } })) : fallback,
+  );
+}
+/** Calls made by the word-matching fallback, not the project lookup. */
+const fallbackCalls = () => findMany.mock.calls.filter(([args]) => !args.where.id);
+
 const get = (q: string) => GET(new NextRequest(`http://x/api/issues/similar?q=${encodeURIComponent(q)}`));
 
 describe("GET /api/issues/similar (#284)", () => {
@@ -35,6 +47,7 @@ describe("GET /api/issues/similar (#284)", () => {
     vi.clearAllMocks();
     session.mockResolvedValue({ userId: "u1" });
     limit.mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+    bugs([]);
   });
 
   it("requires a session", async () => {
@@ -62,6 +75,11 @@ describe("GET /api/issues/similar (#284)", () => {
     ]);
     const body = await (await get("Login button is broken")).json();
     expect(body.issues.map((i: { id: string }) => i.id)).toEqual(["a"]);
+    expect(body.issues[0].path).toBe("/ziki/4");
+    expect(findMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a"] } },
+      select: { id: true, project: { select: { slug: true } } },
+    });
     const sql = (raw.mock.calls[0][0] as TemplateStringsArray).join("?");
     expect(sql).toContain('"isDeleted" = false');
     expect(sql).toContain('"status"::text = ANY');
@@ -70,9 +88,10 @@ describe("GET /api/issues/similar (#284)", () => {
 
   it("falls back to word matching when pg_trgm is missing", async () => {
     raw.mockRejectedValue(new Error('operator does not exist: text % text'));
-    findMany.mockResolvedValue([{ id: "c", number: 2, title: "Login button broken", status: "open", voteCount: 1 }]);
+    bugs([{ id: "c", number: 2, title: "Login button broken", status: "open", voteCount: 1 }]);
     const body = await (await get("Login button broken")).json();
     expect(body.issues).toHaveLength(1);
+    expect(body.issues[0].path).toBe("/ziki/2");
     expect(findMany.mock.calls[0][0].where.isDeleted).toBe(false);
     // #425: only the searcher's tenant.
     expect(findMany.mock.calls[0][0].where.tenantId).toBe("tenant-zedu");
@@ -84,19 +103,19 @@ describe("GET /api/issues/similar (#284)", () => {
       .mockResolvedValueOnce([
         { id: "e", number: 6, title: "Login button broken", status: "open", voteCount: 1, score: 0.9 },
       ]);
-    findMany.mockResolvedValue([]);
+    bugs([]);
 
     expect(await (await get("Login button broken")).json()).toEqual({ issues: [] });
     const recovered = await (await get("Login button broken")).json();
 
     expect(recovered.issues.map((issue: { id: string }) => issue.id)).toEqual(["e"]);
     expect(raw).toHaveBeenCalledTimes(2);
-    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(fallbackCalls()).toHaveLength(1);
   });
 
   it("supports single-term fallback queries meeting the length threshold", async () => {
     raw.mockRejectedValue(new Error('operator does not exist: text % text'));
-    findMany.mockResolvedValue([{ id: "d", number: 5, title: "Authentication fails silently", status: "open", voteCount: 3 }]);
+    bugs([{ id: "d", number: 5, title: "Authentication fails silently", status: "open", voteCount: 3 }]);
     const body = await (await get("Authentication")).json();
     expect(body.issues).toHaveLength(1);
     expect(findMany.mock.calls[0][0].where.AND).toEqual([

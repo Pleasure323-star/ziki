@@ -396,7 +396,7 @@ export type ConfirmationView = {
   verdict: ConfirmationVerdict;
   summary: string;
   description: string;
-  duplicateOf: { id: string; number: number } | null;
+  duplicateOf: { id: string; number: number; projectSlug: string } | null;
   onBehalfOfUserId: string;
   by: string;
   agentId: string | null;
@@ -452,9 +452,9 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
   ]);
   const duplicateIds = [...new Set(rows.map((row) => row.duplicateOfId).filter((id): id is string => Boolean(id)))];
   const duplicates = duplicateIds.length
-    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true } })
+    ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true } } } })
     : [];
-  const numbers = new Map(duplicates.map((d) => [d.id, d.number]));
+  const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug }]));
   const counted = new Set(state?.counted.map((entry) => entry.id) ?? []);
   const needed = state?.needed ?? (await workflowFor(bug.projectId, db)).confirmationsNeeded;
   return {
@@ -467,7 +467,7 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
     confirmationsNeeded: needed,
     entries: rows.map(({ onBehalfOf, agent, replies, duplicateOfId, undoneAt, ...row }) => ({
       ...row,
-      duplicateOf: duplicateOfId && numbers.has(duplicateOfId) ? { id: duplicateOfId, number: numbers.get(duplicateOfId)! } : null,
+      duplicateOf: (duplicateOfId && duplicateById.get(duplicateOfId)) || null,
       by: onBehalfOf.name,
       agentName: agent?.name ?? null,
       counted: counted.has(row.id),

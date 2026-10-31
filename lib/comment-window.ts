@@ -39,10 +39,10 @@ export function parseCommentTarget(raw: string | string[] | undefined): string |
 /**
  * The link to an issue's comment that works whether or not the comment is
  * in the default window: the query makes the server include its thread,
- * the fragment scrolls to it.
+ * the fragment scrolls to it. `issuePath` is the issue's address (`issuePath()`).
  */
-export function commentPermalinkPath(bugId: string, commentId: string): string {
-  return `/issues/${bugId}?${COMMENT_PARAM}=${encodeURIComponent(commentId)}#comment-${commentId}`;
+export function commentPermalinkPath(issuePath: string, commentId: string): string {
+  return `${issuePath}?${COMMENT_PARAM}=${encodeURIComponent(commentId)}#comment-${commentId}`;
 }
 
 type Db = Pick<PrismaClient, "comment"> | Pick<Prisma.TransactionClient, "comment">;

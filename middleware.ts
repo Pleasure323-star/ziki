@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import authConfig from "@/auth.config";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { BASE_PATH, toAppPath } from "@/lib/base-path";
+import { isProjectIssuePath } from "@/lib/project-slug";
 
 /**
  * Edge-only auth wrapper — initialized from auth.config (no Prisma/bcrypt).
@@ -11,7 +12,10 @@ import { BASE_PATH, toAppPath } from "@/lib/base-path";
  */
 const { auth } = NextAuth(authConfig);
 
-/** Issue detail paths only — enough for unfurl bots to hit generateMetadata. */
+/**
+ * Old issue detail paths, which redirect to `/<project-slug>/<number>`
+ * (matched by isProjectIssuePath) — enough for unfurl bots to hit generateMetadata.
+ */
 const ISSUE_DETAIL_PATH = /^\/(?:issues|bugs)\/[^/]+\/?$/;
 
 /** A project's agent work feed: `/<project-slug>/work`. */
@@ -27,7 +31,7 @@ export function isPublicPath(
     pathWithoutBase.startsWith("/forgot-password") ||
     pathWithoutBase.startsWith("/reset-password");
   const isIssuePreview =
-    ISSUE_DETAIL_PATH.test(pathWithoutBase) &&
+    (ISSUE_DETAIL_PATH.test(pathWithoutBase) || isProjectIssuePath(pathWithoutBase)) &&
     isLinkPreviewBot(userAgent);
 
   return (

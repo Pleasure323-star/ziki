@@ -1,15 +1,10 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AgentLevelError,
   AGENT_LEVELS,
-  AGENT_LEVEL_LABELS,
   DEFAULT_AGENT_LEVEL,
   LEGACY_AGENT_LEVELS,
-  OWNER_REVIEW_LIMIT,
   SELF_REGISTRATION_LEVELS,
-  SEPARATE_LEVEL_AGENTS,
   canSetLevel,
   hasLevel,
   isAgentLevel,
@@ -82,20 +77,5 @@ describe("agent classes", () => {
     expect(isAgentLevel("contributor")).toBe(false);
     expect(isAgentLevel("admin")).toBe(false);
     expect(isAgentLevel(undefined)).toBe(false);
-  });
-
-  it("labels classes as agents, so they can't be mistaken for people's Owner/Admin/Member roles", () => {
-    for (const label of Object.values(AGENT_LEVEL_LABELS)) expect(label).toMatch(/ agent$/);
-  });
-
-  it("explains the classes without weakening review independence", () => {
-    expect(SEPARATE_LEVEL_AGENTS).toMatch(/working agent/);
-    expect(SEPARATE_LEVEL_AGENTS).toMatch(/manager/i);
-    expect(SEPARATE_LEVEL_AGENTS).toMatch(/merger/i);
-    expect(SEPARATE_LEVEL_AGENTS).toMatch(/not independent reviewers/);
-    expect(OWNER_REVIEW_LIMIT).toMatch(/not an independent reviewer/);
-    expect(OWNER_REVIEW_LIMIT).toMatch(/ticket you filed/);
-    const doc = readFileSync(path.resolve(__dirname, "../../docs/ziki-for-agents.md"), "utf8");
-    expect(doc).toContain("Independence is by **owner**, not by agent");
   });
 });

@@ -102,7 +102,6 @@ describe("CreateBugForm optimistic submission", () => {
     await waitFor(() => {
       expect(mockedCreateBug).toHaveBeenCalledTimes(1);
       expect(submitButton().disabled).toBe(true);
-      expect(submitButton().textContent).toBe("Creating…");
     });
 
     releasePendingAction?.();
@@ -119,7 +118,6 @@ describe("CreateBugForm optimistic submission", () => {
     expect(capturedFormData?.get("categoryId")).toBe("");
     expect(capturedFormData?.get("proofLinks")).toBe("");
 
-    expect(submitButton().textContent).toBe("Create issue");
     expect(screen.queryByRole("alert")).toBeNull();
   }, 15000);
 
@@ -139,7 +137,6 @@ describe("CreateBugForm optimistic submission", () => {
         "Something went wrong. Please try again.",
       );
       expect(submitButton().disabled).toBe(false);
-      expect(submitButton().textContent).toBe("Create issue");
     });
 
     expect(titleInput().value).toBe("App crashes on launch");
@@ -199,7 +196,6 @@ describe("CreateBugForm optimistic submission", () => {
       // Submit button should be disabled and show Uploading…
       await waitFor(() => {
         expect(submitButton().disabled).toBe(true);
-        expect(submitButton().textContent).toBe("Uploading…");
       });
 
       // Attempting to submit form while uploading should be prevented
@@ -213,7 +209,6 @@ describe("CreateBugForm optimistic submission", () => {
       // Button becomes enabled
       await waitFor(() => {
         expect(submitButton().disabled).toBe(false);
-        expect(submitButton().textContent).toBe("Create issue");
       });
 
       // Submit should now succeed with attachment included

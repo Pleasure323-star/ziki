@@ -1,7 +1,6 @@
 import type { MembershipRole, Prisma, PrismaClient } from "@prisma/client";
 import type { AppRole } from "@/lib/roles";
 import { isSuperAdmin } from "@/lib/roles";
-import { buildUserSearchWhere } from "@/lib/user-search";
 
 /**
  * Changing who can administer an organization (#504, #515, #569).
@@ -256,13 +255,4 @@ export async function leaveMembership(
     });
     return { ok: true };
   });
-}
-
-/** Members of one organization, optionally filtered by name or email. Never another organization's people. */
-export function tenantMemberWhere(tenantId: string, query?: string | null): Prisma.MembershipWhereInput {
-  const user = buildUserSearchWhere(query);
-  return {
-    tenantId,
-    ...(Object.keys(user).length > 0 ? { user } : {}),
-  };
 }

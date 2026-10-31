@@ -22,7 +22,7 @@ describe("safeReportedFrom (#report-modal)", () => {
   });
 
   it("builds the description line and the report link", () => {
-    expect(reportedFromLine("/issues/42")).toBe("Reported from: /issues/42");
+    expect(reportedFromLine("/issues/42")).toContain("/issues/42");
     expect(newIssueHref("/issues")).toBe("/issues/new?from=%2Fissues");
     expect(newIssueHref("https://evil.example")).toBe("/issues/new");
     expect(newIssueHref(null)).toBe("/issues/new");

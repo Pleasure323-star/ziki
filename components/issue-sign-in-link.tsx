@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { isProjectIssuePath } from "@/lib/project-slug";
 
 /**
  * The 404 page's sign-in link for an issue (#457). A not-found page gets no
@@ -13,7 +14,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 export function IssueSignInLink({ className }: { className?: string }) {
   const pathname = usePathname();
   const query = useSearchParams()?.toString();
-  const href = pathname?.startsWith("/issues/")
+  const href = pathname && (pathname.startsWith("/issues/") || isProjectIssuePath(pathname, { subpages: true }))
     ? `/login?callbackUrl=${encodeURIComponent(query ? `${pathname}?${query}` : pathname)}`
     : "/login";
   return (

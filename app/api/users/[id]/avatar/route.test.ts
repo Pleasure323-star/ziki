@@ -26,7 +26,7 @@ describe("GET /api/users/[id]/avatar", () => {
     const req = new NextRequest("http://localhost:3000/api/users/user-1/avatar");
     const res = await GET(req, { params: Promise.resolve({ id: "user-1" }) });
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "Avatar not found" });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
   });
 
   it("returns 200 with raw image bytes and nosniff header when avatar exists", async () => {

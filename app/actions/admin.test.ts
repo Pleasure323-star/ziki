@@ -35,8 +35,8 @@ describe("setMemberRoleAction", () => {
       { id: "owner-1", role: "user" },
       { tenantId: "tenant-ziki", targetUserId: "ada", nextRole: "admin" },
     );
-    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/admin/users");
-    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/tenants/ziki");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/org", "layout");
+    expect(vi.mocked(revalidatePath)).toHaveBeenCalledWith("/tenants");
   });
 
   it("refuses to grant the owner role from this action", async () => {

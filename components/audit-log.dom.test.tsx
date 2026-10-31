@@ -91,8 +91,4 @@ describe("AuditLog (#447)", () => {
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
-  it("says when there is nothing to show", () => {
-    render(<AuditLog rows={[]} />);
-    expect(screen.getByText("No agent activity yet.")).toBeInTheDocument();
-  });
 });

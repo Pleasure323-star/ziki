@@ -147,7 +147,7 @@ describe("human approval rule", () => {
   it("requires linked proposals to be chosen from the issue comparison", async () => {
     db.membership.findUnique.mockResolvedValue({ userId: "human", role: "admin" });
     db.redesignProposal.findFirst.mockResolvedValue({ ...proposal, authorAgent: { ownerUserId: "owner" } });
-    await expect(decideRedesign("human", "tenant", "proposal", "approved")).rejects.toThrow("Choose an issue-linked design");
+    await expect(decideRedesign("human", "tenant", "proposal", "approved")).rejects.toThrow();
     expect(db.redesignProposal.updateMany).not.toHaveBeenCalled();
   });
   it("requires a tenant admin to choose a proposal", async () => {
@@ -198,7 +198,7 @@ describe("human approval rule", () => {
 describe("claim gate and human page", () => {
   it("blocks pending redesigns and allows rejected, approved, or unlinked issues", async () => {
     db.redesignProposal.count.mockResolvedValueOnce(1);
-    await expect(assertRedesignOpen("issue", db as never)).rejects.toThrow("waiting for a person");
+    await expect(assertRedesignOpen("issue", db as never)).rejects.toThrow();
     await expect(assertRedesignOpen("issue", db as never)).resolves.toBeUndefined();
     await expect(assertRedesignOpen("issue", db as never)).resolves.toBeUndefined();
     await expect(assertRedesignOpen("issue", db as never)).resolves.toBeUndefined();

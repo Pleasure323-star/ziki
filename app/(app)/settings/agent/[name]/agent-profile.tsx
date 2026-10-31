@@ -3,6 +3,7 @@ import type { AgentLevel } from "@prisma/client";
 import { AGENT_LEVEL_LABELS } from "@/lib/agents/levels";
 import { agentActionLabel } from "@/lib/agent-audit/labels";
 import { LocalTime } from "@/components/local-time";
+import { issueHref } from "@/lib/issue-ref";
 import { RelativeTime } from "@/components/relative-time";
 import { AgentAvatar } from "@/components/agent-avatar";
 import {
@@ -32,7 +33,7 @@ export type AgentActivityItem = {
   id: string;
   createdAt: Date;
   action: string;
-  bug: { id: string; number: number; title: string } | null;
+  bug: { id: string; number: number; title: string; project: { slug: string } } | null;
   target: string | null;
   undone: boolean;
 };
@@ -135,7 +136,7 @@ export function AgentActivity({ items }: { items: AgentActivityItem[] }) {
                 {item.bug ? (
                   <>
                     {" "}
-                    <Link href={`/issues/${item.bug.id}`} className={agentsLink}>
+                    <Link href={issueHref(item.bug)} className={agentsLink}>
                       #{item.bug.number} {item.bug.title}
                     </Link>
                   </>

@@ -579,7 +579,8 @@ async function agentWork(agent: AgentContext, projectId: string, offerWindowSeco
 
 const apiPath = (id: string, tail: string, projectId: string) => `/api/v1/issues/${id}/${tail}?projectId=${projectId}`;
 const ideaApiPath = (id: string, tail: string, projectId: string) => `/api/v1/ideas/${id}/${tail}?projectId=${projectId}`;
-const issueRef = (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(issue.number)) });
+/** Every issue in a feed is in the feed's project, so its URL is `/<project-slug>/<number>` (#project-urls). */
+const issueRefIn = (projectSlug: string) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(projectSlug, issue.number)) });
 const ideaRef = (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(idea.number)) });
 const plus = (ms: number) => new Date(ms).toISOString();
 
@@ -587,6 +588,7 @@ const plus = (ms: number) => new Date(ms).toISOString();
 export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork): WorkItem[] {
   const items: WorkItem[] = [];
   const pid = work.project.id;
+  const issueRef = issueRefIn(work.project.slug);
   const owner = agent.ownerId;
   const actor = { id: agent.agentId, ownerUserId: owner };
   const can = (role: AgentLevel) => hasLevel(agent.level, role);

@@ -684,7 +684,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                   <Link href="/issues" className="hover:text-slate-900 transition-colors">Issues List</Link>
                 </li>
                 <li>
-                  <Link href="/projects" className="hover:text-slate-900 transition-colors">Projects</Link>
+                  <Link href="/org/projects" className="hover:text-slate-900 transition-colors">Projects</Link>
                 </li>
                 <li>
                   <Link href="/leaderboard" className="hover:text-slate-900 transition-colors">Leaderboard</Link>

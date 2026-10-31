@@ -35,7 +35,7 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
   });
 
   describe("UI rendering", () => {
-    it("renders empty state when no rules exist", () => {
+    it("offers to add a rule when none exist", () => {
       render(
         <ProjectApprovalRulesSection
           projectId="proj-1"
@@ -45,11 +45,8 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
         />,
       );
 
-      expect(screen.getByText("Human approval rules")).toBeInTheDocument();
-      expect(
-        screen.getByText(/No approval rules configured for this project yet/i),
-      ).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add rule" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /add rule/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /delete/i })).not.toBeInTheDocument();
     });
 
     it("renders existing rules with stage, type and file glob, and no severity", () => {
@@ -82,7 +79,7 @@ describe("ProjectApprovalRulesSection and actions (#598)", () => {
       expect(screen.getAllByText("Before merge").length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText("Design").length).toBeGreaterThanOrEqual(1);
       expect(screen.queryByText(/Severity/i)).not.toBeInTheDocument();
-      expect(screen.getByText("Files: app/(app)/billing/**")).toBeInTheDocument();
+      expect(screen.getByText(/app\/\(app\)\/billing\/\*\*/)).toBeInTheDocument();
 
       expect(screen.getAllByText("Before offer").length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("Any type")).toBeInTheDocument();

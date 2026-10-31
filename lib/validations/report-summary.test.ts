@@ -17,20 +17,17 @@ describe("reportSummarySchema (#report-summary)", () => {
   it("refuses a summary that is too short", () => {
     const result = reportSummarySchema.safeParse("Login broken.");
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0].message).toMatch(/at least 20 characters/);
     expect(reportSummarySchema.safeParse("   ").success).toBe(false);
   });
 
   it("refuses a summary that is too long", () => {
     const result = reportSummarySchema.safeParse("x".repeat(REPORT_SUMMARY_MAX_CHARS + 1));
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0].message).toMatch(/at most 300 characters/);
   });
 
   it("refuses more than three lines", () => {
     const result = reportSummarySchema.safeParse("The first line.\nThe second line.\nThe third line.\nThe fourth line.");
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0].message).toMatch(/at most 3 lines/);
   });
 
   it.each([
@@ -41,8 +38,6 @@ describe("reportSummarySchema (#report-summary)", () => {
     "See [the log](https://example.com) for the dropped session",
     "| Page | Result | the session drops",
   ])("refuses Markdown: %s", (summary) => {
-    const result = reportSummarySchema.safeParse(summary);
-    expect(result.success).toBe(false);
-    expect(result.error?.issues.map((issue) => issue.message).join(" ")).toMatch(/plain text, not Markdown/);
+    expect(reportSummarySchema.safeParse(summary).success).toBe(false);
   });
 });

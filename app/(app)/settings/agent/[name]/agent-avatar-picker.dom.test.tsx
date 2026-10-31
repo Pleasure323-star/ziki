@@ -38,10 +38,10 @@ describe("AgentAvatarPicker", () => {
 
   it("opens a pop-up of Automatic and every robot, with the current pick checked", async () => {
     await openPicker("mint");
-    expect(screen.getByRole("dialog", { name: "Choose an avatar for Pixel" })).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
     const options = screen.getAllByRole("radio");
     expect(options).toHaveLength(13);
-    expect(options[0].textContent).toBe("Automatic");
+    expect(screen.getByRole("radio", { name: /automatic/i })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Mint" }).getAttribute("aria-checked")).toBe("true");
   });
 

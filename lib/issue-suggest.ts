@@ -23,6 +23,8 @@ export type IssueSuggestion = {
   number: number;
   title: string;
   status: Status;
+  /** The issue's address, `/<project-slug>/<number>`. */
+  path: string;
 };
 
 export function normalizeSuggestQuery(raw: string | null | undefined): string {

@@ -21,13 +21,12 @@ describe("project notes interactions", () => {
   it("shows official guidance and attribution without edit controls for readers", () => {
     render(<NotesDocument projectId="p" notes={notes} canEdit={false} revisions={revisions} />);
     expect(screen.getByText("Use migrations only.")).toBeTruthy();
-    expect(screen.getByText(/Updated by Admin/)).toBeTruthy();
+    expect(screen.getByText(/Admin/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit notes" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Restore version 1" })).toBeNull();
   });
-  it("shows the initial empty state and enables creation for authorized humans", () => {
+  it("lets authorized humans create notes when there are none", () => {
     render(<NotesDocument projectId="p" notes={null} canEdit revisions={[]} />);
-    expect(screen.getByText("No project notes yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create notes" }));
     expect(screen.getByRole("textbox", { name: "Official notes" })).toBeTruthy();
   });

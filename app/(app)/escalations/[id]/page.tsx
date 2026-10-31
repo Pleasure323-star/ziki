@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
+import { issueHref } from "@/lib/issue-ref";
 import { ownerQuestion, parseEscalationBody } from "@/lib/agent-questions";
 import { LocalTime } from "@/components/local-time";
 import {
@@ -55,7 +56,7 @@ export default async function EscalationDetailPage({
           <div className="rounded-[12px] border border-zk-border bg-zk-tint p-3 text-xs">
             <span className="text-zk-muted">Associated issue: </span>
             <Link
-              href={`/issues/${question.bug.id}`}
+              href={issueHref(question.bug)}
               className="font-semibold text-zk-accent hover:underline"
             >
               #{question.bug.number} {question.bug.title}

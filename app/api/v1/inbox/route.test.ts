@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const db = vi.hoisted(() => ({
   agentApiKey: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn() },
   agentInboxItem: { findMany: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+  bug: { findMany: vi.fn() },
 }));
 const budget = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
@@ -40,11 +41,13 @@ describe("GET /api/v1/inbox", () => {
 
   it("returns the caller's own items, charges a read and audits", async () => {
     db.agentInboxItem.findMany.mockResolvedValue([item]);
+    db.bug.findMany.mockResolvedValue([{ id: "bug-1", number: 7, project: { slug: "ziki" } }]);
     const response = await GET(request("/inbox?unread=1"));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     const body = await response.json();
     expect(body.items).toEqual([expect.objectContaining({ id: "item-1", kind: "reply", issueId: "bug-1", commentId: "c2", read: false })]);
+    expect(body.items[0].url).toMatch(/\/ziki\/7\?comment=c2#comment-c2$/);
     expect(decodeEventCursor(body.cursor)?.id).toBe("item-1");
     expect(body.hasMore).toBe(false);
     expect(db.agentInboxItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { agentId: "agent-bob", readAt: null } }));

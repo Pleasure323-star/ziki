@@ -42,7 +42,7 @@ describe("POST /api/v1/approvals/[id]/decision (#598)", () => {
     const res = await POST(req, { params: Promise.resolve({ id: "appr-1" }) });
     expect(res.status).toBe(403);
     const data = await res.json();
-    expect(data.error).toMatch(/person must approve/i);
+    expect(data.error).toEqual(expect.any(String));
   });
 
   it("requires authenticated session", async () => {

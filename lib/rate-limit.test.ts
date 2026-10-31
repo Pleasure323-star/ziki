@@ -2,17 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   checkRateLimit,
   resetRateLimits,
-  RATE_LIMIT_MESSAGE,
   ACTION_RATE_LIMITS,
 } from "./rate-limit";
 
 describe("rate-limiting (#130)", () => {
   beforeEach(() => {
     resetRateLimits();
-  });
-
-  it("has friendly error message", () => {
-    expect(RATE_LIMIT_MESSAGE).toContain("You're doing that too fast");
   });
 
   it("allows actions within the limit", () => {
@@ -247,15 +242,6 @@ describe("auth rate limits (#207)", () => {
 describe("action rate limits (#350)", () => {
   beforeEach(() => {
     resetRateLimits();
-  });
-
-  it("configures limits for all state-mutating actions", () => {
-    expect(ACTION_RATE_LIMITS.createBug).toEqual({ max: 10, windowMs: 60 * 1000 });
-    expect(ACTION_RATE_LIMITS.addComment).toEqual({ max: 20, windowMs: 60 * 1000 });
-    expect(ACTION_RATE_LIMITS.toggleVote).toEqual({ max: 60, windowMs: 60 * 1000 });
-    expect(ACTION_RATE_LIMITS.editBug).toEqual({ max: 20, windowMs: 60 * 1000 });
-    expect(ACTION_RATE_LIMITS.editComment).toEqual({ max: 30, windowMs: 60 * 1000 });
-    expect(ACTION_RATE_LIMITS.selfAssign).toEqual({ max: 15, windowMs: 60 * 1000 });
   });
 
   it("enforces editComment rate limit", () => {

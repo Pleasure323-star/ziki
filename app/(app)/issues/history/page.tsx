@@ -9,7 +9,7 @@ import { activeProjectIdFor } from "@/lib/project-context";
 import { calculatePagination } from "@/lib/pagination";
 import { PaginationControls } from "@/components/pagination-controls";
 import { toSingleQueryParam } from "@/lib/search";
-import { issuePath } from "@/lib/issue-ref";
+import { issueHref } from "@/lib/issue-ref";
 import { parsePullRequestUrl } from "@/lib/github/merge-pr";
 import { DEPLOY_STAGES } from "@/lib/deploy-stage";
 import {
@@ -109,6 +109,7 @@ export default async function MergeHistoryPage({ searchParams }: { searchParams:
       pullRequestUrl: true,
       status: true,
       beneficiary: { select: { name: true } },
+      project: { select: { slug: true } },
     },
   });
   const rows = bugs.map((bug) => ({ ...bug, path: mergePathOf(bug) }));
@@ -225,7 +226,7 @@ export default async function MergeHistoryPage({ searchParams }: { searchParams:
                 {carried.map((row) => (
                   <div key={row.id} className="merge-reli grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 border-t border-zk-divider px-[18px] py-2.5 text-[14px]">
                     <span className="font-mono text-[12.5px] text-zk-muted">#{row.number}</span>
-                    <Link href={issuePath(row.number)} className="truncate text-zk-text hover:text-zk-accent">{row.title}</Link>
+                    <Link href={issueHref(row)} className="truncate text-zk-text hover:text-zk-accent">{row.title}</Link>
                     <span className="whitespace-nowrap text-[12px] text-zk-muted">{row.beneficiary.name}</span>
                   </div>
                 ))}
@@ -276,7 +277,7 @@ export default async function MergeHistoryPage({ searchParams }: { searchParams:
                         </div>
                       ))
                     )}
-                    <Link href={issuePath(row.number)} className="mt-1.5 inline-block text-[12.5px] text-zk-accent hover:underline">Open issue #{row.number}</Link>
+                    <Link href={issueHref(row)} className="mt-1.5 inline-block text-[12.5px] text-zk-accent hover:underline">Open issue #{row.number}</Link>
                   </div>
                 </details>
               );

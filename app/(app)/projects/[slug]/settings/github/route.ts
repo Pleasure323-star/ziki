@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const tenantId = await currentTenantIdFor(user.id);
   if (!tenantId || !(await isTenantAdmin(user, tenantId))) return NextResponse.redirect(new URL("/issues", origin));
   const project = await prisma.project.findFirst({ where: { tenantId, slug }, select: { id: true } });
-  if (!project) return NextResponse.redirect(new URL("/projects", origin));
+  if (!project) return NextResponse.redirect(new URL("/org/projects", origin));
 
   const state = `${slug}.${randomBytes(24).toString("base64url")}`;
   const cookieOpts = appCookieOptions(600);

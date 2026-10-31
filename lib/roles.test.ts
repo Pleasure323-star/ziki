@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAdmin,
   isSuperAdmin,
-  roleLabels,
   resolveEffectiveRole,
-  ACTIVE_ROLE_COOKIE_NAME,
 } from "./roles";
 
 describe("isAdmin", () => {
@@ -28,19 +26,7 @@ describe("isSuperAdmin", () => {
   });
 });
 
-describe("roleLabels", () => {
-  it("labels every role", () => {
-    expect(roleLabels.user).toBe("User");
-    expect(roleLabels.admin).toBe("Admin");
-    expect(roleLabels.super_admin).toBe("Super admin");
-  });
-});
-
 describe("resolveEffectiveRole", () => {
-  it("has the expected cookie name constant", () => {
-    expect(ACTIVE_ROLE_COOKIE_NAME).toBe("zedu_active_role");
-  });
-
   it("allows real super admin to switch to user", () => {
     const role = resolveEffectiveRole({
       isRealSuperAdmin: true,

@@ -44,24 +44,20 @@ function renderList(agents: ManageAgentItem[]) {
 }
 
 describe("ManageAgentsList cards", () => {
-  it("lays the cards out side by side, each with its own avatar", () => {
+  it("lists a card per agent, each with its own avatar", () => {
     renderList([agent({}), agent({ id: "agent_2", name: "Scout Two" })]);
     const list = screen.getByRole("list");
-    expect(list.className).toContain("md:grid-cols-2");
     const cards = within(list).getAllByRole("listitem");
     expect(cards).toHaveLength(2);
     for (const card of cards) expect(within(card).getByTestId("agent-avatar")).toBeTruthy();
   });
 
-  it("opens the agent's own page from anywhere on the card, without covering its controls", () => {
+  it("links the card to the agent's own page and keeps its controls", () => {
     renderList([agent({ id: "agent_2", name: "Scout Two" })]);
     const card = screen.getByRole("listitem");
     const link = within(card).getByRole("link", { name: "Scout Two" });
     expect(link.getAttribute("href")).toBe("/settings/agent/Scout%20Two");
-    // The link's overlay fills the card; the key and controls are raised above it.
-    expect(card.className).toContain("relative");
-    expect(link.className).toContain("after:inset-0");
-    expect(within(card).getByRole("button", { name: "Copy key" }).closest(".z-10")).toBeTruthy();
-    expect(within(card).getByRole("button", { name: "Revoke Scout Two" }).closest(".z-10")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Copy key" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Revoke Scout Two" })).toBeTruthy();
   });
 });

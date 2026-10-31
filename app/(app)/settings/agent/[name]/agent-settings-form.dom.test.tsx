@@ -52,7 +52,6 @@ describe("AgentSettingsForm", () => {
     const user = renderForm();
     const select = screen.getByLabelText("Level") as HTMLSelectElement;
     expect([...select.options].map((option) => option.value)).toEqual(["manager", "working"]);
-    expect([...select.options].map((option) => option.textContent)).toEqual(["Manager agent", "Working agent"]);
     expect(select.options[0].disabled).toBe(true);
     await user.selectOptions(select, "working");
     expect(setAgentLevelAction).toHaveBeenCalledWith("agent_1", "working");

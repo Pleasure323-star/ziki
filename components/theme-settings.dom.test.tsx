@@ -30,7 +30,6 @@ describe("ThemeSettings save feedback (#646)", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Could not save theme to your account.");
-    expect(alert).toHaveClass("text-zk-bad-fg");
     expect(screen.getByRole("status")).toHaveTextContent("");
     expect(screen.getByRole("radio", { name: /Dark/ })).not.toBeChecked();
     expect(screen.getByRole("radio", { name: /Light/ })).toBeChecked();
@@ -50,7 +49,7 @@ describe("ThemeSettings save feedback (#646)", () => {
 
     await user.click(dark);
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Appearance set to dark."),
+      expect(screen.getByRole("status")).toHaveTextContent(/dark/i),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(dark).toBeChecked();

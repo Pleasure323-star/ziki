@@ -57,10 +57,6 @@ describe("platformFilterLabel", () => {
     expect(platformFilterLabel("c2", platforms)).toBe("Mobile");
   });
 
-  it("describes the no-platform case in words", () => {
-    expect(platformFilterLabel(PLATFORM_NONE, platforms)).toBe("no platform");
-  });
-
   it("has nothing to say when nothing is selected", () => {
     expect(platformFilterLabel(null, platforms)).toBeNull();
   });

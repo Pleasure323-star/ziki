@@ -115,7 +115,7 @@ export function KeyboardShortcuts({
           break;
         case "go-dashboard":
           event.preventDefault();
-          router.push("/admin/dashboard");
+          router.push("/org");
           break;
         case "go-notifications":
           event.preventDefault();

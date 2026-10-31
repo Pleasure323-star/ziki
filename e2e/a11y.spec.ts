@@ -57,11 +57,20 @@ test.describe("accessibility", () => {
   test.describe("as an admin", () => {
     test.use({ as: "admin" });
 
-    test("the admin screens", async ({ page }) => {
-      await page.goto("/admin/users");
+    test("the organization admin screens", async ({ page }) => {
+      await page.goto("/org/members");
       await expectNoA11yViolations(page);
 
-      await page.goto("/admin/categories");
+      await page.goto("/org/platforms");
+      await expectNoA11yViolations(page);
+    });
+  });
+
+  test.describe("as a super admin", () => {
+    test.use({ as: "super" });
+
+    test("the site admin screen", async ({ page }) => {
+      await page.goto("/admin/users");
       await expectNoA11yViolations(page);
     });
   });

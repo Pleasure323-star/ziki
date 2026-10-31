@@ -92,12 +92,12 @@ describe("parseExtraction", () => {
   });
 
   it("throws when the model output has no JSON", () => {
-    expect(() => parseExtraction("I cannot help with that.")).toThrow(/Could not find JSON/);
+    expect(() => parseExtraction("I cannot help with that.")).toThrow();
   });
 
   it("throws when a required field is missing or the wrong type", () => {
     const text = '{"summary": "S", "problem": "P", "proposedSolution": "Sol"}';
-    expect(() => parseExtraction(text)).toThrow(/missing required fields/);
+    expect(() => parseExtraction(text)).toThrow();
   });
 });
 

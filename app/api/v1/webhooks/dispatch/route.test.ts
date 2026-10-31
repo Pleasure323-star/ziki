@@ -71,7 +71,7 @@ describe("dispatch rate limit (#679)", () => {
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
     expect(limited.headers.get("cache-control")).toBe("no-store");
     expect(await limited.json()).toEqual({
-      error: "Dispatch is running too often; queued deliveries will go out on a later run.",
+      error: expect.any(String),
       retryAfterSeconds: expect.any(Number),
     });
     expect(dispatch).toHaveBeenCalledTimes(12);

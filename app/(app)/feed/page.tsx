@@ -5,7 +5,7 @@ import { currentTenantIdFor } from "@/lib/tenant-context";
 import { feedProject, feedWhere, FEED_PAGE_SIZE } from "@/lib/feed";
 import { prisma } from "@/lib/prisma";
 import { LocalTime } from "@/components/local-time";
-import { issuePath } from "@/lib/issue-ref";
+import { issueHref } from "@/lib/issue-ref";
 
 export const metadata = { title: "New-ticket feed" };
 
@@ -22,7 +22,7 @@ export default async function FeedPage({ searchParams }: {
     where: feedWhere(tenantId, project.id, null),
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: FEED_PAGE_SIZE,
-    select: { id: true, number: true, title: true, status: true, createdAt: true },
+    select: { id: true, number: true, title: true, status: true, createdAt: true, project: { select: { slug: true } } },
   }) : [];
   return (
     <section className="space-y-6">
@@ -36,7 +36,7 @@ export default async function FeedPage({ searchParams }: {
         <ul className="divide-y divide-zk-divider overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
           {issues.map((issue) => (
             <li key={issue.id} className="p-4">
-              <Link href={issuePath(issue.number)} className="font-semibold text-zk-accent hover:underline">
+              <Link href={issueHref(issue)} className="font-semibold text-zk-accent hover:underline">
                 #{issue.number} {issue.title}
               </Link>
               <p className="mt-1 text-sm text-zk-muted">

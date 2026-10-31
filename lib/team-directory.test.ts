@@ -32,7 +32,7 @@ describe("team directory metrics", () => {
           {
             claimedAt: new Date(now.getTime() - 5 * 60 * 1000),
             lastHeartbeatAt: null,
-            bug: { id: "issue-current", title: "Current work", categoryId: "area-1", category: { name: "Web" }, areaId: "pa-checkout", area: { name: "Checkout" } },
+            bug: { id: "issue-current", number: 31, project: { slug: "ziki" }, title: "Current work", categoryId: "area-1", category: { name: "Web" }, areaId: "pa-checkout", area: { name: "Checkout" } },
           },
         ],
       },
@@ -98,7 +98,7 @@ describe("team directory metrics", () => {
         level: "working",
         online: true,
         acceptedFixes: 1,
-        currentWork: [{ id: "issue-current", title: "Current work", categoryId: "area-1", categoryName: "Web", areaId: "pa-checkout", areaName: "Checkout" }],
+        currentWork: [{ id: "issue-current", path: "/ziki/31", title: "Current work", categoryId: "area-1", categoryName: "Web", areaId: "pa-checkout", areaName: "Checkout" }],
       },
       {
         id: "agent-2",
@@ -126,7 +126,7 @@ describe("team directory metrics", () => {
           agent("idle", [{ lastUsedAt: minutesAgo(20) }]),
           // An old key, but a fresh claim heartbeat still counts.
           agent("heartbeat", [{ lastUsedAt: minutesAgo(60) }], [
-            { claimedAt: minutesAgo(90), lastHeartbeatAt: minutesAgo(2), bug: { id: "i1", title: "Work", categoryId: null, category: null } },
+            { claimedAt: minutesAgo(90), lastHeartbeatAt: minutesAgo(2), bug: { id: "i1", number: 1, project: { slug: "ziki" }, title: "Work", categoryId: null, category: null } },
           ]),
           // Never used, nothing claimed.
           agent("unused", [{ lastUsedAt: null }]),
@@ -168,12 +168,12 @@ describe("team directory metrics", () => {
 });
 
 describe("assigned work no agent has claimed (Ziki #447)", () => {
-  const work = (id: string) => ({ id, title: id, categoryId: null, categoryName: null, areaId: null, areaName: null });
+  const work = (id: string) => ({ id, path: `/ziki/${id}`, title: id, categoryId: null, categoryName: null, areaId: null, areaName: null });
   const agent = (id: string, currentWork: string[]): TeamAgent => ({
     id, name: id, model: null, level: "working", online: false, acceptedFixes: 0, currentWork: currentWork.map(work),
   });
-  const bug = (id: string, assigneeId: string | null) => ({
-    id, title: id, assigneeId, categoryId: "cat", category: { name: "Web" }, areaId: "area", area: { name: "Checkout" },
+  const bug = (id: string, assigneeId: string | null, number = 7) => ({
+    id, number, project: { slug: "ziki" }, title: id, assigneeId, categoryId: "cat", category: { name: "Web" }, areaId: "area", area: { name: "Checkout" },
   });
 
   it("reads open and in-progress, non-deleted issues assigned to the members, in this tenant", async () => {
@@ -187,7 +187,7 @@ describe("assigned work no agent has claimed (Ziki #447)", () => {
   it("lists an assignee-only issue for the member, with its category and area", async () => {
     const db = { bug: { findMany: vi.fn().mockResolvedValue([bug("issue-a", "p1")]) } };
     const result = await teamAssignedWorkForMembers(db as never, "tenant-1", new Map([["p1", [agent("agent-1", [])]]]));
-    expect(result.get("p1")).toEqual([{ id: "issue-a", title: "issue-a", categoryId: "cat", categoryName: "Web", areaId: "area", areaName: "Checkout" }]);
+    expect(result.get("p1")).toEqual([{ id: "issue-a", path: "/ziki/7", title: "issue-a", categoryId: "cat", categoryName: "Web", areaId: "area", areaName: "Checkout" }]);
   });
 
   it("leaves out an issue already on one of the member's agent cards, so it counts once", async () => {

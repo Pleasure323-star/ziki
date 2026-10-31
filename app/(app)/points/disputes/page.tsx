@@ -45,7 +45,7 @@ function DisputeCard({ dispute, children }: { dispute: DisputeView; children?: R
           </Badge>
         ) : null}
         <Link
-          href={`/issues/${dispute.bugId}`}
+          href={dispute.bugPath}
           className="min-w-0 flex-1 truncate text-sm font-medium text-zk-text hover:underline"
         >
           #{dispute.bugNumber} {dispute.bugTitle}

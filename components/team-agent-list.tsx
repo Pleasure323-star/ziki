@@ -48,7 +48,7 @@ export function TeamAgentList({
               <ul className="mt-1 space-y-1">
                 {agent.currentWork.map((issue) => (
                   <li key={issue.id} className="break-words text-sm">
-                    <Link href={`/issues/${issue.id}`} className="text-teal-700 underline decoration-teal-300 underline-offset-2 hover:text-teal-900">
+                    <Link href={issue.path} className="text-teal-700 underline decoration-teal-300 underline-offset-2 hover:text-teal-900">
                       {issue.title}
                     </Link>
                     {issue.categoryName ? <span className="text-slate-500"> · {issue.categoryName}</span> : null}

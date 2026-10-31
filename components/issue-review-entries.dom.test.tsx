@@ -52,15 +52,9 @@ describe("TestVerdictsPanel (#review-entries)", () => {
     expect(screen.getByText(verdict.summary)).toBeInTheDocument();
     expect(screen.getByText(verdict.description)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "PR #42" })).toHaveAttribute("href", PR);
-    expect(screen.getByText("@ abc1234")).toBeInTheDocument();
+    expect(screen.getByText(/abc1234/)).toBeInTheDocument();
     expect(screen.getByText("Which Safari version?")).toBeInTheDocument();
     expect(screen.queryByText("Earlier code")).toBeNull();
-    expect(screen.getByTestId("test-verdicts-people-note")).toHaveTextContent("People don't judge");
-  });
-
-  it("says when there are none yet", () => {
-    render(<TestVerdictsPanel bugId="bug1" verdicts={[]} canReply />);
-    expect(screen.getByText("No judgements yet.")).toBeInTheDocument();
   });
 
   it("replies to a verdict with a plain comment naming it", async () => {

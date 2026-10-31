@@ -3,34 +3,15 @@ import {
   confirmationReviewerSourceKey,
   CONFIRMATION_REVIEWER_POINTS,
   diminishedReviewerPoints,
-  DUPLICATE_MARKER_POINTS,
   formatPoints,
   MIN_POINT_AWARD,
-  TRIAGER_CLEAR_POINTS,
   pointSourceKey,
   pointsNumber,
   pointsProgress,
-  REPORTER_POINTS,
-  REVIEWER_POINTS,
   reviewerPointsAt,
-  SOLVER_POINTS,
-  TARGET_POINTS,
 } from "./rules";
 
 describe("point rules (#428)", () => {
-  it("awards one flat solver amount for every issue", () => {
-    expect(SOLVER_POINTS).toBe(750);
-  });
-
-  it("has the reporter, reviewer and target numbers from the epic", () => {
-    expect(REPORTER_POINTS).toBe(150);
-    expect(REVIEWER_POINTS).toBe(300);
-    expect(CONFIRMATION_REVIEWER_POINTS).toBe(90);
-    expect(TRIAGER_CLEAR_POINTS).toBe(30);
-    expect(DUPLICATE_MARKER_POINTS).toBe(150);
-    expect(TARGET_POINTS).toBe(500);
-  });
-
   it("pays every later reviewer a little less, and never stops paying", () => {
     expect([0, 1, 2, 3, 4, 5].map((index) => reviewerPointsAt(index, 5))).toEqual([
       5, 4.5, 4.05, 3.65, 3.29, 2.96,

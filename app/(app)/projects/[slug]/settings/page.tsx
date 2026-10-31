@@ -66,7 +66,7 @@ export default async function ProjectSettingsPage({
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="space-y-2">
-        <Link href="/projects" className="text-sm text-zk-accent hover:underline">← Projects</Link>
+        <Link href="/org/projects" className="text-sm text-zk-accent hover:underline">← Projects</Link>
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">{project.name} settings</h1>
         <p className="text-sm text-zk-text2">Owners and admins can update project details and connect its GitHub App installation.</p>
       </div>

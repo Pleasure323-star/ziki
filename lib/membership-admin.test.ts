@@ -7,7 +7,6 @@ import {
   refuseMemberRemoval,
   refuseMembershipRoleChange,
   removeMembership,
-  tenantMemberWhere,
 } from "./membership-admin";
 
 describe("refuseMembershipRoleChange", () => {
@@ -179,25 +178,6 @@ describe("refuseLeave", () => {
   it("keeps the last owner", () => {
     expect(refuseLeave({ target: { role: "owner" }, ownerCount: 1 })).toBe("last-owner");
     expect(refuseLeave({ target: null, ownerCount: 0 })).toBe("not-found");
-  });
-});
-
-describe("tenantMemberWhere", () => {
-  it("always scopes the list to one organization", () => {
-    expect(tenantMemberWhere("tenant-ziki", "")).toEqual({ tenantId: "tenant-ziki" });
-    expect(tenantMemberWhere("tenant-ziki", "   ")).toEqual({ tenantId: "tenant-ziki" });
-  });
-
-  it("searches name and email inside that organization only", () => {
-    expect(tenantMemberWhere("tenant-ziki", "ada")).toEqual({
-      tenantId: "tenant-ziki",
-      user: {
-        OR: [
-          { name: { contains: "ada", mode: "insensitive" } },
-          { email: { contains: "ada", mode: "insensitive" } },
-        ],
-      },
-    });
   });
 });
 

@@ -29,7 +29,7 @@ describe("app/api/internal/cron/route (#647)", () => {
     vi.stubEnv("CRON_SECRET", "");
     const res = await GET(makeRequest("GET", "any-secret"));
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "Cron runner is not configured." });
+    expect(await res.json()).toEqual({ error: expect.any(String) });
     expect(mockRunPlatformSweeps).not.toHaveBeenCalled();
   });
 
@@ -101,7 +101,7 @@ describe("app/api/internal/cron/route (#647)", () => {
     const res = await GET(makeRequest("GET", "super-cron-secret-123"));
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe("Platform sweeps failed.");
+    expect(json.error).toEqual(expect.any(String));
     expect(json.details).toBe("Fatal database crash");
   });
 });

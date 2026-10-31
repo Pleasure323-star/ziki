@@ -9,7 +9,13 @@ vi.mock("@/lib/mail", () => ({ sendMail: vi.fn(), canSendMail: vi.fn(() => true)
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findMany: vi.fn() },
-    bug: { findUnique: vi.fn(async () => ({ isDeleted: false, assigneeId: null, tenantId: "tenant-1" })) },
+    bug: { findUnique: vi.fn(async () => ({
+      isDeleted: false,
+      assigneeId: null,
+      tenantId: "tenant-1",
+      number: 12,
+      project: { slug: "ziki" },
+    })) },
     notification: { createMany: vi.fn() },
     issueWatch: { findMany: vi.fn(async () => []) },
   },
@@ -77,6 +83,7 @@ describe("deliverNotifications", () => {
     const call = (prisma.notification.createMany as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(call.data.map((row: { userId: string }) => row.userId)).toEqual(["bob"]);
     expect(call.data.map((row: { tenantId: string }) => row.tenantId)).toEqual(["tenant-1"]);
+    expect(call.data.map((row: { url: string }) => row.url)).toEqual(["/ziki/12?comment=c1#comment-c1"]);
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0][0].to).toBe("bob@x.dev");
   });

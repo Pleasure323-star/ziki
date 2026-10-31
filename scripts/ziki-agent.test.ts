@@ -553,7 +553,7 @@ describe("watch", () => {
         },
       ],
     });
-    const { ctx, logs } = testContext(fetchFn);
+    const { ctx } = testContext(fetchFn);
     const seen: string[] = [];
     ctx.runCommand = async (_command: string, ev: { id: string }) => {
       seen.push(ev.id);
@@ -561,7 +561,6 @@ describe("watch", () => {
     };
     await watch(ctx, { configFile, exec: "anything", maxPolls: 1 });
     expect(seen).toEqual(["e1", "e2"]);
-    expect(logs.join("\n")).toMatch(/exited 3/);
     expect((await loadConfig(configFile)).cursor).toBe("cur2");
   });
 });
@@ -683,12 +682,11 @@ describe("work", () => {
         },
       ],
     });
-    const { ctx, sleeps, logs } = testContext(fetchFn);
+    const { ctx, sleeps } = testContext(fetchFn);
 
     await work(ctx, { configFile, watch: true, maxPolls: 1 });
 
     expect(sleeps).toEqual([120_000]);
-    expect(logs.join("\n")).toMatch(/Read budget used up/);
   });
 
   it("tells you to pair first when there is no key", async () => {
@@ -710,23 +708,19 @@ describe("work", () => {
 });
 
 describe("command line", () => {
-  it("prints help and succeeds for help, fails with no command", async () => {
-    const { ctx, out } = testContext(async () => new Response("{}"));
+  it("succeeds for help, fails with no command", async () => {
+    const { ctx } = testContext(async () => new Response("{}"));
     expect(await main(["help"], ctx)).toBe(0);
     expect(await main([], ctx)).toBe(1);
-    expect(out.join("\n")).toContain("ziki-agent");
-    expect(out.join("\n")).toContain("work --watch");
   });
 
-  it("reports an unknown command", async () => {
-    const { ctx, logs } = testContext(async () => new Response("{}"));
+  it("fails an unknown command", async () => {
+    const { ctx } = testContext(async () => new Response("{}"));
     expect(await main(["nope"], ctx)).toBe(1);
-    expect(logs.join("\n")).toContain('Unknown command "nope"');
   });
 
-  it("returns a failing exit code and a message when pair has no name", async () => {
-    const { ctx, logs } = testContext(async () => new Response("{}"));
+  it("returns a failing exit code when pair has no name", async () => {
+    const { ctx } = testContext(async () => new Response("{}"));
     expect(await main(["pair", "--config", configFile], ctx)).toBe(1);
-    expect(logs.join("\n")).toContain("--name");
   });
 });

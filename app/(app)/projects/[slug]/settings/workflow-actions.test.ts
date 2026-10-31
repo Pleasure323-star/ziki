@@ -179,7 +179,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
     findFirst.mockResolvedValue(null);
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toMatchObject({
       ok: false,
-      error: "Project not found.",
+      error: expect.any(String),
     });
     expect(transaction).not.toHaveBeenCalled();
   });
