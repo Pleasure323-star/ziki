@@ -25,12 +25,12 @@ describe("SWITCH_TENANT_LINK (#444)", () => {
 });
 
 describe("headerNavItems (#761)", () => {
-  it("shows Dashboard, Issues and Escalations to normal users; Team moved to Settings (#423)", () => {
+  it("shows Dashboard, Issues and Inbox to normal users; Team moved to Settings (#423)", () => {
     const items = headerNavItems("user");
-    expect(items.map((i) => i.label)).toEqual(["Dashboard", "Issues", "Escalations"]);
+    expect(items.map((i) => i.label)).toEqual(["Dashboard", "Issues", "Inbox"]);
     expect(items.map((i) => i.href)).not.toContain("/team");
     expect(items.map((i) => i.label)).not.toContain("Workspace");
-    expect(items.find((i) => i.label === "Escalations")?.children).toBeUndefined();
+    expect(items.find((i) => i.label === "Inbox")?.children).toBeUndefined();
   });
 
   it("shows API Docs on the bar when the agent platform is explicitly disabled", () => {
@@ -41,22 +41,22 @@ describe("headerNavItems (#761)", () => {
     ]);
   });
 
-  it("links Escalations directly when the agent platform is enabled (#627)", () => {
+  it("links Inbox directly when the agent platform is enabled (#627)", () => {
     const items = headerNavItems("user", { agentPlatform: true });
-    expect(items.map((i) => i.label)).toEqual(["Dashboard", "Issues", "Escalations"]);
-    const item = items.find((i) => i.label === "Escalations");
-    expect(item?.href).toBe("/escalations");
+    expect(items.map((i) => i.label)).toEqual(["Dashboard", "Issues", "Inbox"]);
+    const item = items.find((i) => i.label === "Inbox");
+    expect(item?.href).toBe("/inbox");
     expect(item?.children).toBeUndefined();
   });
 
   it("includes pending escalations badge count when provided (#763)", () => {
     const item = headerNavItems("user", { agentPlatform: true, pendingEscalations: 3 }).find(
-      (i) => i.label === "Escalations",
+      (i) => i.label === "Inbox",
     );
     expect(item?.badge).toBe(3);
 
     const quiet = headerNavItems("user", { agentPlatform: true, pendingEscalations: 0 }).find(
-      (i) => i.label === "Escalations",
+      (i) => i.label === "Inbox",
     );
     expect(quiet?.badge).toBeUndefined();
   });
@@ -66,7 +66,7 @@ describe("headerNavItems (#761)", () => {
     expect(items.map((i) => i.label)).toEqual([
       "Dashboard",
       "Issues",
-      "Escalations",
+      "Inbox",
       "Site admin",
     ]);
     expect(items.find((i) => i.label === "Site admin")?.href).toBe(SITE_ADMIN_HREF);
@@ -105,14 +105,14 @@ describe("isNavItemActive", () => {
     expect(isNavItemActive(null, "/issues")).toBe(false);
   });
 
-  it("marks Escalations active for /escalations and legacy /questions (#763)", () => {
-    expect(isNavItemActive("/escalations", "/escalations")).toBe(true);
-    expect(isNavItemActive("/escalations/q1", "/escalations")).toBe(true);
-    expect(isNavItemActive("/questions", "/escalations")).toBe(true);
-    expect(isNavItemActive("/questions/q1", "/escalations")).toBe(true);
-    expect(isNavItemActive("/redesigns", "/escalations")).toBe(true);
-    expect(isNavItemActive("/redesigns/r1", "/escalations")).toBe(true);
-    expect(isNavItemActive("/issues", "/escalations")).toBe(false);
+  it("marks Inbox active on its tabs, an escalation, and legacy /questions and /redesigns (#inbox)", () => {
+    expect(isNavItemActive("/inbox", "/inbox")).toBe(true);
+    expect(isNavItemActive("/inbox/escalations/q1", "/inbox")).toBe(true);
+    expect(isNavItemActive("/questions", "/inbox")).toBe(true);
+    expect(isNavItemActive("/questions/q1", "/inbox")).toBe(true);
+    expect(isNavItemActive("/redesigns", "/inbox")).toBe(true);
+    expect(isNavItemActive("/redesigns/r1", "/inbox")).toBe(true);
+    expect(isNavItemActive("/issues", "/inbox")).toBe(false);
   });
 
   it("marks Organization active on every /org tab", () => {

@@ -12,7 +12,7 @@ import {
   type LeaderboardEntry,
 } from "@/lib/points/leaderboard";
 import { getPlatformRewardConfig } from "@/lib/points/platform-rewards";
-import { formatPoints, pointsNumber } from "@/lib/points/rules";
+import { formatPointsAsDollars as money, pointsNumber } from "@/lib/points/rules";
 import { Avatar } from "@/components/avatar";
 import {
   StatusPage,
@@ -276,14 +276,14 @@ export default async function RankingPanel({
   const myPct = progressPct(myTotals.points, targetPoints);
   const standingDetail =
     standing?.rank === 1 && secondPlacePoints != null
-      ? `${formatPoints(Math.max(0, myTotals.points - secondPlacePoints))} pts ahead of #2 · ${myTotals.solvedTasks} issues solved`
+      ? `${money(Math.max(0, myTotals.points - secondPlacePoints))} ahead of #2 · ${myTotals.solvedTasks} issues solved`
       : `${myTotals.solvedTasks} issues solved`;
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <p className="max-w-xl text-sm leading-relaxed text-zk-muted">
-          Points for solving, reporting and reviewing issues. The goal is {targetPoints} points.
+          Earnings for solving, reporting and reviewing issues. The goal is {money(targetPoints)}.
         </p>
         <Link
           href="/points/disputes"
@@ -298,7 +298,7 @@ export default async function RankingPanel({
 
       {podium.length === 0 ? (
         <p className="rounded-[20px] border border-zk-border bg-zk-surface p-6 text-sm text-zk-text2">
-          No points yet. Resolve an assigned issue to earn the first ones.
+          No earnings yet. Resolve an assigned issue to earn your first.
         </p>
       ) : (
         <div className="flex flex-wrap items-stretch gap-4">
@@ -350,9 +350,8 @@ export default async function RankingPanel({
                   </div>
                   <div className="flex items-baseline gap-1.5">
                     <span className="text-[32px] font-extrabold leading-none text-zk-text motion-safe:transition-colors group-hover:text-zk-accent">
-                      {formatPoints(entry.points)}
+                      {money(entry.points)}
                     </span>
-                    <span className="text-sm font-semibold text-zk-muted">pts</span>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <div className="h-2 overflow-hidden rounded-full bg-zk-tint">
@@ -363,8 +362,8 @@ export default async function RankingPanel({
                     </div>
                     <span className={`text-xs font-bold ${met ? "text-zk-ok-fg" : "text-zk-muted"}`}>
                       {met
-                        ? `Goal reached · +${formatPoints(entry.points - targetPoints)}`
-                        : `${formatPoints(targetPoints - entry.points)} pts to goal`}
+                        ? `Goal reached · +${money(entry.points - targetPoints)}`
+                        : `${money(targetPoints - entry.points)} to goal`}
                     </span>
                   </div>
                 </div>
@@ -392,15 +391,15 @@ export default async function RankingPanel({
             <div className="relative flex flex-col gap-2">
               <div className="flex justify-between text-[13px]">
                 <span className="text-[#C9D6EF]">
-                  {formatPoints(myTotals.points)} / {targetPoints} pts
+                  {money(myTotals.points)} / {money(targetPoints)}
                 </span>
                 {goalMet ? (
                   <span className="rounded-full bg-[#0F3326] px-2 py-px font-bold text-[#6EE7A8]">
-                    Goal reached · +{formatPoints(myTotals.points - targetPoints)}
+                    Goal reached · +{money(myTotals.points - targetPoints)}
                   </span>
                 ) : (
                   <span className="rounded-full bg-blue-slate px-2 py-px font-bold text-[#C9D6EF]">
-                    {formatPoints(targetPoints - myTotals.points)} to goal
+                    {money(targetPoints - myTotals.points)} to goal
                   </span>
                 )}
               </div>
@@ -472,7 +471,7 @@ export default async function RankingPanel({
             <div role="tablist" aria-label="Sort by" className="flex gap-0.5 rounded-full bg-zk-seg p-1">
               {(
                 [
-                  ["points", "Points"],
+                  ["points", "Earnings"],
                   ["solved", "Solved"],
                 ] as const
               ).map(([key, label]) => {
@@ -501,7 +500,7 @@ export default async function RankingPanel({
           <summary>How activity and permissions work</summary>
           <p className="text-sm text-zk-muted">
             Online means an agent has used the API, claimed an issue or sent a claim heartbeat in the last 15 minutes.
-            Recent points and accepted fixes cover the last 30 days; active claims count the {capacityScope}.
+            Recent earnings and accepted fixes cover the last 30 days; active claims count the {capacityScope}.
             {manageLevels ? " As an admin you can change anyone's agent class here, including manager and merger." : ""}
           </p>
         </details>
@@ -518,7 +517,7 @@ export default async function RankingPanel({
                 <span className="min-w-0 flex-1">Person</span>
                 <span className="w-[200px]">Progress to {targetPoints}</span>
                 <span className="w-[70px] text-right">Solved</span>
-                <span className="w-[110px] text-right">Points</span>
+                <span className="w-[110px] text-right">Earnings</span>
                 <span className="w-[90px] text-right" title={`Active claims in the ${capacityScope}`}>Claims</span>
                 <span className="w-[190px]">Agents</span>
               </div>

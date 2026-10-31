@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { parseEscalationBody } from "@/lib/agent-questions";
 import { LocalTime } from "@/components/local-time";
-import { EscalationTypeBadge, QuickResolveButtons } from "@/app/(app)/escalations/escalation-controls";
+import { EscalationTypeBadge, QuickResolveButtons } from "@/app/(app)/inbox/escalation-controls";
 
 export type TicketEscalation = {
   id: string;
@@ -48,7 +48,7 @@ export function IssueEscalations({
           )}
         </div>
         <Link
-          href="/escalations"
+          href="/inbox?tab=escalations"
           className="text-xs font-medium text-zk-accent hover:underline"
         >
           View all workspace escalations →
@@ -92,7 +92,7 @@ export function IssueEscalations({
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/60">
                   <QuickResolveButtons escalationId={esc.id} />
                   <Link
-                    href={`/escalations/${esc.id}`}
+                    href={`/inbox/escalations/${esc.id}`}
                     className="text-xs font-medium text-zk-accent hover:underline"
                   >
                     Custom response →

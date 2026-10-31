@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   QuickResolveButtons,
   EscalationAnswerForm,
-} from "@/app/(app)/escalations/escalation-controls";
-import { quickResolveEscalationAction } from "@/app/(app)/escalations/actions";
+} from "@/app/(app)/inbox/escalation-controls";
+import { quickResolveEscalationAction } from "@/app/(app)/inbox/actions";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
 
-vi.mock("@/app/(app)/escalations/actions", () => ({
+vi.mock("@/app/(app)/inbox/actions", () => ({
   quickResolveEscalationAction: vi.fn(),
   answerEscalationAction: vi.fn(),
 }));

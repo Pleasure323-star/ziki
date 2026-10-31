@@ -205,7 +205,7 @@ describe("claim gate and human page", () => {
     expect(db.redesignProposal.count).toHaveBeenCalledTimes(4);
     expect(db.redesignProposal.count).toHaveBeenCalledWith({ where: { bugId: "issue", status: "proposed" } });
   });
-  it("sends the redesign list to the Redesign type on escalations", () => {
-    expect(() => RedesignsPage()).toThrow("redirect:/escalations?type=Redesign");
+  it("sends the redesign list to the Inbox's escalations", () => {
+    expect(() => RedesignsPage()).toThrow("redirect:/inbox?tab=escalations");
   });
 });

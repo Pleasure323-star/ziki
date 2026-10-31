@@ -119,7 +119,7 @@ export function KeyboardShortcuts({
           break;
         case "go-notifications":
           event.preventDefault();
-          router.push("/notifications");
+          router.push("/inbox");
           break;
         case "show-help":
           event.preventDefault();

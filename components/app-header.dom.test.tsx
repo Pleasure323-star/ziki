@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { switchActiveRoleAction } from "@/app/actions/auth";
@@ -49,7 +49,7 @@ describe("notification preview (#615)", () => {
   it("toggles without navigation and names the unread count", async () => {
     const user = userEvent.setup({ delay: null });
     renderHeader({ unreadCount: 3 });
-    const bell = screen.getByRole("button", { name: /notifications.*3/i });
+    const bell = screen.getByRole("button", { name: /inbox.*3/i });
     const location = window.location.href;
     expect(recentNotificationsAction).not.toHaveBeenCalled();
     await user.click(bell);
@@ -57,7 +57,7 @@ describe("notification preview (#615)", () => {
     expect(await screen.findByText(/no notifications/i)).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("region", { name: "Recent notifications" }));
     expect(window.location.href).toBe(location);
-    expect(screen.getByRole("link", { name: "View all notifications" }).getAttribute("href")).toBe("/notifications");
+    expect(screen.getByRole("link", { name: "Open inbox" }).getAttribute("href")).toBe("/inbox");
     await user.click(bell);
     expect(bell.getAttribute("aria-expanded")).toBe("false");
   });
@@ -68,9 +68,9 @@ describe("notification preview (#615)", () => {
       { id: "n2", title: "New comment", createdAt: new Date("2026-10-21T12:00:00Z"), readAt: new Date() },
     ]);
     renderHeader();
-    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Notifications" }));
+    await userEvent.setup({ delay: null }).click(screen.getByRole("button", { name: "Inbox" }));
     const link = await screen.findByRole("link", { name: /Unread: Issue assigned to you/ });
-    expect(link.getAttribute("href")).toBe(`${BASE_PATH}/notifications/n1`);
+    expect(link.getAttribute("href")).toBe(`${BASE_PATH}/inbox/notifications/n1`);
     expect(link.querySelector("time")?.dateTime).toBe("2026-10-22T12:00:00.000Z");
     expect(screen.getByRole("link", { name: /New comment/ }).textContent).not.toContain("Unread:");
     expect(recentNotificationsAction).toHaveBeenCalledTimes(1);
@@ -79,7 +79,7 @@ describe("notification preview (#615)", () => {
   it("supports keyboard opening, Escape focus restoration and outside dismissal", async () => {
     const user = userEvent.setup({ delay: null });
     renderHeader();
-    const bell = screen.getByRole("button", { name: "Notifications" });
+    const bell = screen.getByRole("button", { name: "Inbox" });
     bell.focus();
     await user.keyboard("{Enter}");
     await screen.findByText(/no notifications/i);
@@ -96,7 +96,7 @@ describe("notification preview (#615)", () => {
     vi.mocked(recentNotificationsAction).mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
     const user = userEvent.setup({ delay: null });
     renderHeader();
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "Inbox" }));
     expect(screen.getByRole("status")).toBeTruthy();
     reject(new Error("offline"));
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -114,14 +114,14 @@ describe("notification preview (#615)", () => {
         <a href="#main">Page content</a>
       </>,
     );
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "Inbox" }));
     await screen.findByText(/no notifications/i);
     await user.tab();
-    expect(document.activeElement).toBe(screen.getByRole("link", { name: "View all notifications" }));
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Open inbox" }));
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole("link", { name: "Page content" }));
     expect(screen.queryByRole("region", { name: "Recent notifications" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Notifications" }));
+    await user.click(screen.getByRole("button", { name: "Inbox" }));
     view.rerender(
       <>
         <AppHeader activeTenantId="t2" />
@@ -136,7 +136,7 @@ describe("notification preview (#615)", () => {
     vi.mocked(recentNotificationsAction).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
     const user = userEvent.setup({ delay: null });
     renderHeader();
-    const bell = screen.getByRole("button", { name: "Notifications" });
+    const bell = screen.getByRole("button", { name: "Inbox" });
     await user.click(bell);
     await user.click(bell);
     await user.click(bell);
@@ -196,16 +196,19 @@ describe("account menu role switch", () => {
     await user.click(screen.getByRole("button", { name: "Agents" }));
     expect(screen.getByRole("link", { name: /Pixel/ }).getAttribute("href")).toBe("/settings/agent/Pixel");
     expect(screen.getByRole("link", { name: /Scout Two/ }).getAttribute("href")).toBe("/settings/agent/Scout%20Two");
-    // Each agent wears the same robot avatar it has everywhere else.
-    expect(screen.getByRole("link", { name: /Pixel/ }).querySelector('[data-testid="agent-avatar"]')).toBeTruthy();
+    // Each agent wears the same robot avatar it has everywhere else, and can be sent to earn.
+    const row = screen.getByRole("link", { name: /Pixel/ }).parentElement!;
+    expect(row.querySelector('[data-testid="agent-avatar"]')).toBeTruthy();
+    expect(within(row).getByRole("link", { name: /earn/i }).getAttribute("href")).toBe("/settings/agent/Pixel");
   });
 
-  it("sends Manage agents and Create agent to separate pages", async () => {
+  it("has one way to manage agents", async () => {
     const user = userEvent.setup({ delay: null });
     renderHeader();
     await user.click(screen.getByRole("button", { name: "Agents" }));
-    expect(screen.getByRole("link", { name: "Manage agents" }).getAttribute("href")).toBe("/agents");
-    expect(screen.getByRole("link", { name: "Create agent" }).getAttribute("href")).toBe("/settings/connect");
+    expect(screen.getByRole("link", { name: /manage agents/i }).getAttribute("href")).toBe("/agents");
+    expect(screen.queryByRole("link", { name: /create agent/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /get started/i })).toBeNull();
   });
 
   it("closes the Agents menu when a destination is chosen", async () => {
@@ -217,14 +220,14 @@ describe("account menu role switch", () => {
     expect(screen.getByRole("button", { name: "Agents" }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("opens Escalations from an envelope in the bar, with the waiting count, not from the account menu", async () => {
+  it("counts unread notifications and waiting escalations on one envelope, which leads to the Inbox (#inbox)", async () => {
     const user = userEvent.setup({ delay: null });
-    renderHeader({ pendingEscalationsCount: 5 });
-    const link = screen.getByRole("link", { name: /escalations.*5/i });
-    expect(link.getAttribute("href")).toBe("/escalations");
-    expect(link.textContent).toBe("5");
-    await user.click(screen.getByRole("button", { name: /account menu/i }));
-    expect(screen.getAllByRole("link", { name: /escalations/i })).toEqual([link]);
+    renderHeader({ unreadCount: 2, pendingEscalationsCount: 5 });
+    const envelope = screen.getByRole("button", { name: /inbox.*7/i });
+    expect(envelope.textContent).toContain("7");
+    await user.click(envelope);
+    expect(screen.getByRole("link", { name: /5 escalations/i }).getAttribute("href")).toBe("/inbox?tab=escalations");
+    expect(screen.getByRole("link", { name: "Open inbox" }).getAttribute("href")).toBe("/inbox");
   });
 
   it("keeps New issue and the theme toggle out of the bar", () => {

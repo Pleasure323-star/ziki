@@ -8,7 +8,7 @@ export default function RedesignNotFound() {
       code="404"
       title="We couldn't find that redesign proposal"
       actions={
-        <Link href="/escalations?type=Redesign" className={primaryActionClass}>
+        <Link href="/inbox?tab=escalations" className={primaryActionClass}>
           Escalations
         </Link>
       }

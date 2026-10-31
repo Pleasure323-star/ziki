@@ -239,7 +239,7 @@ export default async function AgentPage({ params }: { params: Promise<{ name: st
                       <p className="mt-1 whitespace-pre-wrap break-words text-sm text-zk-text">{entry.answer}</p>
                     </div>
                   ) : (
-                    <Link href={`/escalations/${entry.id}`} className={`mt-2 inline-block text-sm ${agentsLink}`}>
+                    <Link href={`/inbox/escalations/${entry.id}`} className={`mt-2 inline-block text-sm ${agentsLink}`}>
                       Answer →
                     </Link>
                   )}

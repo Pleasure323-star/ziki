@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function QuestionsRedirect() {
-  redirect("/escalations");
+  redirect("/inbox?tab=escalations");
 }

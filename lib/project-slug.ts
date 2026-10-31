@@ -23,6 +23,7 @@ export const RESERVED_PROJECT_SLUGS: ReadonlySet<string> = new Set([
   "dashboard",
   "docs",
   "escalations",
+  "inbox",
   "feed",
   "ideas",
   "issues",

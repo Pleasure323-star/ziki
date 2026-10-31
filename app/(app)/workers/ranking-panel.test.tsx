@@ -109,7 +109,7 @@ beforeEach(() => {
 });
 
 describe("ranking: leaderboard on top", () => {
-  it("shows the top-3 podium, your standing, and Points/Solved sort", async () => {
+  it("shows the top-3 podium, your standing in dollars, and Earnings/Solved sort", async () => {
     requireUser.mockResolvedValue({ id: "ann" });
     rankFor.mockResolvedValue({ rank: 1, total: 3 });
     totals.mockResolvedValue({ points: 516, solvedTasks: 3 });
@@ -124,8 +124,8 @@ describe("ranking: leaderboard on top", () => {
     const html = await render();
     expect(html).toContain("Your standing");
     expect(html).toContain("of 3 people");
-    expect(html).toContain("120 pts ahead of #2");
-    expect(html).toContain("Goal reached · +16");
+    expect(html).toContain("$1.20 ahead of #2");
+    expect(html).toContain("Goal reached · +$0.16");
     expect(html).toContain('href="/workers?page=1&amp;limit=50&amp;sort=solved"');
     expect(listOrder(html)).toEqual(["Ann", "Bo", "Cy"]);
     expect(html).toContain(">You<");
@@ -162,7 +162,7 @@ describe("ranking: the whole team below", () => {
     const html = await render();
     const doc = new DOMParser().parseFromString(html, "text/html");
     expect(html).toContain(">Admin<");
-    expect(html).toContain("+12 in 30d");
+    expect(html).toContain("+$0.12 in 30d");
     expect(doc.body.textContent).toContain("1 / 2");
     const toggle = doc.querySelector('button[aria-controls="team-agents-viewer-1"]');
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");

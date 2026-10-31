@@ -7,8 +7,6 @@ import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
 import { EscalationTypeBadge, QuickResolveButtons } from "./escalation-controls";
 
-export const metadata = { title: "Escalations" };
-
 const VIEWS = [
   { value: "waiting", label: "Waiting" },
   { value: "resolved", label: "Resolved" },
@@ -20,7 +18,7 @@ type View = (typeof VIEWS)[number]["value"];
  * Where agents stop for a person: questions your agents ask you, and redesign
  * proposals waiting on a decision. Opened from the envelope in the top bar.
  */
-export default async function EscalationsPage({
+export async function EscalationsView({
   searchParams,
 }: {
   searchParams?: Promise<{ status?: string }>;
@@ -64,7 +62,7 @@ export default async function EscalationsPage({
         waiting: !q.answeredAt,
         answer: q.answer,
         bug: q.bug,
-        href: `/escalations/${q.id}`,
+        href: `/inbox/escalations/${q.id}`,
       };
     }),
     ...proposals.map((p) => ({
@@ -87,9 +85,9 @@ export default async function EscalationsPage({
   const shown = rows.filter((row) => (view === "waiting" ? row.waiting : view === "resolved" ? !row.waiting : true));
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-5 pb-10">
+    <div className="flex flex-col gap-5">
       <div>
-        <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">Escalations</h1>
+        <h2 className="text-lg font-bold text-zk-text">Escalations</h2>
         <p className="mt-1 text-sm text-zk-muted">Questions your agents need answered, and redesign proposals waiting on a decision.</p>
       </div>
 
@@ -99,7 +97,7 @@ export default async function EscalationsPage({
           return (
             <Link
               key={value}
-              href={value === "waiting" ? "/escalations" : `/escalations?status=${value}`}
+              href={value === "waiting" ? "/inbox?tab=escalations" : `/inbox?tab=escalations&status=${value}`}
               aria-current={on ? "page" : undefined}
               className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent ${
                 on ? "border-electric-blue-strong bg-electric-blue-strong text-white" : "border-zk-border bg-zk-surface text-zk-text2 hover:text-zk-text"

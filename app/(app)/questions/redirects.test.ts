@@ -7,13 +7,13 @@ import QuestionsRedirect from "./page";
 import QuestionIdRedirect from "./[id]/page";
 
 describe("Legacy /questions redirects (#763)", () => {
-  it("redirects /questions to /escalations", () => {
+  it("redirects /questions to the Inbox's escalations", () => {
     QuestionsRedirect();
-    expect(redirects.redirect).toHaveBeenCalledWith("/escalations");
+    expect(redirects.redirect).toHaveBeenCalledWith("/inbox?tab=escalations");
   });
 
-  it("redirects /questions/[id] to /escalations/[id]", async () => {
+  it("redirects /questions/[id] to /inbox/escalations/[id]", async () => {
     await QuestionIdRedirect({ params: Promise.resolve({ id: "q-123" }) });
-    expect(redirects.redirect).toHaveBeenCalledWith("/escalations/q-123");
+    expect(redirects.redirect).toHaveBeenCalledWith("/inbox/escalations/q-123");
   });
 });

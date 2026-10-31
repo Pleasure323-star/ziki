@@ -33,18 +33,6 @@ export function agentPageHref(agentName: string): string {
   return `/settings/agent/${encodeURIComponent(agentName)}`;
 }
 
-/** Create agent: the connect flow that registers a new agent. */
-export const CREATE_AGENT_HREF = "/settings/connect";
-
-/**
- * The Agents dropdown in the top bar. Both destinations are real pages: the
- * pairing flow to get an agent connected, and the management page.
- */
-export const AGENT_MENU_LINKS: HeaderNavItem[] = [
-  { href: "/settings/agents/pair", label: "Get started" },
-  { href: MANAGE_AGENTS_HREF, label: "Manage agents" },
-];
-
 /** Links shown in the header for the role the user is currently viewing as (#761). */
 export function headerNavItems(
   role?: AppRole | null,
@@ -63,8 +51,8 @@ export function headerNavItems(
 
   if (options?.agentPlatform ?? isAgentPlatformEnabled()) {
     items.push({
-      href: "/escalations",
-      label: "Escalations",
+      href: "/inbox",
+      label: "Inbox",
       ...(pending ? { badge: pending } : {}),
     });
   } else {
@@ -107,10 +95,10 @@ export function isNavItemActive(pathname: string | null, href: string): boolean 
       isProjectIssuePath(path, { subpages: true })
     );
   }
-  if (href === "/escalations" || href === "/questions") {
+  if (href === "/inbox") {
     return (
-      path === "/escalations" ||
-      path.startsWith("/escalations/") ||
+      path === "/inbox" ||
+      path.startsWith("/inbox/") ||
       path === "/questions" ||
       path.startsWith("/questions/") ||
       path === "/redesigns" ||

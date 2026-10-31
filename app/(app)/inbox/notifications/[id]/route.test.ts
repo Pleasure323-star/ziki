@@ -38,12 +38,12 @@ const setTenantMock = vi.mocked(setActiveTenantCookie) as unknown as ReturnType<
 const setProjectMock = vi.mocked(setActiveProjectCookie) as unknown as ReturnType<typeof vi.fn>;
 
 function makeRequest(id: string, origin = "http://localhost:3000") {
-  return GET(new NextRequest(`${origin}/notifications/${id}`), {
+  return GET(new NextRequest(`${origin}/inbox/notifications/${id}`), {
     params: Promise.resolve({ id }),
   });
 }
 
-describe("GET /notifications/[id]", () => {
+describe("GET /inbox/notifications/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionUser.mockResolvedValue({ userId: "u1" });
@@ -59,15 +59,15 @@ describe("GET /notifications/[id]", () => {
     expect(findUnique).not.toHaveBeenCalled();
   });
 
-  it("redirects to /notifications if notification does not exist", async () => {
+  it("redirects to /inbox if notification does not exist", async () => {
     findUnique.mockResolvedValue(null);
     const res = await makeRequest("missing-notif");
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("/notifications");
+    expect(res.headers.get("location")).toBe("/inbox");
     expect(update).not.toHaveBeenCalled();
   });
 
-  it("redirects to /notifications if notification belongs to someone else", async () => {
+  it("redirects to /inbox if notification belongs to someone else", async () => {
     findUnique.mockResolvedValue({
       userId: "u2",
       url: "/issues/bug-1",
@@ -75,7 +75,7 @@ describe("GET /notifications/[id]", () => {
     });
     const res = await makeRequest("notif-other");
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("/notifications");
+    expect(res.headers.get("location")).toBe("/inbox");
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -114,7 +114,7 @@ describe("GET /notifications/[id]", () => {
     findUnique.mockResolvedValue({ userId: "u1", tenantId: "tenant-2", url: "/issues/bug-42", readAt: null });
     memberTenantMock.mockResolvedValue(null);
     const res = await makeRequest("notif-left-tenant");
-    expect(res.headers.get("location")).toBe("/notifications");
+    expect(res.headers.get("location")).toBe("/inbox");
     expect(update).not.toHaveBeenCalled();
   });
 

@@ -9,7 +9,7 @@ import {
   EscalationTypeBadge,
   QuickResolveButtons,
   EscalationAnswerForm,
-} from "../escalation-controls";
+} from "../../escalation-controls";
 
 export const metadata = { title: "Resolve Agent Escalation" };
 
@@ -30,7 +30,7 @@ export default async function EscalationDetailPage({
 
   return (
     <article className="mx-auto max-w-2xl space-y-6">
-      <Link href="/escalations" className="inline-flex items-center text-sm font-semibold text-zk-accent hover:underline">
+      <Link href="/inbox?tab=escalations" className="inline-flex items-center text-sm font-semibold text-zk-accent hover:underline">
         ← Back to Escalations
       </Link>
 
