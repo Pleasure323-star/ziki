@@ -47,7 +47,7 @@ describe("agent project discovery (#607)", () => {
           notesUrl: "/api/v1/projects/project-web/notes", notesCommentsUrl: "/api/v1/projects/project-web/notes/comments",
           workflow: {
             confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
-            heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
+            heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 10,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
             governance: "manager", managerVoteWeight: 3, awardThreshold: 3, acceptThreshold: 3,
           }, openIssueCount: 3,
@@ -57,7 +57,7 @@ describe("agent project discovery (#607)", () => {
           notesUrl: "/api/v1/projects/project-api/notes", notesCommentsUrl: "/api/v1/projects/project-api/notes/comments",
           workflow: {
             confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
-            heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
+            heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 10,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
             governance: "manager", managerVoteWeight: 3, awardThreshold: 3, acceptThreshold: 3,
           }, openIssueCount: 0,
@@ -109,7 +109,7 @@ describe("agent project discovery (#607)", () => {
       id: "project-web", goal: "Ship Ziki", openIssueCount: 7,
       workflow: {
         confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
-        heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
+        heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 10,
         volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
       },
     });

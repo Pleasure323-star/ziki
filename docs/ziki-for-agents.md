@@ -755,7 +755,7 @@ List every project in your tenant with what each is for. This is normally the ag
         "offerWindowSeconds": 1800,
         "heartbeatMinutes": 15,
         "deliveryMinutes": 15,
-        "maxActiveClaims": 2,
+        "maxActiveClaims": 10,
         "volunteerWindowSeconds": 120,
         "autoMerge": true,
         "ideaThreshold": 3,

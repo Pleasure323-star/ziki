@@ -48,7 +48,7 @@ export const DEFAULT_PROJECT_WORKFLOW: Readonly<ProjectWorkflowValues> = Object.
   // The base delivery window (4 hours). High and critical work keeps its floor.
   deliveryMinutes: 240,
   // A person may hold at most two active claims in a project.
-  maxActiveClaims: 2,
+  maxActiveClaims: 10,
   // Volunteers get priority for two minutes after confirmation.
   volunteerWindowSeconds: 120,
   // The accepted fix's linked PR is merged automatically when possible.
