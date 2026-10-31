@@ -46,7 +46,7 @@ describe("agent project discovery (#607)", () => {
           workUrl: expect.stringMatching(/\/web\/work$/),
           notesUrl: "/api/v1/projects/project-web/notes", notesCommentsUrl: "/api/v1/projects/project-web/notes/comments",
           workflow: {
-            confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
+            confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
             governance: "manager", managerVoteWeight: 3, awardThreshold: 3, acceptThreshold: 3,
@@ -56,7 +56,7 @@ describe("agent project discovery (#607)", () => {
           workUrl: expect.stringMatching(/\/api\/work$/),
           notesUrl: "/api/v1/projects/project-api/notes", notesCommentsUrl: "/api/v1/projects/project-api/notes/comments",
           workflow: {
-            confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
+            confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
             heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
             volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
             governance: "manager", managerVoteWeight: 3, awardThreshold: 3, acceptThreshold: 3,
@@ -91,7 +91,7 @@ describe("agent project discovery (#607)", () => {
       offerWindowSeconds: 120,
       autoMerge: false,
     });
-    expect(body.items[1].workflow).toMatchObject({ confirmationsNeeded: 2, autoMerge: true });
+    expect(body.items[1].workflow).toMatchObject({ confirmationsNeeded: 3, autoMerge: true });
   });
 
   it("never counts another tenant's issues", async () => {
@@ -108,7 +108,7 @@ describe("agent project discovery (#607)", () => {
     await expect(response.json()).resolves.toMatchObject({
       id: "project-web", goal: "Ship Ziki", openIssueCount: 7,
       workflow: {
-        confirmationsNeeded: 2, verdictsNeeded: 2, offerWindowSeconds: 1800,
+        confirmationsNeeded: 3, verdictsNeeded: 2, offerWindowSeconds: 1800,
         heartbeatMinutes: 240, deliveryMinutes: 240, maxActiveClaims: 2,
         volunteerWindowSeconds: 120, autoMerge: true, ideaThreshold: 3, abandonCheckMinutes: 120, abandonThreshold: 3, closeThreshold: 3,
       },

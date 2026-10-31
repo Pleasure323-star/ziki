@@ -82,10 +82,10 @@ import {
   NO_TENANT_MESSAGE,
 } from "@/lib/tenant-context";
 import { currentTenantAccess } from "@/lib/tenant-access";
-import { awardSolver } from "@/lib/points/award";
+import { award, awardSolver } from "@/lib/points/award";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { correct } from "@/lib/points/correct";
-import { pointSourceKey } from "@/lib/points/rules";
+import { VOTE_POINTS, importanceSourceKey, pointSourceKey } from "@/lib/points/rules";
 import {
   checkRateLimit,
   consumeRateLimit,
@@ -1458,7 +1458,7 @@ export async function toggleVoteAction(
 
   const bug = await prisma.bug.findUnique({
     where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
-    select: { id: true, isDeleted: true },
+    select: { id: true, isDeleted: true, tenantId: true },
   });
   if (!bug || bug.isDeleted) {
     return { error: "Issue not found" };
@@ -1487,6 +1487,15 @@ export async function toggleVoteAction(
     } else {
       await tx.vote.create({
         data: { userId, bugId, value: nextVote },
+      });
+      // The first mark on an issue earns a point, once per person (#vote-points).
+      await award(tx, {
+        tenantId: bug.tenantId,
+        userId,
+        bugId,
+        role: "vote",
+        points: VOTE_POINTS,
+        sourceKey: importanceSourceKey(bugId, userId),
       });
     }
 

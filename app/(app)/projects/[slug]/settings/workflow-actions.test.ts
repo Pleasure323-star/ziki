@@ -35,7 +35,8 @@ function form(values: Record<string, string | number | boolean> = {}) {
   data.set("slug", "web");
   const merged = {
     ideaThreshold: 3,
-    confirmationsNeeded: 3,
+    // One more than the default (3), so a plain save is a change.
+    confirmationsNeeded: 4,
     verdictsNeeded: 2,
     offerWindowSeconds: 1800,
     heartbeatMinutes: 240,
@@ -97,8 +98,8 @@ describe("updateProjectWorkflowAction (#595)", () => {
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toEqual({ ok: true });
     expect(upsert).toHaveBeenCalledWith({
       where: { projectId: "project-1" },
-      update: expect.objectContaining({ confirmationsNeeded: 3 }),
-      create: expect.objectContaining({ projectId: "project-1", confirmationsNeeded: 3 }),
+      update: expect.objectContaining({ confirmationsNeeded: 4 }),
+      create: expect.objectContaining({ projectId: "project-1", confirmationsNeeded: 4 }),
     });
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -106,7 +107,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
         projectId: "project-1",
         actorUserId: "admin",
         action: "workflow.updated",
-        changes: { confirmationsNeeded: { from: 2, to: 3 } },
+        changes: { confirmationsNeeded: { from: 3, to: 4 } },
       }),
     });
     expect(invalidateWorkflow).toHaveBeenCalledWith("project-1");
@@ -193,7 +194,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
   it("does not audit or invalidate an unchanged save", async () => {
     findFirst.mockResolvedValue({ id: "project-1", slug: "web", workflow: DEFAULT_PROJECT_WORKFLOW });
     await expect(
-      updateProjectWorkflowAction(undefined, form({ confirmationsNeeded: 2 })),
+      updateProjectWorkflowAction(undefined, form({ confirmationsNeeded: 3 })),
     ).resolves.toEqual({ ok: true });
     expect(transaction).not.toHaveBeenCalled();
     expect(invalidateWorkflow).not.toHaveBeenCalled();

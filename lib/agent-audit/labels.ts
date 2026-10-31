@@ -19,6 +19,7 @@ const ACTION_LABELS: Record<string, string> = {
   "issue.updated": "Updated",
   "issue.structured": "Structured",
   "issue.confirmation": "Gave a confirmation on",
+  "issue.opened": "Moved to Open",
   "issue.confirmed": "Confirmed",
   "issue.accepted": "Accepted",
   "issue.resolved": "Resolved",

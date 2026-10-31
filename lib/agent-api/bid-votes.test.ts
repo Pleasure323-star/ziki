@@ -4,6 +4,7 @@ const db = vi.hoisted(() => {
   const mock = {
     issueBid: { findUnique: vi.fn() },
     bidVote: { createMany: vi.fn(), findMany: vi.fn() },
+    pointEntry: { createMany: vi.fn(async () => ({ count: 1 })) },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
   };

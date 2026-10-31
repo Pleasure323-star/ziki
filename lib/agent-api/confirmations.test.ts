@@ -6,6 +6,7 @@ type Entry = {
   bugId: string;
   onBehalfOfUserId: string;
   agentId: string | null;
+  weightClass: string;
   verdict: "confirm" | "reject" | "neutral";
   summary: string;
   description: string;
@@ -40,7 +41,7 @@ const audit = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/agents/audit", () => ({ audit }));
 vi.mock("@/lib/workflow", () => ({ workflowFor: vi.fn(async () => ({ confirmationsNeeded: 2 })) }));
 
-import { confirmationSchema, giveConfirmation, isConfirmed, listConfirmations } from "./confirmations";
+import { confirmationSchema, giveConfirmation, isConfirmed, listConfirmations, openConfirmedIssue } from "./confirmations";
 import { IssueApiError } from "./errors";
 
 const scope = { tenantId: "t1", projectId: "p1" };
@@ -110,16 +111,18 @@ beforeEach(() => {
     state.points.push(...fresh);
     return { count: fresh.length };
   });
-  db.issueConfirmation.findUnique.mockImplementation(async ({ where }: { where: { bugId_onBehalfOfUserId: { onBehalfOfUserId: string } } }) =>
-    state.entries.find((e) => e.onBehalfOfUserId === where.bugId_onBehalfOfUserId.onBehalfOfUserId) ?? null,
-  );
+  type Key = { bugId_onBehalfOfUserId_weightClass: { onBehalfOfUserId: string; weightClass: string } };
+  const byKey = (where: Key) => (e: Entry) =>
+    e.onBehalfOfUserId === where.bugId_onBehalfOfUserId_weightClass.onBehalfOfUserId &&
+    e.weightClass === where.bugId_onBehalfOfUserId_weightClass.weightClass;
+  db.issueConfirmation.findUnique.mockImplementation(async ({ where }: { where: Key }) => state.entries.find(byKey(where)) ?? null);
   db.issueConfirmation.upsert.mockImplementation(async ({ where, create, update }: {
-    where: { bugId_onBehalfOfUserId: { onBehalfOfUserId: string } };
+    where: Key;
     create: Omit<Entry, "id" | "createdAt" | "updatedAt">;
     update: Partial<Entry>;
   }) => {
     const at = new Date(Date.UTC(2026, 11, 4, 10, ++state.clock));
-    const existing = state.entries.find((e) => e.onBehalfOfUserId === where.bugId_onBehalfOfUserId.onBehalfOfUserId);
+    const existing = state.entries.find(byKey(where));
     if (existing) {
       Object.assign(existing, update, { updatedAt: at });
       return existing;
@@ -133,6 +136,8 @@ beforeEach(() => {
       .filter((e) => (!where.verdict || where.verdict.in.includes(e.verdict)) && (where.undoneAt !== null || !e.undoneAt))
       .map((e) => ({
         ...e,
+        weightClass: e.weightClass ?? "working",
+        attachments: [],
         agent: e.agentId ? { ownerUserId: state.agentOwners[e.agentId], name: e.agentId } : null,
         onBehalfOf: { name: e.onBehalfOfUserId },
         replies: [],
@@ -156,16 +161,16 @@ describe("confirmationSchema (#issue-confirmations)", () => {
 });
 
 describe("giveConfirmation (#issue-confirmations)", () => {
-  it("records an agent's entry for its owner, and two independent confirms confirm the issue", async () => {
+  it("records an agent's entry for its owner; two confirms confirm the issue, which then waits for an agent to open it", async () => {
     const first = await giveConfirmation(agentOf("agent-bob", "bob"), scope, "bug1", body("confirm"));
     expect(first).toMatchObject({ replaced: false, confirmed: false, newlyConfirmed: false, confirmations: 1, confirmationsNeeded: 2 });
     expect(first.confirmation).toMatchObject({ verdict: "confirm", onBehalfOfUserId: "bob", agentId: "agent-bob" });
     expect(first.confirmation).not.toHaveProperty("severity");
 
     const second = await giveConfirmation(person("cara"), scope, "7", body("confirm"));
-    expect(second).toMatchObject({ confirmed: true, newlyConfirmed: true, confirmations: 2 });
-    expect(state.bug.status).toBe("open");
-    expect(db.bugActivity.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: "status_changed" }) }));
+    expect(second).toMatchObject({ confirmed: true, newlyConfirmed: true, opened: false, confirmations: 2 });
+    // In a manager-governed project a confirmed issue stays until an agent moves it to Open (openConfirmedIssue).
+    expect(state.bug.status).toBe("requires_confirmation");
 
     // Points: each counted confirm earns the reviewer award and the clearance; the reporter is paid once.
     expect(state.points.map((p) => p.sourceKey).sort()).toEqual([
@@ -211,14 +216,34 @@ describe("giveConfirmation (#issue-confirmations)", () => {
     expect(db.bug.update).not.toHaveBeenCalled();
   });
 
-  it("keeps independence: not the filing agent, the reporter (agent or person), or whoever holds the claim", async () => {
-    expect((await rejection(giveConfirmation(agentOf("agent-ada", "ada"), scope, "bug1", body("confirm")))).body).toMatchObject({ error: "creator_cannot_confirm" });
-    expect((await rejection(giveConfirmation(person("ada"), scope, "bug1", body("confirm")))).body).toMatchObject({ error: "not_independent" });
-    state.bug = bugRow({ beneficiaryUserId: "ben" });
-    expect((await rejection(giveConfirmation(person("ben"), scope, "bug1", body("confirm")))).status).toBe(403);
-    state.bug = bugRow({ claims: [{ status: "active", releasedAt: null, beneficiaryUserId: "sol", agent: { ownerUserId: "sol" } }] });
-    expect((await rejection(giveConfirmation(agentOf("agent-sol", "sol"), scope, "bug1", body("confirm")))).status).toBe(403);
-    expect(db.issueConfirmation.upsert).not.toHaveBeenCalled();
+  it("lets the reporter confirm their own issue: it counts 1 and pays no confirmer points (#confirmation-weights)", async () => {
+    const own = await giveConfirmation(person("ada"), scope, "bug1", body("confirm"));
+    expect(own).toMatchObject({ confirmations: 1 });
+    expect(state.points.filter((p) => p.userId === "ada" && p.sourceKey.startsWith("reviewer-confirm"))).toEqual([]);
+    // The filing agent may confirm too; one person's agent of the same class replaces the entry.
+    const filer = await giveConfirmation(agentOf("agent-ada", "ada"), scope, "bug1", body("confirm"));
+    expect(filer).toMatchObject({ replaced: true, confirmations: 1 });
+  });
+
+  it("keeps one entry per person per class: a manager agent's counts its weight beside the person's own (#confirmation-weights)", async () => {
+    const manager = { tenantId: "t1", userId: "bob", agent: { id: "agent-bob-m", level: "manager" as const } };
+    state.agentOwners["agent-bob-m"] = "bob";
+    await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
+    const both = await giveConfirmation(manager, scope, "bug1", body("confirm"));
+    expect(both.confirmation.weightClass).toBe("manager");
+    expect(both.replaced).toBe(false);
+    expect(state.entries.filter((e) => e.onBehalfOfUserId === "bob")).toHaveLength(2);
+  });
+
+  it("moves a confirmed issue to Open for any agent, and refuses below the threshold (#confirmation-weights)", async () => {
+    const opener = { agentId: "agent-eli", ownerId: "eli", tenantId: "t1" };
+    await giveConfirmation(person("bob"), scope, "bug1", body("confirm"));
+    expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "below_threshold", confirmations: 1, confirmationsNeeded: 2 });
+    expect(state.bug.status).toBe("requires_confirmation");
+    await giveConfirmation(person("cara"), scope, "bug1", body("confirm"));
+    await expect(openConfirmedIssue(opener, scope, "bug1")).resolves.toMatchObject({ status: "open", confirmations: 2 });
+    expect(state.bug.status).toBe("open");
+    expect((await rejection(openConfirmedIssue(opener, scope, "bug1"))).body).toMatchObject({ error: "not_confirming" });
   });
 
   it("takes entries only at Requires confirmation, and 404s an unknown issue", async () => {

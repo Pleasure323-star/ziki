@@ -16,8 +16,11 @@ export function attachmentIdsInMarkdown(text: string | null | undefined): string
   return [...new Set(ids)].slice(0, MAX_REFERENCED_ATTACHMENTS);
 }
 
-/** What a file is attached to: an issue (and maybe one of its comments), or an idea (#idea-table). */
-export type AttachmentTarget = { bugId: string; commentId?: string | null } | { ideaId: string };
+/**
+ * What a file is attached to: an issue (and maybe one of its comments or
+ * confirmation entries), or an idea (#idea-table).
+ */
+export type AttachmentTarget = { bugId: string; commentId?: string | null; confirmationId?: string | null } | { ideaId: string };
 
 /**
  * Links freshly uploaded files to the issue, comment or idea being saved (#215).
@@ -30,8 +33,11 @@ export async function linkAttachments(
 ): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await db.attachment.updateMany({
-    where: { id: { in: ids }, uploaderId, bugId: null, ideaId: null, commentId: null },
-    data: "ideaId" in target ? { ideaId: target.ideaId } : { bugId: target.bugId, commentId: target.commentId ?? null },
+    where: { id: { in: ids }, uploaderId, bugId: null, ideaId: null, commentId: null, confirmationId: null },
+    data:
+      "ideaId" in target
+        ? { ideaId: target.ideaId }
+        : { bugId: target.bugId, commentId: target.commentId ?? null, confirmationId: target.confirmationId ?? null },
   });
   return result.count;
 }

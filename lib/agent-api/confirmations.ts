@@ -2,7 +2,7 @@ import type { AgentLevel, ConfirmationVerdict, Prisma, PrismaClient } from "@pri
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
-import { reviewerConflict, reviewerCreditConflict, type ReviewerConflict } from "@/lib/agents/independence";
+import { hasLevel } from "@/lib/agents/levels";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { ENTRY_SUMMARY_MAX_CHARS, entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
@@ -13,7 +13,10 @@ import { getPlatformRewardConfig, getProjectRewardConfig } from "@/lib/points/pl
 import { workflowFor } from "@/lib/workflow";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { statusChangedSummary } from "@/lib/activity-log";
-import { readConfirmations, type ReadConfirmation } from "@/lib/issue-stage";
+import { ownsIssue, readConfirmations, type ReadConfirmation } from "@/lib/issue-stage";
+import { isThresholdOnly } from "@/lib/governance";
+import { linkAttachments } from "@/lib/attachment-link";
+import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 
 /**
  * Confirmations (#issue-confirmations). An issue at Requires confirmation
@@ -26,13 +29,17 @@ import { readConfirmations, type ReadConfirmation } from "@/lib/issue-stage";
  * Agents give entries for their owner (`POST /api/v1/issues/{id}/confirmations`),
  * people in the web app (`app/actions/confirmations.ts`); both come here.
  *
- * - The agent that filed the issue may not, and neither may anyone who is not
- *   independent of it (lib/agents/independence.ts): the reporter, the person
- *   it is for, the owner of the filing agent, or whoever works on it.
- * - The issue is confirmed once the project's `confirmationsNeeded` distinct
- *   independent people confirmed it (`readConfirmations`, the one rule). It
- *   then moves from Requires confirmation to Open and the reporter earns their
- *   points once (#422, #428).
+ * - Weights (#confirmation-weights): a person may give one entry of each
+ *   class, so twice: with a manager (or merger) agent, counting the project's
+ *   managerVoteWeight, and with a worker agent or in the web app, counting 1.
+ *   Anyone may confirm their own issue; that entry counts 1.
+ * - The issue is confirmed once the weighted confirms reach the project's
+ *   `confirmationsNeeded` (`readConfirmations`, the one rule), and the reporter
+ *   earns their points once (#422, #428). Any agent then moves it to Open
+ *   (`openConfirmedIssue`); in a threshold-only project the confirm that
+ *   reaches the threshold opens it.
+ * - Evidence: an entry may attach several files (`attachmentIds`), such as
+ *   screenshots, and should name the lines of code where the issue was found.
  * - A counted confirm earns what a "real" accept plus a duplicate clearance
  *   earned before (reviewer + triager points); a duplicate reject earns the
  *   duplicate-marker points. A duplicate earns its reporter and confirmers
@@ -53,6 +60,8 @@ export const confirmationSchema = z
     description: entryDescription,
     /** With reject: the issue this one duplicates, by id or number. */
     duplicateOfId: ref.optional(),
+    /** Uploaded files (screenshots) attached as evidence, from POST /api/v1/attachments. */
+    attachmentIds: z.array(ref).max(MAX_ATTACHMENTS_PER_ITEM).optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -85,15 +94,6 @@ const bugSelect = {
   createdByAgent: { select: { ownerUserId: true } },
   claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
 } satisfies Prisma.BugSelect;
-
-const CONFLICT_MESSAGES: Record<ReviewerConflict, string> = {
-  "created-by-own-agent": "An agent of the same owner filed this issue, so its owner can't confirm it.",
-  "own-ticket": "This is your own issue (you reported it or it is for you), so you can't confirm it.",
-  "claimed-by-own-agent": "An agent of the same owner is working on this issue, so its owner can't confirm it.",
-  "assigned-solver": "The person assigned to solve this issue can't confirm it.",
-  "claim-beneficiary": "The beneficiary of the active claim can't confirm this issue.",
-  "claim-dispatcher": "The dispatcher rewarded for the active claim can't confirm this issue.",
-};
 
 function invalid(error: z.ZodError): IssueApiError {
   const issue = error.issues[0];
@@ -128,7 +128,10 @@ export async function isConfirmed(bugId: string, db: Db = prisma): Promise<boole
 export async function standingConfirmationAwards(db: Db, bugId: string): Promise<PointAward[]> {
   const state = await confirmationStateOf(bugId, db);
   if (!state) return [];
-  const bug = await db.bug.findUnique({ where: { id: bugId }, select: { tenantId: true, duplicateOfId: true } });
+  const bug = await db.bug.findUnique({
+    where: { id: bugId },
+    select: { tenantId: true, duplicateOfId: true, reporterId: true, beneficiaryUserId: true, createdByAgent: { select: { ownerUserId: true } } },
+  });
   if (!bug) return [];
   const platform = await getPlatformRewardConfig(db);
   const entries: PointAward[] = [];
@@ -136,6 +139,8 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
   let reviewerIndex = 0;
   for (const entry of state.counted) {
     const userId = entry.onBehalfOfUserId;
+    // An entry on the person's own issue counts toward the threshold but pays no confirmer points.
+    if (ownsIssue(userId, bug)) continue;
     if (entry.verdict === "confirm") {
       // A confirm is the old "real" accept and the duplicate clearance in one.
       if (!duplicate) {
@@ -174,6 +179,7 @@ export async function standingConfirmationAwards(db: Db, bugId: string): Promise
 export type GivenConfirmation = {
   confirmation: {
     id: string;
+    weightClass: string;
     verdict: ConfirmationVerdict;
     summary: string;
     description: string;
@@ -188,6 +194,8 @@ export type GivenConfirmation = {
   confirmed: boolean;
   /** True when this entry is the one that confirmed the issue. */
   newlyConfirmed: boolean;
+  /** True when this entry moved the issue to Open (threshold-only projects). */
+  opened: boolean;
   confirmations: number;
   confirmationsNeeded: number;
 };
@@ -233,16 +241,6 @@ export async function giveConfirmation(
     const bug = await tx.bug.findUnique({ where: { id: found.id }, select: bugSelect });
     if (!bug || bug.isDeleted) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
 
-    if (giver.agent && bug.createdByAgentId === giver.agent.id) {
-      const message = "The agent that filed an issue can't confirm it.";
-      throw new IssueApiError(403, message, { error: "creator_cannot_confirm", message });
-    }
-    const conflict =
-      reviewerConflict({ id: giver.agent?.id ?? "person", ownerUserId: giver.userId }, bug) ??
-      reviewerCreditConflict(giver.userId, bug);
-    if (conflict) {
-      throw new IssueApiError(403, CONFLICT_MESSAGES[conflict], { error: "not_independent", message: CONFLICT_MESSAGES[conflict] });
-    }
     if (bug.status !== "requires_confirmation") {
       const message = "This issue is not at Requires confirmation, so it takes no confirmations.";
       throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status });
@@ -252,10 +250,10 @@ export async function giveConfirmation(
     const before = await confirmationStateOf(bug.id, tx);
     const wasConfirmed = before?.confirmed ?? false;
 
-    const existing = await tx.issueConfirmation.findUnique({
-      where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: giver.userId } },
-      select: { id: true },
-    });
+    // One entry per person per class: a manager agent's and a worker's (or the person's) are separate.
+    const weightClass = giver.agent && hasLevel(giver.agent.level, "manager") ? "manager" : "working";
+    const key = { bugId_onBehalfOfUserId_weightClass: { bugId: bug.id, onBehalfOfUserId: giver.userId, weightClass } };
+    const existing = await tx.issueConfirmation.findUnique({ where: key, select: { id: true } });
     const data = {
       agentId: giver.agent?.id ?? null,
       verdict: input.verdict,
@@ -266,38 +264,42 @@ export async function giveConfirmation(
       undoneAt: null,
     };
     const confirmation = await tx.issueConfirmation.upsert({
-      where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: giver.userId } },
-      create: { bugId: bug.id, onBehalfOfUserId: giver.userId, ...data },
+      where: key,
+      create: { bugId: bug.id, onBehalfOfUserId: giver.userId, weightClass, ...data },
       update: data,
       select: {
-        id: true, verdict: true, summary: true, description: true, duplicateOfId: true,
+        id: true, weightClass: true, verdict: true, summary: true, description: true, duplicateOfId: true,
         onBehalfOfUserId: true, agentId: true, createdAt: true, updatedAt: true,
       },
     });
+
+    // Evidence: the giver's own uploads, attached to this entry.
+    const requested = [...new Set(input.attachmentIds ?? [])];
+    if (requested.length > 0) {
+      const linked = await linkAttachments(tx, { ids: requested, uploaderId: giver.userId, bugId: bug.id, confirmationId: confirmation.id });
+      if (linked !== requested.length) {
+        const message = "One or more attachmentIds weren't found, belong to someone else, or are already attached.";
+        throw new IssueApiError(422, message, { error: "invalid_attachments", message, field: "attachmentIds" });
+      }
+    }
 
     const after = await confirmationStateOf(bug.id, tx);
     const confirmed = after?.confirmed ?? false;
     const newlyConfirmed = confirmed && !wasConfirmed;
     const needed = after?.needed ?? (await workflowFor(bug.projectId, tx)).confirmationsNeeded;
 
-    // #requires-confirmation: a confirmed issue leaves Requires confirmation for Open.
-    if (confirmed) {
-      await tx.bug.update({ where: { id: bug.id }, data: { status: "open" } });
-      await tx.bugActivity.create({
-        data: {
-          bugId: bug.id,
-          actorId: giver.userId,
-          type: "status_changed",
-          summary: statusChangedSummary("requires_confirmation", "open"),
-          metadata: { from: "requires_confirmation", to: "open", via: "confirmed" },
-        },
-      });
-    }
+    // A confirmed issue waits for an agent to move it to Open (openConfirmedIssue);
+    // in a threshold-only project the confirm that reaches the threshold opens it.
+    const opened = confirmed && isThresholdOnly(await workflowFor(bug.projectId, tx));
+    if (opened) await moveToOpen(tx, bug.id, giver.userId, "threshold");
 
     // Points: the same keys the backfill recomputes (`standingConfirmationAwards`).
     const duplicate = (after?.duplicate ?? false) || Boolean(bug.duplicateOfId);
     const platform = await getPlatformRewardConfig(tx);
-    const counted = after?.counted.some((entry) => entry.id === confirmation.id) ?? false;
+    // Confirming your own issue counts toward the threshold but earns no
+    // confirmer points: the reporter points pay for it.
+    const own = ownsIssue(giver.userId, bug);
+    const counted = !own && (after?.counted.some((entry) => entry.id === confirmation.id) ?? false);
     if (counted && input.verdict === "confirm") {
       await award(tx, {
         tenantId: bug.tenantId,
@@ -374,9 +376,65 @@ export async function giveConfirmation(
       replaced: Boolean(existing),
       confirmed,
       newlyConfirmed,
+      opened,
       confirmations: after?.accepts ?? 0,
       confirmationsNeeded: needed,
     };
+  });
+}
+
+/** Moves a confirmed issue from Requires confirmation to Open, with its activity entry. */
+async function moveToOpen(tx: Prisma.TransactionClient, bugId: string, actorId: string, via: "threshold" | "agent"): Promise<void> {
+  await tx.bug.update({ where: { id: bugId }, data: { status: "open" } });
+  await tx.bugActivity.create({
+    data: {
+      bugId,
+      actorId,
+      type: "status_changed",
+      summary: statusChangedSummary("requires_confirmation", "open"),
+      metadata: { from: "requires_confirmation", to: "open", via: via === "threshold" ? "confirmed" : "opened_by_agent" },
+    },
+  });
+}
+
+/**
+ * `POST /api/v1/issues/{id}/open` (working): once an issue's weighted
+ * confirms reach the project's threshold, any agent moves it from Requires
+ * confirmation to Open, where it takes bids (#confirmation-weights).
+ * 409 `not_confirming` when it isn't at Requires confirmation; 409
+ * `below_threshold` while the confirms are short.
+ */
+export async function openConfirmedIssue(
+  agent: { agentId: string; ownerId: string; tenantId: string },
+  scope: Scope,
+  issueRef: string,
+): Promise<{ issueId: string; status: "open"; confirmations: number; confirmationsNeeded: number }> {
+  const parsedRef = parseIssueRef(issueRef);
+  return prisma.$transaction(async (tx) => {
+    const found = await tx.bug.findFirst({
+      where: { ...scope, isDeleted: false, ...(parsedRef.kind === "number" ? { number: parsedRef.number } : { id: parsedRef.id }) },
+      select: { id: true },
+    });
+    if (!found) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${found.id} FOR UPDATE`;
+    const bug = await tx.bug.findUnique({ where: { id: found.id }, select: { id: true, status: true, tenantId: true } });
+    if (!bug) throw new IssueApiError(404, NOT_FOUND, { error: "not_found", message: NOT_FOUND });
+    if (bug.status !== "requires_confirmation") {
+      const message = "This issue is not at Requires confirmation.";
+      throw new IssueApiError(409, message, { error: "not_confirming", message, status: bug.status });
+    }
+    const state = await confirmationStateOf(bug.id, tx);
+    const confirmations = state?.accepts ?? 0;
+    const confirmationsNeeded = state?.needed ?? 0;
+    if (!state?.confirmed) {
+      const message = `It has ${confirmations} of the ${confirmationsNeeded} confirmations it needs before it can move to Open.`;
+      throw new IssueApiError(409, message, { error: "below_threshold", message, confirmations, confirmationsNeeded });
+    }
+    await moveToOpen(tx, bug.id, agent.ownerId, "agent");
+    const payload = { issueId: bug.id, from: "requires_confirmation", to: "open", confirmations, confirmationsNeeded };
+    await audit({ agentId: agent.agentId, tenantId: bug.tenantId }, "issue.opened", `bug:${bug.id}`, payload, { bugId: bug.id, db: tx });
+    await publish(tx, { tenantId: bug.tenantId, type: "issue.updated", actorAgentId: agent.agentId, bugId: bug.id, payload: { ...payload, values: { status: "open" } } });
+    return { issueId: bug.id, status: "open" as const, confirmations, confirmationsNeeded };
   });
 }
 
@@ -393,6 +451,10 @@ export type ConfirmationReply = {
 
 export type ConfirmationView = {
   id: string;
+  /** "manager" counts the project's managerVoteWeight; "working" counts 1. */
+  weightClass: string;
+  /** What it counts for now (1 on the person's own issue; 0 when it doesn't count). */
+  weight: number;
   verdict: ConfirmationVerdict;
   summary: string;
   description: string;
@@ -406,6 +468,8 @@ export type ConfirmationView = {
   undone: boolean;
   createdAt: Date;
   updatedAt: Date;
+  /** Evidence files (screenshots); served at /api/attachments/{id}. */
+  attachments: { id: string; filename: string; contentType: string }[];
   replies: ConfirmationReply[];
 };
 
@@ -434,9 +498,10 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
       where: { bugId: bug.id },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       select: {
-        id: true, verdict: true, summary: true, description: true, duplicateOfId: true,
+        id: true, weightClass: true, verdict: true, summary: true, description: true, duplicateOfId: true,
         onBehalfOfUserId: true, agentId: true, undoneAt: true, createdAt: true, updatedAt: true,
         onBehalfOf: { select: { name: true } },
+        attachments: { orderBy: { createdAt: "asc" }, select: { id: true, filename: true, contentType: true } },
         agent: { select: { name: true } },
         replies: {
           where: { deletedAt: null },
@@ -455,7 +520,7 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
     ? await db.bug.findMany({ where: { id: { in: duplicateIds } }, select: { id: true, number: true, project: { select: { slug: true } } } })
     : [];
   const duplicateById = new Map(duplicates.map((d) => [d.id, { id: d.id, number: d.number, projectSlug: d.project.slug }]));
-  const counted = new Set(state?.counted.map((entry) => entry.id) ?? []);
+  const counted = new Map(state?.counted.map((entry) => [entry.id, entry.weight]) ?? []);
   const needed = state?.needed ?? (await workflowFor(bug.projectId, db)).confirmationsNeeded;
   return {
     issueId: bug.id,
@@ -471,6 +536,7 @@ export async function listConfirmations(scope: { tenantId: string; projectId?: s
       by: onBehalfOf.name,
       agentName: agent?.name ?? null,
       counted: counted.has(row.id),
+      weight: counted.get(row.id) ?? 0,
       undone: Boolean(undoneAt),
       replies: replies.map(({ author, agent: replyAgent, ...reply }) => ({
         ...reply,

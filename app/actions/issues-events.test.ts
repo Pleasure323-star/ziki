@@ -86,7 +86,7 @@ describe("filing a report from the web app (#534, #idea-table)", () => {
     data.set("attachmentIds", "attachment01");
     await createBugAction(data);
     expect(prisma.attachment.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["attachment01"] }, uploaderId: "user-1", bugId: null, ideaId: null, commentId: null },
+      where: { id: { in: ["attachment01"] }, uploaderId: "user-1", bugId: null, ideaId: null, commentId: null, confirmationId: null },
       data: { ideaId: "idea-123" },
     });
   });

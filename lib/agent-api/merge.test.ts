@@ -123,7 +123,8 @@ function confirmWith(ownerA: string, ownerB: string) {
     id: `c-${owner}`, bugId: "bug1", verdict: "confirm" as const, duplicateOfId: null, updatedAt: new Date("2026-10-20T10:00:00Z"),
     agentId: `a-${owner}`, onBehalfOfUserId: owner, agent: { ownerUserId: owner },
   });
-  state.confirmations = [entry(ownerA), entry(ownerB)];
+  // Three confirms of weight 1 reach the default threshold of 3 (#confirmation-weights).
+  state.confirmations = [entry(ownerA), entry(ownerB), entry(`${ownerB}-third`)];
 }
 
 function verdict(

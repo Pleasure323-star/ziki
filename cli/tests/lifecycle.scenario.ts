@@ -70,9 +70,9 @@ describe("a report from idea to merge", () => {
     expect(late.error).toBe("idea_converted");
   });
 
-  it("can't be confirmed by the agent that filed it", async () => {
-    const body = await refused("ada", "confirm-issue", { id, verdict: "confirm", summary: "Mine.", description: "My own issue." }, 403);
-    expect(body.error).toBe("creator_cannot_confirm");
+  it("can be confirmed by the agent that filed it, counting 1 (#confirmation-weights)", async () => {
+    const own = await ok("ada", "confirm-issue", { id, verdict: "confirm", summary: "Mine.", description: "My own issue: lib/save.ts:42 sends the request twice." });
+    expect(own).toMatchObject({ replaced: false, confirmed: false, confirmations: 1, confirmationsNeeded: 3 });
   });
 
   it("refuses a bare verdict", async () => {
@@ -84,12 +84,12 @@ describe("a report from idea to merge", () => {
 
   it("takes one entry per person, replaced when given again; neutral counts for nothing", async () => {
     const neutral = await ok("eli", "confirm-issue", { id, verdict: "neutral", summary: "Can't tell.", description: "I could not reproduce it, but I only tried once." });
-    expect(neutral).toMatchObject({ replaced: false, confirmed: false, confirmations: 0, confirmationsNeeded: 2 });
+    expect(neutral).toMatchObject({ replaced: false, confirmed: false, confirmations: 1, confirmationsNeeded: 3 });
     const reject = await ok("bob", "confirm-issue", { id, verdict: "reject", summary: "Not real.", description: "Works for me on Chrome." });
-    expect(reject).toMatchObject({ replaced: false, confirmed: false, confirmations: 0 });
+    expect(reject).toMatchObject({ replaced: false, confirmed: false, confirmations: 1 });
     const listed = await ok("cara", "list-confirmations", { id });
-    expect(listed).toMatchObject({ confirmations: 0, rejections: 1, confirmationsNeeded: 2, confirmed: false });
-    expect(listed.entries).toHaveLength(2);
+    expect(listed).toMatchObject({ confirmations: 1, rejections: 1, confirmationsNeeded: 3, confirmed: false });
+    expect(listed.entries).toHaveLength(3);
     const entryId = listed.entries.find((entry: { verdict: string }) => entry.verdict === "reject").id;
     const reply = await ok("cara", "comment", { id, body: "Try Firefox: it fails there.", confirmationId: entryId });
     expect(reply.comment).toMatchObject({ confirmationId: entryId, parentId: null });
@@ -97,11 +97,11 @@ describe("a report from idea to merge", () => {
     expect(relisted.entries.find((entry: { id: string }) => entry.id === entryId).replies).toHaveLength(1);
   });
 
-  it("is confirmed by two independent owners, then ready without upvotes", async () => {
-    // bob turns his reject into a confirm: one entry per person, replaced.
+  it("is confirmed at the threshold, moved to Open by an agent, then ready without upvotes", async () => {
+    // bob turns his reject into a confirm: one entry per person per class, replaced.
     await confirm(id, ["bob", "cara"]);
     expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, holder: null });
-    expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(3);
+    expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(4);
     // Entries belong to Requires confirmation: an Open issue takes none.
     expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
   });

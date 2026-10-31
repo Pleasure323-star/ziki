@@ -127,10 +127,20 @@ export async function feedItem(agent: Agent, kind: string, id: string): Promise<
   return (feed.items as { kind: string; issue?: { id: string }; actions?: { name: string }[] }[]).find((item) => item.kind === kind && item.issue?.id === id);
 }
 
-/** Confirms an issue the way the workflow needs: two independent confirmation entries (#issue-confirmations). */
+/**
+ * Confirms an issue the way the workflow needs and moves it to Open
+ * (#confirmation-weights): three working-class confirms reach the default
+ * threshold of 3 (the two named agents, then the third of ada, bob and cara),
+ * and then any agent moves the confirmed issue to Open.
+ */
 export async function confirm(id: string, confirmers: [Agent, Agent]): Promise<void> {
   const [first, second] = confirmers;
-  await ok(first, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps; it fails as reported and no other issue covers it." });
-  const last = await ok(second, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it too.", description: "Same result on a second machine; not a duplicate." });
+  const third = (["ada", "bob", "cara"] as const).find((agent) => agent !== first && agent !== second)!;
+  await ok(first, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it.", description: "Followed the steps; it fails as reported. lib/save.ts:42 fires the request twice." });
+  await ok(second, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it too.", description: "Same result on a second machine; not a duplicate. See lib/save.ts:42." });
+  const last = await ok(third, "confirm-issue", { id, verdict: "confirm", summary: "Reproduced it as well.", description: "Fails in lib/save.ts:42 here too." });
   expect(last.confirmed).toBe(true);
+  expect(await feedItem(first, "open_issue", id)).toBeTruthy();
+  const opened = await ok(first, "open-issue", { id });
+  expect(opened.status).toBe("open");
 }

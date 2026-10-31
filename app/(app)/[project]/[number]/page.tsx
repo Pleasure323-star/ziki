@@ -694,8 +694,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const confirmationsData: ConfirmationsData | null = await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
     listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
   );
-  const confirmationBlock: ConfirmationBlock =
-    bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
+  // Anyone may confirm their own issue (#confirmation-weights): it counts 1.
+  const confirmationBlock: ConfirmationBlock = null;
   // #close-reasons: the issue's owner may withdraw it while it is not closed or live.
   const canWithdraw = !bug.isDeleted && bug.status !== "closed" && bug.status !== "resolved" && ownsIssue(bug, user.id);
   const isAssignee = !!userId && bug.assigneeId === userId;

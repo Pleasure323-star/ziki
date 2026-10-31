@@ -9,7 +9,7 @@ import {
 describe("project workflow defaults (#595)", () => {
   it("reproduces the constants the gates used", () => {
     expect(DEFAULT_PROJECT_WORKFLOW).toEqual({
-      confirmationsNeeded: 2,
+      confirmationsNeeded: 3,
       verdictsNeeded: 2,
       offerWindowSeconds: 1800,
       heartbeatMinutes: 240,

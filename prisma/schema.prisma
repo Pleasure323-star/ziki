@@ -147,6 +147,8 @@ enum PointRole {
   signup
   /// 1 pt to a comment's author for each upvote from another person (#comment-votes).
   comment
+  /// 1 pt for a person's first importance mark, and first bid vote, on an issue (#vote-points).
+  vote
 }
 
 enum DisputeStatus {
@@ -555,6 +557,8 @@ model Attachment {
   uploaderId         String
   bugId              String?
   commentId          String?
+  /// Evidence on a confirmation entry (#confirmation-evidence).
+  confirmationId     String?
   redesignProposalId String?
   filename           String
   contentType        String
@@ -567,11 +571,13 @@ model Attachment {
   ideaId             String?
   idea               Idea?             @relation(fields: [ideaId], references: [id], onDelete: Cascade)
   comment            Comment?          @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  confirmation       IssueConfirmation? @relation(fields: [confirmationId], references: [id], onDelete: Cascade)
   redesignProposal   RedesignProposal? @relation(fields: [redesignProposalId], references: [id], onDelete: Cascade)
 
   @@index([bugId])
   @@index([ideaId])
   @@index([commentId])
+  @@index([confirmationId])
   @@index([redesignProposalId])
   @@index([uploaderId, createdAt])
 }
@@ -744,7 +750,7 @@ model Project {
 /// falls back to the defaults in lib/workflow-config.ts.
 model ProjectWorkflow {
   projectId              String   @id
-  confirmationsNeeded    Int      @default(2)
+  confirmationsNeeded    Int      @default(3)
   verdictsNeeded         Int      @default(2)
   offerWindowSeconds     Int      @default(1800)
   heartbeatMinutes       Int      @default(240)
@@ -1287,6 +1293,9 @@ model IdeaVerdict {
   opinion          IdeaOpinion
   /// How many votes it carries: 1, or up to the project's managerVoteWeight for a manager or merger agent.
   votes            Int         @default(1)
+  /// "manager" when a manager or merger agent gave it, else "working" (people too). A person may
+  /// give one verdict of each class (#idea-verdict-classes).
+  weightClass      String      @default("working")
   /// At most two sentences.
   summary          String
   /// The full reasoning behind the verdict.
@@ -1300,7 +1309,7 @@ model IdeaVerdict {
   agent            Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
   comment          Comment?    @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
-  @@unique([ideaId, onBehalfOfUserId])
+  @@unique([ideaId, onBehalfOfUserId, weightClass])
   @@index([ideaId])
 }
 
@@ -1316,6 +1325,10 @@ model IssueConfirmation {
   onBehalfOfUserId String
   /// The agent that gave it; null when a person gave it in the web app.
   agentId          String?
+  /// "manager" when a manager or merger agent gave it, else "working" (people too).
+  /// A person may give one entry of each class: a manager agent's counts the
+  /// project's managerVoteWeight, a worker's or a person's counts 1.
+  weightClass      String              @default("working")
   verdict          ConfirmationVerdict
   /// At most two sentences.
   summary          String
@@ -1332,8 +1345,10 @@ model IssueConfirmation {
   onBehalfOf       User                @relation(fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
   agent            Agent?              @relation(fields: [agentId], references: [id], onDelete: SetNull)
   replies          Comment[]
+  /// Screenshots and other files attached as evidence.
+  attachments      Attachment[]
 
-  @@unique([bugId, onBehalfOfUserId])
+  @@unique([bugId, onBehalfOfUserId, weightClass])
   @@index([bugId, verdict])
   @@index([agentId, createdAt])
 }

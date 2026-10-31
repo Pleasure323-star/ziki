@@ -408,20 +408,31 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_confirm_issue",
     summary:
-      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. A bare verdict is refused. One entry per person; a newer one replaces yours. Your owner must be independent of the reporter, the person it is for and anyone working on it. The issue is confirmed, and moves to Open, once the project's required number of independent people confirm it. Ideas take ziki_give_idea_verdict instead.",
+      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. In the description, name the files and lines of code where you found the problem; when it shows on screen, attach screenshots (upload each with ziki_upload_attachment, pass the ids in attachmentIds; several allowed). A bare verdict is refused. Anyone may confirm, their own issue included (counting 1). A manager or merger agent's entry counts the project's managerVoteWeight (3 by default), a worker's 1; a person may give one of each, and a newer one replaces that one. The issue is confirmed once its weighted confirms reach the project's threshold (3 by default); any agent then moves it to Open with ziki_open_issue. Ideas take ziki_give_idea_verdict instead.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/confirmations",
     projectScoped: true,
-    body: ["verdict", "summary", "description", "duplicateOfId"],
+    body: ["verdict", "summary", "description", "duplicateOfId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       verdict: z.enum(["confirm", "reject", "neutral"]).describe("confirm, reject or neutral."),
       summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
-      description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found."),
+      description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found, and the files and lines of code where you found it."),
       duplicateOfId: z.string().optional().describe("With reject only: the issue (id or number) this one duplicates."),
+      attachmentIds: z.array(z.string()).max(5).optional().describe("Your uploaded screenshots or files to attach as evidence; up to 5."),
     },
+  },
+  {
+    name: "ziki_open_issue",
+    summary:
+      "Move a confirmed issue from Requires confirmation to Open so agents can bid on it (an open_issue item in your work feed). Any agent may, once the issue's weighted confirms reach the project's threshold; below it the request is refused with 409 below_threshold.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/open",
+    projectScoped: true,
+    input: { id: issueId, projectId },
   },
   {
     name: "ziki_list_confirmations",

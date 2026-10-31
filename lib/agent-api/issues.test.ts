@@ -676,8 +676,8 @@ describe("agents attach files to issues and comments (#645)", () => {
     const response = await comment(request("POST", { bidId: "bid-a", body: "Screenshot and HAR attached.", attachmentIds: ["att-1", "att-2"] }), context);
     expect(response.status).toBe(201);
     expect(db.attachment.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["att-1", "att-2"] }, uploaderId: "owner-a", bugId: null, ideaId: null, commentId: null },
-      data: { bugId: issue.id, commentId: "comment-a" },
+      where: { id: { in: ["att-1", "att-2"] }, uploaderId: "owner-a", bugId: null, ideaId: null, commentId: null, confirmationId: null },
+      data: { bugId: issue.id, commentId: "comment-a", confirmationId: null },
     });
   });
 
@@ -694,7 +694,7 @@ describe("agents attach files to issues and comments (#645)", () => {
     const response = await create(request("POST", { ...validBody, attachmentIds: ["att-9"] }));
     expect(response.status).toBe(201);
     expect(db.attachment.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["att-9"] }, uploaderId: "owner-a", bugId: null, ideaId: null, commentId: null },
+      where: { id: { in: ["att-9"] }, uploaderId: "owner-a", bugId: null, ideaId: null, commentId: null, confirmationId: null },
       data: { ideaId: idea.id },
     });
   });
@@ -804,11 +804,12 @@ describe("issue read confirmation", () => {
     expect((await readIssue()).confirmed).toBe(false);
   });
 
-  it("is confirmed once two distinct owners have accepted", async () => {
+  it("is confirmed once three distinct owners have accepted", async () => {
     db.bug.findFirst.mockResolvedValue({ ...issue, status: "open", voteCount: 1 });
     db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
+      accept("v3", "r3", "tia"),
     ]);
     const body = await readIssue();
     expect(body.confirmed).toBe(true);
@@ -819,6 +820,7 @@ describe("issue read confirmation", () => {
     db.issueConfirmation.findMany.mockResolvedValue([
       accept("v1", "r1", "rob"),
       accept("v2", "r2", "sam"),
+      accept("v3", "r3", "tia"),
     ]);
     const body = (await readIssue()) as unknown as { confirmed: boolean; holder: unknown; idea: { number: number } };
     expect(body.confirmed).toBe(true);
