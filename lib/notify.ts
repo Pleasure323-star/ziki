@@ -2,6 +2,7 @@ import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canSendMail, sendMail } from "@/lib/mail";
 import { getSiteUrl } from "@/lib/site-url";
+import { issueHref } from "@/lib/issue-ref";
 import {
   planNotifications,
   type NotificationEvent,
@@ -164,18 +165,20 @@ async function sendEmails(planned: PlannedNotification[]) {
 /** Deliver one event: in-app feed for everyone it concerns, plus email. */
 export async function deliverNotifications(event: NotificationEvent): Promise<void> {
   let tenantId = "tenantId" in event ? event.tenantId ?? null : null;
+  let issueAddress: string | null = null;
   // The issue may have been deleted between the action and delivery. Agent
   // and platform events (#443) need not be about an issue at all.
   if (event.bugId) {
     const bug = await prisma.bug.findUnique({
       where: { id: event.bugId },
-      select: { isDeleted: true, tenantId: true },
+      select: { isDeleted: true, tenantId: true, number: true, project: { select: { slug: true } } },
     });
     if (!bug || bug.isDeleted) return;
     tenantId = bug.tenantId;
+    issueAddress = issueHref(bug);
   }
 
-  const planned = planNotifications(await withWatchers(event), getSiteUrl());
+  const planned = planNotifications(await withWatchers(event), getSiteUrl(), issueAddress);
   if (planned.length === 0) return;
 
   // The invitee cannot switch into this workspace until they accept, so the

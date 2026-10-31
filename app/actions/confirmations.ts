@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
-import { issuePath } from "@/lib/issue-ref";
+import { revalidateIssue } from "@/lib/revalidate-issue";
 import { giveConfirmation, parseConfirmation } from "@/lib/agent-api/confirmations";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
@@ -45,7 +45,7 @@ export async function giveConfirmationAction(
 
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, tenantId, isDeleted: false },
-    select: { id: true, number: true, projectId: true },
+    select: { id: true, projectId: true },
   });
   if (!bug) return { error: "Issue not found" };
 
@@ -61,7 +61,7 @@ export async function giveConfirmationAction(
     const input = parseConfirmation(body);
     const given = await giveConfirmation({ tenantId, userId }, { tenantId, projectId: bug.projectId }, bug.id, input);
     revalidatePath("/issues");
-    revalidatePath(issuePath(bug.number));
+    revalidateIssue();
     return {
       ok: true,
       replaced: given.replaced,

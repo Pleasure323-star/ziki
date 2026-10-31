@@ -9,7 +9,7 @@ import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { FocusMainOnNavigate } from "@/components/focus-main-on-navigate";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { isAdmin } from "@/lib/roles";
+import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-role";
 import type { WorkspaceChoice } from "@/components/workspace-switcher";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor } from "@/lib/tenant-context";
@@ -54,10 +54,12 @@ export default async function AppLayout({
   let workspaces: WorkspaceChoice[] = [];
   let activeTenantId: string | null = null;
   let tenantId: string | null = null;
+  let membershipRole: OrganizationRole | null = null;
   try {
     tenantId = await currentTenantIdFor(user.id);
     activeTenantId = tenantId;
     const memberships = await tenantsForUser(prisma, user.id, user.role);
+    membershipRole = memberships.find((tenant) => tenant.id === tenantId)?.role ?? null;
     workspaces = memberships
       .filter((tenant) => tenant.archivedAt === null)
       .map((tenant) => ({ id: tenant.id, name: tenant.name, slug: tenant.slug }));
@@ -138,6 +140,7 @@ export default async function AppLayout({
           targetPoints={targetPoints}
           agents={shellAgents}
           reportFormUrl={REPORT_FORM_URL}
+          organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
         />
         <main
           id={MAIN_CONTENT_ID}
@@ -154,7 +157,7 @@ export default async function AppLayout({
       <FocusMainOnNavigate />
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
-        dashboard={isAdmin(user.role)}
+        dashboard={tenantId !== null}
       />
     </div>
   );

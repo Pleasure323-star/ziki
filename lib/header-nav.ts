@@ -1,5 +1,6 @@
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
+import { isProjectIssuePath } from "@/lib/project-slug";
 
 export type HeaderNavSubItem = {
   href: string;
@@ -17,6 +18,12 @@ export type HeaderNavItem = {
 
 /** #444: pick another tenant, create one, or accept an invite. */
 export const SWITCH_TENANT_LINK: HeaderNavItem = { href: "/tenants", label: "Switch workspace" };
+
+/** Site staff pages: site roles and platform points. Super admins only. */
+export const SITE_ADMIN_HREF = "/admin/users";
+
+/** The current organization's admin area: members, invites, projects, taxonomy, settings. */
+export const ORGANIZATION_HREF = "/org";
 
 /** Manage agents: the person's own agents, on a page of its own outside Settings. */
 export const MANAGE_AGENTS_HREF = "/agents";
@@ -65,7 +72,7 @@ export function headerNavItems(
   }
 
   if (isSuperAdmin(role)) {
-    items.push({ href: "/admin/users", label: "Admins" });
+    items.push({ href: SITE_ADMIN_HREF, label: "Site admin" });
   }
 
   return items;
@@ -95,7 +102,9 @@ export function isNavItemActive(pathname: string | null, href: string): boolean 
       path.startsWith("/ideas/") ||
       ((path.startsWith("/issues/") || path.startsWith("/bugs/")) &&
         path !== "/issues/new" &&
-        path !== "/bugs/new")
+        path !== "/bugs/new") ||
+      // An issue's own page, `/<project-slug>/<number>` (#project-urls).
+      isProjectIssuePath(path, { subpages: true })
     );
   }
   if (href === "/escalations" || href === "/questions") {
@@ -108,17 +117,9 @@ export function isNavItemActive(pathname: string | null, href: string): boolean 
       path.startsWith("/redesigns/")
     );
   }
-  if (href === "/manage-project") {
-    return (
-      path === "/projects" ||
-      path.startsWith("/projects/") ||
-      path === "/milestones" ||
-      path.startsWith("/milestones/") ||
-      path === "/admin/categories" ||
-      path.startsWith("/admin/categories/") ||
-      path === "/admin/types" ||
-      path.startsWith("/admin/types/")
-    );
+  // Site admin covers every page under /admin, not only the users list it opens on.
+  if (href === SITE_ADMIN_HREF) {
+    return path === "/admin" || path.startsWith("/admin/");
   }
   return path === href || path.startsWith(`${href}/`);
 }

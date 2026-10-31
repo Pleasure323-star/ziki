@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor } from "@/lib/tenant-context";
 import { listOwnerQuestions, parseEscalationBody } from "@/lib/agent-questions";
-import { issuePath } from "@/lib/issue-ref";
+import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
 import { EscalationTypeBadge, QuickResolveButtons } from "./escalation-controls";
 
@@ -40,7 +40,7 @@ export default async function EscalationsPage({
             body: true,
             status: true,
             createdAt: true,
-            bug: { select: { number: true, title: true } },
+            bug: { select: { number: true, title: true, project: { select: { slug: true } } } },
             authorAgent: { select: { name: true } },
           },
         }),
@@ -140,7 +140,7 @@ export default async function EscalationsPage({
               {item.bug ? (
                 <p className="m-0 text-xs">
                   <span className="text-zk-muted">Issue: </span>
-                  <Link href={issuePath(item.bug.number)} className="font-semibold text-zk-accent hover:underline">
+                  <Link href={issueHref(item.bug)} className="font-semibold text-zk-accent hover:underline">
                     #{item.bug.number} {item.bug.title}
                   </Link>
                 </p>

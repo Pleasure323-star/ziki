@@ -6,6 +6,7 @@ import { z } from "zod";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
 import { ZEDU_SLUG } from "@/lib/tenant";
 import { appCookieOptions } from "@/lib/cookie-options";
+import { unreservedProjectSlug } from "@/lib/project-slug";
 
 /**
  * Picking, creating and owning tenants (#444).
@@ -47,7 +48,7 @@ const MEMBERSHIP_ROLE_ORDER: Record<MembershipRole, number> = {
 /**
  * Pair memberships with the people they point at. A membership whose user
  * row is gone is skipped: joining it in one query makes Prisma throw
- * "Field user is required" and the whole tenant page fails.
+ * "Field user is required" and the whole members page (/org/members) fails.
  */
 export function tenantMembersFrom<TUser extends { id: string; name: string | null }>(
   memberships: { role: MembershipRole; createdAt: Date; userId: string }[],
@@ -251,37 +252,6 @@ export async function memberTenantById(
   }
 }
 
-/**
- * A tenant the person belongs to, by slug. A tenant that exists but isn't
- * theirs gets the same `null` as one that doesn't exist, and its name is
- * never read: guessing slugs reveals nothing.
- */
-export async function memberTenantBySlug(
-  db: Db,
-  userId: string,
-  slug: string,
-): Promise<TenantChoice | null> {
-  if (!isTenantSlug(slug)) return null;
-  try {
-    const membership = await db.membership.findFirst({
-      where: { userId, tenant: { slug } },
-      select: tenantChoiceSelect,
-    });
-    return membership ? toChoice(membership) : null;
-  } catch (error) {
-    // This is the lookup the tenant page does not catch. A missing
-    // archivedAt column used to 500 /tenants/[slug] while the picker
-    // degraded. Treat the tenant as not archived and keep the page up.
-    if (!archivedAtMissing(error)) throw error;
-    console.error("[tenants] archivedAt is missing; loading the tenant without it", error);
-    const membership = await db.membership.findFirst({
-      where: { userId, tenant: { slug } },
-      select: tenantIdentitySelect,
-    });
-    return membership ? choiceWithoutArchive(membership) : null;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Creating a tenant
 // ---------------------------------------------------------------------------
@@ -321,12 +291,8 @@ export const createTenantSchema = z.object({
     .pipe(nameRules("Project name", { optional: true })),
 });
 
-/** Slugs that would collide with the routes under /tenants. */
+/** Slugs kept back because they read as route names, such as /tenants/invite. */
 const RESERVED_TENANT_SLUGS: ReadonlySet<string> = new Set(["invite", "new"]);
-
-export function isTenantSlug(value: string): boolean {
-  return value.length <= TENANT_SLUG_MAX && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
-}
 
 /**
  * A URL-safe slug from a display name, by the same rules as project slugs
@@ -448,7 +414,8 @@ export async function createTenant(
           slug,
           name,
           memberships: { create: { userId: creator.id, role: "owner" } },
-          projects: { create: { slug: slugFromName(projectName, "project"), name: projectName } },
+          // A project slug is the first segment of its issue URLs, so never a top-level route name.
+          projects: { create: { slug: unreservedProjectSlug(slugFromName(projectName, "project")), name: projectName } },
           // Same three names as DEFAULT_PLATFORMS. Inlined so this file does not
           // import lib/categories, which reads the active tenant from here.
           categories: {

@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient, DisputeStatus } from "@prisma/client";
 import { z } from "zod";
+import { issueHref } from "@/lib/issue-ref";
 import { award, type PointAward } from "./award";
 import { getProjectRewardConfig } from "./platform-rewards";
 import {
@@ -283,7 +284,7 @@ const disputeSelect = {
   createdAt: true,
   pointEntryId: true,
   requestedRole: true,
-  bug: { select: { id: true, number: true, title: true } },
+  bug: { select: { id: true, number: true, title: true, project: { select: { slug: true } } } },
   user: { select: { id: true, name: true } },
   pointEntry: { select: { id: true, points: true, role: true } },
 } satisfies Prisma.PointDisputeSelect;
@@ -302,6 +303,8 @@ export type DisputeView = {
   bugId: string;
   bugNumber: number;
   bugTitle: string;
+  /** The issue's address, `/<project-slug>/<number>`. */
+  bugPath: string;
   openerId: string;
   openerName: string;
   entry: { id: string; points: number; role: PointRole } | null;
@@ -323,6 +326,7 @@ function toView(row: DisputeRowWithRelations): DisputeView {
     bugId: row.bug.id,
     bugNumber: row.bug.number,
     bugTitle: row.bug.title,
+    bugPath: issueHref(row.bug),
     openerId: row.user.id,
     openerName: row.user.name,
     entry: row.pointEntry

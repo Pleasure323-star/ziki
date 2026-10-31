@@ -31,9 +31,9 @@ https://ziki.dev
 | --- | --- |
 | `user` | Report bugs, comment, mark issues important |
 | `admin` | Site catalog access (platforms, types). Does not grant power inside an organization |
-| `super_admin` | Site-wide access, including every organization's admin powers, plus `/admin/users` |
+| `super_admin` | Site-wide access, including every organization's admin powers, plus the site admin pages (`/admin`: site roles and platform points) |
 
-Inside an organization, triage, delete, boost, and member management come from the membership role (`owner` or `admin`), not from the site-wide `admin` role. `/admin/users` lists only the organization you're currently in.
+Inside an organization, triage, delete, boost, and member management come from the membership role (`owner` or `admin`), not from the site-wide `admin` role. Owners and admins manage the organization you're working in at `/org`: members, email invites and invite links, projects, issue types, platforms, milestones and settings.
 
 Super-admin credentials come from `SUPER_ADMIN_*` env vars (see below). The seeder is idempotent and does not overwrite an existing super admin unless `SUPER_ADMIN_FORCE_UPDATE=true`.
 

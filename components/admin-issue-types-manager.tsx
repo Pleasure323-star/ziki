@@ -163,11 +163,9 @@ export function AdminIssueTypesManager({
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            Issue Types Management
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Manage issue types (Marketing, Design, Fix, Feat, etc.) available during issue creation.
+          <h2 className="text-xl font-bold tracking-tight text-zk-text">Issue types</h2>
+          <p className="mt-1 max-w-2xl text-sm text-zk-text2">
+            The kinds of issue people can file in this organization (Marketing, Design, Fix, Feat, etc.).
           </p>
         </div>
         {!isCreating && !editingType && (

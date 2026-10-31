@@ -29,6 +29,7 @@ import { formatPoints, TARGET_POINTS } from "@/lib/points/rules";
 import { prisma } from "@/lib/prisma";
 import { openIssueStages, type IssueStage } from "@/lib/issue-stage";
 import { voteDirection } from "@/lib/voting";
+import { issueHref } from "@/lib/issue-ref";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -109,6 +110,7 @@ async function loadAssignedIssues(
       voteCount: true,
       createdAt: true,
       type: { select: { name: true } },
+      project: { select: { slug: true } },
       _count: { select: { comments: true } },
       votes: {
         where: { userId },
@@ -132,6 +134,7 @@ async function loadAssignedIssues(
   return bugs.map((bug) => ({
     id: bug.id,
     number: bug.number,
+    path: issueHref(bug),
     title: bug.title,
     status: bug.status,
     voteCount: bug.voteCount,

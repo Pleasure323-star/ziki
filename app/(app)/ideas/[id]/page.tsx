@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
-import { issuePath, parseIssueRef } from "@/lib/issue-ref";
+import { issueHref, parseIssueRef } from "@/lib/issue-ref";
 import { IDEA_SUMMARY_MAX_CHARS, listIdeaVerdicts } from "@/lib/agent-api/idea-verdicts";
 import { IdeaVerdictsPanel, type IdeaVerdictBlock } from "@/components/idea-verdicts";
 import { AttachmentList } from "@/components/attachment-list";
@@ -75,7 +75,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
       category: { select: { name: true } },
       type: { select: { name: true } },
       area: { select: { name: true } },
-      issue: { select: { number: true, title: true } },
+      issue: { select: { number: true, title: true, project: { select: { slug: true } } } },
       attachments: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: { id: true, filename: true, contentType: true, size: true },
@@ -173,7 +173,7 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
               </span>
               {idea.issue ? (
                 <Link
-                  href={issuePath(idea.issue.number)}
+                  href={issueHref(idea.issue)}
                   data-testid="idea-issue-link"
                   className="inline-flex items-center rounded-full bg-zk-chip px-2.5 py-1 text-zk-text2 hover:underline"
                 >

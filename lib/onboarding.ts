@@ -27,7 +27,7 @@ type Db = Pick<PrismaClient, "project" | "bug" | "membership" | "tenantInvite">;
 export async function gettingStartedFor(
   db: Db,
   tenantId: string,
-  { tenantSlug, now = new Date() }: { tenantSlug: string; now?: Date },
+  { now = new Date() }: { now?: Date } = {},
 ): Promise<{ steps: GettingStartedStep[]; complete: boolean }> {
   const [projects, issues, members, pendingInvites] = await Promise.all([
     db.project.count({ where: { tenantId } }),
@@ -47,7 +47,7 @@ export async function gettingStartedFor(
       id: "project",
       label: "Set up a project",
       hint: "One product you track, such as a web app. A platform such as Web or Mobile is a label on an issue, not its own project.",
-      href: "/projects",
+      href: "/org/projects",
       done: projects > 0,
     },
     {
@@ -60,8 +60,8 @@ export async function gettingStartedFor(
     {
       id: "invite",
       label: "Invite a teammate",
-      hint: "Send an invite from the workspace's people page.",
-      href: `/tenants/${encodeURIComponent(tenantSlug)}`,
+      hint: "Send an email invite or share an invite link from the organization's Invites tab.",
+      href: "/org/invites",
       done: members > 1 || pendingInvites > 0,
     },
   ];

@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { statusLabels } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { normalizeQuery, shouldSearch, type SimilarIssue } from "@/lib/similar-issues";
-import { issuePath } from "@/lib/issue-ref";
+import { normalizeQuery, shouldSearch, type SimilarIssueLink } from "@/lib/similar-issues";
 
 /** Short enough to feel instant, long enough not to query every keystroke. */
 const DEBOUNCE_MS = 200;
@@ -17,7 +16,7 @@ const DEBOUNCE_MS = 200;
 export function SimilarIssues({ title, id }: { title: string; id?: string }) {
   const query = normalizeQuery(title);
   const searchable = shouldSearch(query);
-  const [result, setResult] = useState<{ query: string; issues: SimilarIssue[] } | null>(null);
+  const [result, setResult] = useState<{ query: string; issues: SimilarIssueLink[] } | null>(null);
 
   useEffect(() => {
     if (!searchable) return;
@@ -28,7 +27,7 @@ export function SimilarIssues({ title, id }: { title: string; id?: string }) {
           signal: controller.signal,
         });
         if (!res.ok) return;
-        const body = (await res.json()) as { issues?: SimilarIssue[] };
+        const body = (await res.json()) as { issues?: SimilarIssueLink[] };
         setResult({ query, issues: body.issues ?? [] });
       } catch {
         // Aborted by the next keystroke, or offline: show nothing.
@@ -54,7 +53,7 @@ export function SimilarIssues({ title, id }: { title: string; id?: string }) {
             {issues.map((issue) => (
               <li key={issue.id} className="flex flex-wrap items-baseline gap-x-2 text-sm">
                 <a
-                  href={issuePath(issue.number)}
+                  href={issue.path}
                   target="_blank"
                   rel="noopener"
                   className="min-w-0 break-words font-medium text-zk-accent hover:underline"

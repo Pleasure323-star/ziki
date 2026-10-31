@@ -1,4 +1,5 @@
 import type { AgentLevel, Prisma, PrismaClient } from "@prisma/client";
+import { issueHref } from "@/lib/issue-ref";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -7,6 +8,8 @@ export const TEAM_METRIC_WINDOW_DAYS = 30;
 
 export type TeamAgentWork = {
   id: string;
+  /** The issue's address, `/<project-slug>/<number>`. */
+  path: string;
   title: string;
   categoryId: string | null;
   categoryName: string | null;
@@ -66,6 +69,8 @@ export async function teamAgentsForMembers(
           bug: {
             select: {
               id: true,
+              number: true,
+              project: { select: { slug: true } },
               title: true,
               categoryId: true,
               category: { select: { name: true } },
@@ -110,6 +115,7 @@ export async function teamAgentsForMembers(
   for (const agent of agents) {
     const currentWork = agent.claims.map(({ bug }) => ({
       id: bug.id,
+      path: issueHref(bug),
       title: bug.title,
       categoryId: bug.categoryId,
       categoryName: bug.category?.name ?? null,
@@ -172,6 +178,8 @@ export async function teamAssignedWorkForMembers(
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
+      number: true,
+      project: { select: { slug: true } },
       title: true,
       assigneeId: true,
       categoryId: true,
@@ -188,6 +196,7 @@ export async function teamAssignedWorkForMembers(
     if (onAgentCard) continue;
     result.get(bug.assigneeId)?.push({
       id: bug.id,
+      path: issueHref(bug),
       title: bug.title,
       categoryId: bug.categoryId,
       categoryName: bug.category?.name ?? null,

@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { z } from "zod";
 import { requireUser } from "@/lib/auth-helpers";
 import { fieldError } from "@/lib/form-errors";
 import {
@@ -18,14 +17,7 @@ import {
 } from "@/lib/invites";
 import { acceptShareLink, createShareLink, revokeShareLink } from "@/lib/share-invites";
 import { prisma } from "@/lib/prisma";
-import { notifyLater } from "@/lib/notify";
-import { isTenantAdminRole } from "@/lib/agents/membership";
-import {
-  TENANT_DESCRIPTION_MAX,
-  TENANT_JOIN_REQUEST_RATE_LIMIT,
-  requestTenantMembership,
-  reviewTenantMembershipRequest,
-} from "@/lib/tenant-join-requests";
+import { issueHref } from "@/lib/issue-ref";
 import { setActiveProjectCookie } from "@/lib/project-context";
 import { RATE_LIMIT_MESSAGE, consumeRateLimit } from "@/lib/rate-limit";
 import {
@@ -42,10 +34,14 @@ import {
 } from "@/lib/tenants";
 
 /**
- * The tenant picker's actions (#444). Each acts as the signed-in person and
- * only ever on tenants they belong to; lib/tenants.ts and lib/invites.ts
- * hold the rules.
+ * The tenant picker's actions (#444), and the organization admin's actions
+ * behind /org. Each acts as the signed-in person and only ever on tenants
+ * they belong to; lib/tenants.ts and lib/invites.ts hold the rules.
  */
+
+/** The organization admin area. It always shows the tenant this device is working in. */
+const ORG_SETTINGS_PATH = "/org/settings";
+const ORG_INVITES_PATH = "/org/invites";
 
 export type TenantFormResult = {
   error?: string;
@@ -54,10 +50,6 @@ export type TenantFormResult = {
   /** #537: the name to confirm before a second tenant with it is created. */
   duplicateName?: string;
 };
-
-const discoverySettingsSchema = z.object({
-  description: z.string().trim().max(TENANT_DESCRIPTION_MAX, `Description must be ${TENANT_DESCRIPTION_MAX} characters or fewer.`),
-});
 
 /** Work in this tenant on this device, and go to its issues. */
 async function enterTenant(tenantId: string, projectId?: string): Promise<never> {
@@ -81,97 +73,6 @@ export async function selectTenantAction(formData: FormData): Promise<void> {
   await enterTenant(tenant.id);
 }
 
-/** An owner or admin controls whether this tenant appears in discovery. */
-export async function updateTenantDiscoveryAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const tenantId = String(formData.get("tenantId") ?? "");
-  const parsed = discoverySettingsSchema.safeParse({ description: String(formData.get("description") ?? "") });
-  if (!tenantId || !parsed.success) return;
-  const membership = await prisma.membership.findUnique({
-    where: { tenantId_userId: { tenantId, userId: user.id } },
-    select: { role: true, tenant: { select: { slug: true } } },
-  });
-  if (!membership || !isTenantAdminRole(membership.role, user.role)) return;
-  await prisma.tenant.update({
-    where: { id: tenantId },
-    data: {
-      discoverable: formData.get("discoverable") === "on",
-      description: parsed.data.description || null,
-    },
-  });
-  revalidatePath(`/tenants/${membership.tenant.slug}`);
-  revalidatePath("/tenants");
-}
-
-export type JoinTenantActionResult = { pending?: boolean; error?: string };
-
-/** Request a place without creating a membership; only an admin can approve it. */
-export async function requestTenantJoinAction(
-  _previous: JoinTenantActionResult | undefined,
-  formData: FormData,
-): Promise<JoinTenantActionResult> {
-  const user = await requireUser();
-  if (!(await consumeRateLimit(`tenant-join-request:${user.id}`, TENANT_JOIN_REQUEST_RATE_LIMIT)).allowed) {
-    return { error: RATE_LIMIT_MESSAGE };
-  }
-  const result = await requestTenantMembership(prisma, user.id, String(formData.get("tenantId") ?? ""));
-  if (!result.ok) return { error: result.error };
-
-  if (result.created) {
-    const managers = await prisma.membership.findMany({
-      where: { tenantId: result.tenantId, role: { in: ["owner", "admin"] } },
-      select: { userId: true },
-    });
-    for (const manager of managers) {
-      notifyLater({
-        kind: "tenant_join_request",
-        actorId: null,
-        actorName: user.name || user.email || "Someone",
-        recipientId: manager.userId,
-        requestId: result.requestId,
-        tenantId: result.tenantId,
-        tenantName: result.tenantName,
-        tenantSlug: result.slug,
-      });
-    }
-  }
-  revalidatePath("/tenants");
-  return { pending: true };
-}
-
-/** Review a pending request. Approval adds a member inside the same transaction. */
-export async function reviewTenantJoinRequestAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const requestId = String(formData.get("requestId") ?? "");
-  const status = formData.get("status");
-  if (!requestId || (status !== "approved" && status !== "rejected")) return;
-  const request = await prisma.tenantJoinRequest.findUnique({
-    where: { id: requestId },
-    select: { tenantId: true },
-  });
-  if (!request) return;
-  const membership = await prisma.membership.findUnique({
-    where: { tenantId_userId: { tenantId: request.tenantId, userId: user.id } },
-    select: { role: true },
-  });
-  if (!isTenantAdminRole(membership?.role, user.role)) return;
-
-  const result = await reviewTenantMembershipRequest(prisma, { requestId, reviewerId: user.id, status });
-  if (!result.ok) return;
-  notifyLater({
-    kind: "tenant_join_request_result",
-    actorId: user.id,
-    actorName: user.name || user.email || "Someone",
-    recipientId: result.userId,
-    tenantId: result.tenantId,
-    tenantName: result.tenantName,
-    tenantSlug: result.slug,
-    status: result.status as "approved" | "rejected",
-  });
-  revalidatePath(`/tenants/${result.slug}`);
-  revalidatePath("/tenants");
-}
-
 /**
  * Switch to the tenant that owns an issue the viewer followed a link to
  * (#519), then land on that issue. Membership is re-checked here: the hint
@@ -185,7 +86,11 @@ export async function switchTenantForIssueAction(formData: FormData): Promise<vo
   await setActiveTenantCookie(tenant.id);
   await setActiveProjectCookie("");
   revalidatePath("/", "layout");
-  redirect(`/issues/${encodeURIComponent(issueId)}`);
+  const bug = await prisma.bug.findFirst({
+    where: { id: issueId, tenantId: tenant.id },
+    select: { number: true, project: { select: { slug: true } } },
+  });
+  redirect(bug ? issueHref(bug) : "/issues");
 }
 
 /** Create a tenant owned by the person, with its first project, and enter it. */
@@ -227,16 +132,17 @@ export async function renameTenantAction(formData: FormData): Promise<void> {
 
   const result = await renameTenant(prisma, user.id, tenantId, formData.get("name"));
   if (!result.ok) {
-    redirect(`/tenants/${tenant.slug}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${ORG_SETTINGS_PATH}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/tenants");
-  revalidatePath(`/tenants/${tenant.slug}`);
-  redirect(`/tenants/${tenant.slug}?notice=${encodeURIComponent("Organization renamed.")}`);
+  redirect(`${ORG_SETTINGS_PATH}?notice=${encodeURIComponent("Organization renamed.")}`);
 }
 
-/** Archive or restore a tenant the person owns. */
+/**
+ * Archive or restore a tenant the person owns. Archiving happens in /org;
+ * an archived tenant can't be opened, so it is restored from /tenants.
+ */
 export async function setTenantArchivedAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const tenantId = String(formData.get("tenantId") ?? "");
@@ -246,12 +152,10 @@ export async function setTenantArchivedAction(formData: FormData): Promise<void>
   const archived = String(formData.get("archived") ?? "") === "true";
   const result = await setTenantArchived(prisma, user.id, tenantId, archived);
   if (!result.ok) {
-    redirect(`/tenants/${tenant.slug}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${archived ? ORG_SETTINGS_PATH : "/tenants"}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/tenants");
-  revalidatePath(`/tenants/${tenant.slug}`);
   redirect(`/tenants?notice=${encodeURIComponent(archived ? "Organization archived." : "Organization restored.")}`);
 }
 
@@ -264,11 +168,10 @@ export async function deleteTenantAction(formData: FormData): Promise<void> {
 
   const result = await deleteTenant(prisma, user.id, tenantId, formData.get("confirmName"));
   if (!result.ok) {
-    redirect(`/tenants/${tenant.slug}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${ORG_SETTINGS_PATH}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/tenants");
   redirect(`/tenants?notice=${encodeURIComponent("Organization deleted.")}`);
 }
 
@@ -316,7 +219,7 @@ export async function createInviteAction(
     });
   }
 
-  revalidatePath(`/tenants/${result.tenant.slug}`);
+  revalidatePath(ORG_INVITES_PATH);
   return {
     ok: true,
     email: result.invite.email,
@@ -348,7 +251,7 @@ export async function createShareLinkAction(
   });
   if (!result.ok) return result;
 
-  revalidatePath(`/tenants/${result.tenantSlug}`);
+  revalidatePath(ORG_INVITES_PATH);
   return { ok: true, url: result.url };
 }
 
@@ -356,7 +259,7 @@ export async function createShareLinkAction(
 export async function revokeShareLinkAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeShareLink(prisma, user, String(formData.get("linkId") ?? ""));
-  if (result.ok) revalidatePath(`/tenants/${result.tenantSlug}`);
+  if (result.ok) revalidatePath(ORG_INVITES_PATH);
 }
 
 /**
@@ -380,7 +283,7 @@ export async function acceptShareLinkAction(formData: FormData): Promise<void> {
 export async function revokeInviteAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeInvite(prisma, user, String(formData.get("inviteId") ?? ""));
-  if (result.ok) revalidatePath(`/tenants/${result.tenantSlug}`);
+  if (result.ok) revalidatePath(ORG_INVITES_PATH);
 }
 
 export type AcceptInviteActionResult = { error?: string };

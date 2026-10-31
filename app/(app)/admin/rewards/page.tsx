@@ -19,7 +19,7 @@ export default async function AdminRewardsPage() {
       <div>
         <p className="text-sm">
           <Link href="/admin/users" className="font-medium text-teal-700 hover:underline">
-            ← Admin management
+            ← Site admin
           </Link>
         </p>
         <h1 className="mt-2 text-xl font-semibold text-slate-900 sm:text-2xl">Platform points</h1>

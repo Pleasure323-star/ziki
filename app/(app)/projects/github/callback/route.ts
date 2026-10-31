@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
   const settingsUrl = slug && /^[a-z0-9-]{1,48}$/.test(slug)
     ? new URL(`/projects/${encodeURIComponent(slug)}/settings`, origin)
-    : new URL("/projects", origin);
+    : new URL("/org/projects", origin);
 
   if (error) {
     logger.warn("[github] installation callback error from GitHub", { error, errorDescription: query.get("error_description") });
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     select: { id: true, githubInstallationId: true },
   });
   if (!project) {
-    const response = NextResponse.redirect(new URL("/projects", origin));
+    const response = NextResponse.redirect(new URL("/org/projects", origin));
     response.cookies.delete(STATE_COOKIE);
     return response;
   }

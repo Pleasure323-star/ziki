@@ -16,7 +16,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
     <div className="mx-auto w-full max-w-6xl rounded-[20px] border border-zk-border bg-zk-surface p-7">
       <h1 className="font-bold text-zk-text">Project notes</h1>
       <p className="mt-2 text-sm text-zk-text2">Select a workspace and project to read its notes.</p>
-      <Link href="/projects" className="mt-4 inline-block text-sm font-semibold text-zk-accent underline">View projects</Link>
+      <Link href="/org/projects" className="mt-4 inline-block text-sm font-semibold text-zk-accent underline">View projects</Link>
     </div>
   );
   const params = await searchParams;

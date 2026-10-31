@@ -5,6 +5,7 @@ import { activeProjectIdFor } from "@/lib/project-context";
 import { consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { escapeSearchQuery } from "@/lib/search";
 import { parseIssueNumberQuery } from "@/lib/issue-number";
+import { issueHref } from "@/lib/issue-ref";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
 import {
@@ -12,6 +13,7 @@ import {
   shouldSuggest,
   SUGGEST_LIMIT,
   SUGGEST_RATE_LIMIT,
+  type IssueSuggestion,
 } from "@/lib/issue-suggest";
 
 /**
@@ -44,17 +46,18 @@ export async function GET(req: NextRequest) {
   if (asNumber !== null) matches.push({ number: asNumber });
 
   try {
-    const issues = await prisma.bug.findMany({
+    const rows = await prisma.bug.findMany({
       where: {
         ...bugInTenant(tenantId),
         ...(projectId ? { projectId } : {}),
         isDeleted: false,
         OR: matches,
       },
-      select: { id: true, number: true, title: true, status: true },
+      select: { id: true, number: true, title: true, status: true, project: { select: { slug: true } } },
       orderBy: { updatedAt: "desc" },
       take: SUGGEST_LIMIT,
     });
+    const issues: IssueSuggestion[] = rows.map(({ project, ...issue }) => ({ ...issue, path: issueHref({ number: issue.number, project }) }));
     return NextResponse.json(
       { issues },
       { headers: { "Cache-Control": "private, no-store" } },

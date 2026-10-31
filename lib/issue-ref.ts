@@ -1,11 +1,12 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 /**
- * Readable issue references (#457). An issue page can be addressed by its
- * per-organisation number (`/issues/123`), by a prefixed form such as
- * `/issues/ZE-123`, or by the internal id older links use. Numbers are unique
- * per tenant (`@@unique([tenantId, number])`), so a number only means
- * something inside the viewer's organisation.
+ * Readable issue references (#457). An issue lives at `/<project-slug>/<number>`
+ * (#project-urls). Older links name it by its per-organisation number
+ * (`/issues/123`), a prefixed form such as `/issues/ZE-123`, or its internal
+ * id, and redirect there. Numbers are unique per tenant
+ * (`@@unique([tenantId, number])`), so a number only means something inside
+ * the viewer's organisation.
  */
 export type IssueRef = { kind: "number"; number: number } | { kind: "id"; id: string };
 
@@ -28,9 +29,18 @@ export function parseIssueRef(raw: string): IssueRef {
   return { kind: "id", id: value };
 }
 
-/** The readable path for an issue, e.g. `/issues/123` or `/issues/123/history`. */
-export function issuePath(number: number, suffix = ""): string {
-  return `/issues/${number}${suffix}`;
+/**
+ * The address of an issue: its project's slug and its organisation-wide
+ * number, e.g. `/ziki/123` or `/ziki/123/history` (#project-urls). Older
+ * `/issues/<n>` and `/issues/<id>` links redirect here.
+ */
+export function issuePath(projectSlug: string, number: number, suffix = ""): string {
+  return `/${encodeURIComponent(projectSlug)}/${number}${suffix}`;
+}
+
+/** The address of an issue read with `project: { select: { slug: true } }`. */
+export function issueHref(issue: { number: number; project: { slug: string } }, suffix = ""): string {
+  return issuePath(issue.project.slug, issue.number, suffix);
 }
 
 /** The readable path for an idea, e.g. `/ideas/12`. Ideas are numbered apart from issues (#idea-table). */

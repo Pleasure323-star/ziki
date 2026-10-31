@@ -90,22 +90,6 @@ export type NotificationEvent =
       tenantName: string;
     })
   | (AgentBase & {
-      /** A person asked to join a discoverable tenant (#772). */
-      kind: "tenant_join_request";
-      requestId: string;
-      tenantId: string;
-      tenantName: string;
-      tenantSlug: string;
-    })
-  | (AgentBase & {
-      /** A tenant owner or admin reviewed a join request (#772). */
-      kind: "tenant_join_request_result";
-      tenantId: string;
-      tenantName: string;
-      tenantSlug: string;
-      status: "approved" | "rejected";
-    })
-  | (AgentBase & {
       /** The platform offered this person an issue (#449). */
       kind: "claim_offered";
       claimId: string;
@@ -128,8 +112,6 @@ export const AGENT_NOTIFICATION_KINDS = [
   "agent_question",
   "approval_needed",
   "tenant_invite",
-  "tenant_join_request",
-  "tenant_join_request_result",
   "claim_offered",
   "reviewer_eligible",
   "merge_failed",
@@ -164,8 +146,11 @@ function body(
   ].join("\n");
 }
 
-/** Where an agent or platform event links to, and what to call that link. */
-function agentTarget(event: Extract<NotificationEvent, AgentBase>): { path: string; label: string } {
+/**
+ * Where an agent or platform event links to, and what to call that link.
+ * `issuePath` is the event's issue address, or null when it has none.
+ */
+function agentTarget(event: Extract<NotificationEvent, AgentBase>, issuePath: string | null): { path: string; label: string } {
   switch (event.kind) {
     case "agent_question":
       return { path: `/questions/${event.questionId}`, label: "Answer the question" };
@@ -173,25 +158,22 @@ function agentTarget(event: Extract<NotificationEvent, AgentBase>): { path: stri
       return { path: `/redesigns/${event.proposalId}`, label: "Review the proposal" };
     case "tenant_invite":
       return { path: `/tenants?invite=${encodeURIComponent(event.inviteId)}`, label: "See the invite" };
-    case "tenant_join_request":
-      return { path: `/tenants/${encodeURIComponent(event.tenantSlug)}`, label: "Review the request" };
-    case "tenant_join_request_result":
-      return { path: "/tenants", label: "See your workspaces" };
     case "claim_offered":
-      return { path: `/issues/${event.bugId}`, label: "Open the issue" };
+      return { path: issuePath ?? "/issues", label: "Open the issue" };
     case "reviewer_eligible":
       return { path: "/settings/agents", label: "Manage agents" };
     case "merge_failed":
-      return { path: `/issues/${event.bugId}`, label: "Open the issue" };
+      return { path: issuePath ?? "/issues", label: "Open the issue" };
   }
 }
 
 function planAgentNotification(
   event: Extract<NotificationEvent, AgentBase>,
   base: string,
+  issuePath: string | null,
 ): PlannedNotification[] {
   if (!event.recipientId || event.recipientId === event.actorId) return [];
-  const { path, label } = agentTarget(event);
+  const { path, label } = agentTarget(event, issuePath);
   const about = event.bugTitle ? ` about ${quote(event.bugTitle)}` : "";
   let subject: string;
   let lines: (string | false | undefined)[];
@@ -216,18 +198,6 @@ function planAgentNotification(
     case "tenant_invite":
       subject = `${event.actorName} invited you to ${event.tenantName}`;
       lines = [`${event.actorName} invited you to join ${event.tenantName} on Ziki.`];
-      break;
-    case "tenant_join_request":
-      subject = `${event.actorName} requested to join ${event.tenantName}`;
-      lines = [`${event.actorName} asked to join ${event.tenantName}. Review the request in tenant settings.`];
-      break;
-    case "tenant_join_request_result":
-      subject = event.status === "approved"
-        ? `Your request to join ${event.tenantName} was approved`
-        : `Your request to join ${event.tenantName} was declined`;
-      lines = [event.status === "approved"
-        ? `You can now open ${event.tenantName} on Ziki.`
-        : `The owners or admins of ${event.tenantName} declined your request. You can submit another request from workspace discovery.`];
       break;
     case "claim_offered":
       subject = `You've been offered ${quote(event.bugTitle)}`;
@@ -271,16 +241,22 @@ export function isAgentNotificationEvent(
   return (AGENT_NOTIFICATION_KINDS as readonly string[]).includes(event.kind);
 }
 
-export function planNotifications(event: NotificationEvent, siteUrl: string): PlannedNotification[] {
+/**
+ * Plans the notifications for one event. `issuePath` is the address of the
+ * event's issue (`/<project-slug>/<number>`, #project-urls), looked up at
+ * delivery; null when the event is about no issue.
+ */
+export function planNotifications(event: NotificationEvent, siteUrl: string, issuePath: string | null): PlannedNotification[] {
   const base = siteUrl.replace(/\/$/, "");
-  if (isAgentNotificationEvent(event)) return planAgentNotification(event, base);
+  if (isAgentNotificationEvent(event)) return planAgentNotification(event, base, issuePath);
   const commentId =
     event.kind === "comment_added" || event.kind === "mentioned" ? event.commentId : undefined;
   // The query lets the page load down to the comment's thread even when
   // it's older than the default window (#280).
+  const issueAddress = issuePath ?? "/issues";
   const path = commentId
-    ? commentPermalinkPath(event.bugId, commentId)
-    : `/issues/${event.bugId}`;
+    ? commentPermalinkPath(issueAddress, commentId)
+    : issueAddress;
   const issueUrl = `${base}${path}`;
   const settingsUrl = `${base}/settings`;
   const title = quote(event.bugTitle);

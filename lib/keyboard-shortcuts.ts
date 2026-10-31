@@ -28,13 +28,13 @@ export type ShortcutSpec = {
 };
 
 export type ShortcutOptions = {
-  /** The dashboard is admin-only, so it's hidden for everyone else. */
+  /** The dashboard is the organization overview (/org), so it's hidden for anyone without one. */
   dashboard?: boolean;
 };
 
 /**
  * What the cheat sheet lists, in order. The dashboard entry is omitted when
- * the signed-in user isn't an admin, since the route redirects them away.
+ * the signed-in user has no organization, since /org would have nothing to show.
  */
 export function shortcutGroups({
   dashboard = true,

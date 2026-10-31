@@ -32,7 +32,7 @@ export type ProjectActionResult = {
 };
 
 function projectsMessage(key: "error" | "notice", message: string): string {
-  return `/projects?${key}=${encodeURIComponent(message)}`;
+  return `/org/projects?${key}=${encodeURIComponent(message)}`;
 }
 
 /** The current tenant, only when the signed-in person owns it or is super admin. */
@@ -160,7 +160,7 @@ export async function createTestMissionAction(
   if (!parsed.success) return fromZodError(parsed.error, "Check the mission details");
 
   const result = await createTestMissions(project.id, parsed.data);
-  revalidatePath("/projects");
+  revalidatePath("/org/projects");
   return result.count > 0
     ? { message: `Added ${result.count} test mission${result.count === 1 ? "" : "s"}.` }
     : { message: "Those route, role, and viewport missions already exist." };
@@ -222,7 +222,7 @@ export async function createProjectAction(
 
   await setActiveProjectCookie(project.id);
   revalidatePath("/", "layout");
-  revalidatePath("/projects");
+  revalidatePath("/org/projects");
   revalidatePath("/issues");
   redirect("/issues");
 }
@@ -273,7 +273,7 @@ export async function setProjectArchivedAction(formData: FormData): Promise<void
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/projects");
+  revalidatePath("/org/projects");
   revalidatePath("/issues");
   redirect(projectsMessage("notice", archived ? "Project archived." : "Project restored."));
 }
@@ -306,7 +306,7 @@ export async function deleteProjectAction(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/projects");
+  revalidatePath("/org/projects");
   revalidatePath("/issues");
   redirect(projectsMessage("notice", "Project deleted."));
 }

@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { Status } from "@prisma/client";
 import { OverviewVote } from "@/components/overview/overview-vote";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { issuePath } from "@/lib/issue-ref";
 import { formatTimeAgo } from "@/lib/format";
 import { issueStageLabels, type IssueStage } from "@/lib/issue-stage";
 import { statusLabels } from "@/lib/labels";
@@ -10,6 +9,8 @@ import { statusLabels } from "@/lib/labels";
 export type OverviewAssignedIssue = {
   id: string;
   number: number;
+  /** The issue's address, `/<project-slug>/<number>`. */
+  path: string;
   title: string;
   status: Status;
   voteCount: number;
@@ -114,7 +115,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
                       />
                     )}
                     <Link
-                      href={issuePath(issue.number)}
+                      href={issue.path}
                       className="flex min-w-0 flex-1 items-center gap-3 text-left text-zk-text"
                     >
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zk-tint text-zk-accent">

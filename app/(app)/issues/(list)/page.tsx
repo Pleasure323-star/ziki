@@ -82,7 +82,7 @@ import { LoadError } from "@/components/load-error";
 import { logLoadFailure } from "@/lib/load-error";
 import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
-import { issuePath } from "@/lib/issue-ref";
+import { issueHref } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { CountBadge } from "@/components/count-badge";
 
@@ -212,9 +212,9 @@ export default async function BugsPage({
     try {
       const dismissed = parseDismissed((await cookies()).get(GETTING_STARTED_COOKIE)?.value);
       if (!dismissed.includes(tenantId)) {
-        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true, slug: true } });
+        const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
         if (tenant) {
-          const checklist = await gettingStartedFor(prisma, tenantId, { tenantSlug: tenant.slug });
+          const checklist = await gettingStartedFor(prisma, tenantId);
           if (!checklist.complete) gettingStarted = { tenantId, workspaceName: tenant.name, steps: checklist.steps };
         }
       }
@@ -520,6 +520,7 @@ export default async function BugsPage({
         closeReason: true,
         voteCount: true,
         projectId: true,
+        project: { select: { slug: true } },
         isDeleted: true,
         isBoosted: true,
         duplicateOf: showDuplicates ? { select: { number: true } } : false,
@@ -984,7 +985,7 @@ export default async function BugsPage({
                           <div className="issues-vote w-[76px] shrink-0">{importance}</div>
                         )}
                         <Link
-                          href={issuePath(bug.number)}
+                          href={issueHref(bug)}
                           data-issue-link=""
                           className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md text-left [touch-action:manipulation] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
                         >
@@ -1192,11 +1193,11 @@ function FirstRunWelcome({
       {isAdmin ? (
         <p className="mx-auto mt-6 max-w-md text-sm text-zk-muted">
           Before people start reporting, you may want to set up your{" "}
-          <Link href="/projects" className="font-bold text-zk-accent underline">projects</Link>
+          <Link href="/org/projects" className="font-bold text-zk-accent underline">projects</Link>
           , and the{" "}
-          <Link href="/admin/categories" className="font-bold text-zk-accent underline">platforms</Link>{" "}
+          <Link href="/org/platforms" className="font-bold text-zk-accent underline">platforms</Link>{" "}
           and{" "}
-          <Link href="/admin/types" className="font-bold text-zk-accent underline">issue types</Link>{" "}
+          <Link href="/org/types" className="font-bold text-zk-accent underline">issue types</Link>{" "}
           they will choose from.
         </p>
       ) : null}
