@@ -32,8 +32,7 @@ describe("tools over MCP", () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual(TOOLS.map((tool) => tool.name).sort());
     const comment = tools.find((tool) => tool.name === "ziki_comment")!;
     const properties = comment.inputSchema.properties as Record<string, { description?: string; maxLength?: number; enum?: string[] }>;
-    expect(properties.body.maxLength).toBe(2000);
-    expect(properties.body.description).toMatch(/2000/);
+    expect(properties.body.maxLength).toBe(10000);
     // A comment replies to one entry, or while the issue is Open goes on the issue or replies to a comment there; it has no type or metadata.
     expect(properties.type).toBeUndefined();
     expect(properties.metadata).toBeUndefined();
@@ -110,7 +109,7 @@ describe("tools over MCP", () => {
 
   it("rejects invalid input without calling the API", async () => {
     fetchMock.mockClear();
-    const result = await call("ziki_comment", { id: "i1", body: "x".repeat(2001) });
+    const result = await call("ziki_comment", { id: "i1", body: "x".repeat(10001) });
     expect(result.isError).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -143,7 +143,7 @@ describe("buildRequest", () => {
   });
 
   it("rejects input the route would reject", () => {
-    expect(() => buildRequest(tool("ziki_comment"), { id: "i", body: "x".repeat(2001) }, { projectId: null })).toThrow();
+    expect(() => buildRequest(tool("ziki_comment"), { id: "i", body: "x".repeat(10001) }, { projectId: null })).toThrow();
     expect(() => buildRequest(tool("ziki_ask_owner"), { body: "hi" }, { projectId: null })).toThrow();
   });
 });
