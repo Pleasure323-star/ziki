@@ -41,7 +41,7 @@ function form(values: Record<string, string | number | boolean> = {}) {
     offerWindowSeconds: 1800,
     heartbeatMinutes: 240,
     deliveryMinutes: 240,
-    maxActiveClaims: 2,
+    maxActiveClaims: 10,
     volunteerWindowSeconds: 120,
     autoMerge: true,
     abandonCheckMinutes: 120,

@@ -755,7 +755,7 @@ model ProjectWorkflow {
   offerWindowSeconds     Int      @default(1800)
   heartbeatMinutes       Int      @default(240)
   deliveryMinutes        Int      @default(240)
-  maxActiveClaims        Int      @default(2)
+  maxActiveClaims        Int      @default(10)
   volunteerWindowSeconds Int      @default(120)
   autoMerge              Boolean  @default(true)
   /// Net idea votes (good minus bad) before a manager agent may convert an idea to an issue.
