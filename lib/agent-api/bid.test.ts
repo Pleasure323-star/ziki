@@ -6,7 +6,7 @@ const db = vi.hoisted(() => {
     bugActivity: { createMany: vi.fn(), create: vi.fn() },
     issueBid: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
-    bidVote: { findMany: vi.fn() },
+    bidVote: { findMany: vi.fn(), deleteMany: vi.fn() },
     agent: { findFirst: vi.fn() },
     projectWorkflow: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
@@ -119,10 +119,31 @@ describe("placeBid", () => {
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid" }));
   });
 
-  it("refuses to replace a bid that was already awarded", async () => {
-    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: new Date(), withdrawnAt: null });
+  it("bids afresh once an earlier award's hold has ended and the issue is Open again (#745)", async () => {
+    const awardedAt = new Date("2026-10-30T10:00:00Z");
+    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt, claimId: "old-claim", withdrawnAt: null });
+    db.issueBid.update.mockResolvedValue({ id: "bid1", summary: plan.summary });
+    // No live offer or claim on the issue: the old award's hold is over.
+    db.issueClaim.findFirst.mockResolvedValue(null);
+    const result = await placePlan(caller, "project", "issue1");
+    expect(result).toMatchObject({ bid: { id: "bid1" }, replaced: false });
+    expect(db.issueBid.update).toHaveBeenCalledWith({
+      where: { id: "bid1" },
+      data: expect.objectContaining({ awardedAt: null, claimId: null, withdrawnAt: null, summary: plan.summary }),
+    });
+    // The old round's votes don't carry over to the new bid.
+    expect(db.bidVote.deleteMany).toHaveBeenCalledWith({ where: { bidId: "bid1" } });
+    expect(db.issueBid.create).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a rebid while the awarded offer or claim is live (#745)", async () => {
+    db.issueBid.findUnique.mockResolvedValue({ id: "bid1", awardedAt: new Date(), claimId: "claim", withdrawnAt: null });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { tenantId: "tenant", projectId: "project" } });
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
+    db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "offered", offeredAt: new Date(), bug: { tenantId: "tenant", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
     expect(db.issueBid.update).not.toHaveBeenCalled();
+    expect(db.bidVote.deleteMany).not.toHaveBeenCalled();
   });
 
   it("allows bidding even when the agent's owner holds active claims", async () => {
