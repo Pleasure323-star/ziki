@@ -9,7 +9,9 @@ export type SidebarStep = { label: string; count: number; href: string; selected
 
 export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
   return (
-    <nav aria-label="Status" className="shrink-0 max-lg:w-full max-lg:overflow-x-auto max-lg:border-b max-lg:border-zk-divider max-lg:pb-3 lg:w-40 lg:py-1">
+    // relative: the labels' screen-reader-only (absolute) counts stay inside the
+    // scrolling strip on phones instead of widening the page.
+    <nav aria-label="Status" className="relative shrink-0 max-lg:w-full max-lg:overflow-x-auto max-lg:border-b max-lg:border-zk-divider max-lg:pb-3 lg:w-40 lg:py-1">
       <ol className="m-0 flex list-none p-0 max-lg:gap-5 lg:flex-col">
         {steps.map((step, index) => {
           const last = index === steps.length - 1;
