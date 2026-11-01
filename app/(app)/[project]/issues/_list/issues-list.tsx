@@ -197,8 +197,8 @@ export async function IssuesList({
   searchParams,
 }: {
   slug: string;
-  /** The list the path names; none on `/<slug>/ideas` (Ideas, or All when searching). */
-  status?: string;
+  /** The list the path names: a status, `ideas` or `rejected_ideas` (#project-urls). */
+  status: string;
   /** `drafts` on `/<slug>/ideas/drafts`. */
   ideas?: string;
   /** This page's address, to come back to after switching workspace. */
@@ -232,7 +232,7 @@ export async function IssuesList({
   }
 
   const canDelete = canDeleteTicket(effectiveRole, membershipRole);
-  const params: Awaited<SearchParams> = { ...(await searchParams), ...(status ? { status } : {}), ...(ideas ? { [IDEAS_PARAM]: ideas } : {}) };
+  const params: Awaited<SearchParams> = { ...(await searchParams), status, ...(ideas ? { [IDEAS_PARAM]: ideas } : {}) };
   /** A list's address from its query: the status and ideas view become the path (lib/project-paths.ts). */
   const listHref = (query: URLSearchParams): string => {
     const next = new URLSearchParams(query);
@@ -245,11 +245,8 @@ export async function IssuesList({
     return issuesPath(slug, listStatus, next);
   };
   const qParam = toSingleQueryParam(params.q);
-  // No ?status= opens Ideas; ?status=all is the All tab.
-  // A search with no tab picked looks across All, so any issue can be found.
-  const statusParam =
-    toSingleQueryParam(params.status) ??
-    (toSingleQueryParam(params.deleted) === "true" ? undefined : toSingleQueryParam(params.q)?.trim() ? ALL_STATUS : IDEAS_STATUS);
+  // The path names the list; a search stays in it (All looks across every issue).
+  const statusParam: string = status;
   const sortParam = toSingleQueryParam(params.sort);
   // #724: the Ideas lists sort by their good or bad votes.
   const ideaSortParam = toSingleQueryParam(params[IDEA_SORT_PARAM]);

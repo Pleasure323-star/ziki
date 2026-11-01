@@ -123,8 +123,8 @@ const IDEA = {
 };
 
 /** Renders `/acme/issues/<status>`, or `/acme/ideas` when no status is given. */
-async function renderList({ status, ...query }: Record<string, string> = {}) {
-  const returnTo = status ? `/acme/issues/${status}` : "/acme/ideas";
+async function renderList({ status = "ideas", ...query }: Record<string, string> = {}) {
+  const returnTo = status === "ideas" ? "/acme/ideas" : `/acme/issues/${status}`;
   const page = (await IssuesList({ slug: "acme", status, returnTo, searchParams: Promise.resolve(query) })) as ReactElement;
   return renderToStaticMarkup(page);
 }
@@ -199,8 +199,8 @@ describe("issue list layout", () => {
     expect(where).not.toHaveProperty("substatus");
   });
 
-  it("searches across All when no stage is picked, so a just-reported issue can be found", async () => {
-    const html = await renderList({ q: "login" });
+  it("searches across every issue on All, so a just-reported issue can be found", async () => {
+    const html = await renderList({ q: "login", status: "all" });
     const where = findMany.mock.calls.at(-1)![0].where;
     expect(where).not.toHaveProperty("id");
     expect(where).not.toHaveProperty("status");

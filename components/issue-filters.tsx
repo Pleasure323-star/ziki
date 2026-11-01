@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { issuesPath, statusFromSegment } from "@/lib/project-paths";
+import { ideasPath, issuesPath, statusFromSegment } from "@/lib/project-paths";
 import { statuses } from "@/lib/validations/issue";
 import { statusLabel } from "@/lib/labels";
 import { FINISHED_STATUS_FILTER, statusFilterLabel } from "@/lib/issue-state";
@@ -86,6 +86,10 @@ const FILTER_PARAMS = [
   MILESTONE_PARAM,
 ];
 
+/** The Ideas lists' names in the list logic (the issue list's IDEAS_STATUS and REJECTED_IDEAS_STATUS). */
+const IDEAS_STATUS = "ideas";
+const REJECTED_IDEAS_STATUS = "rejected_ideas";
+
 /**
  * The list URL for `params`: the status is the path (`/<slug>/issues/open`,
  * #project-urls) and everything else stays in the query.
@@ -94,6 +98,8 @@ function listHref(slug: string, params: URLSearchParams): string {
   const next = new URLSearchParams(params.toString());
   const status = next.get("status") || "all";
   next.delete("status");
+  if (status === IDEAS_STATUS) return ideasPath(slug, "new", next);
+  if (status === REJECTED_IDEAS_STATUS) return ideasPath(slug, "rejected", next);
   return issuesPath(slug, status, next);
 }
 
@@ -136,8 +142,11 @@ export function IssueFilters({
   const { project: slug } = useParams<{ project: string }>();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  // The status tab is in the path; the filters read it as if it were `?status=`.
-  const pathStatus = statusFromSegment(pathname?.split("/").filter(Boolean)[2] ?? "") ?? "all";
+  // The list is in the path; the filters read it as if it were `?status=`.
+  const segments = pathname?.split("/").filter(Boolean) ?? [];
+  const pathStatus = segments[1] === "ideas"
+    ? (segments[2] === "rejected" ? REJECTED_IDEAS_STATUS : IDEAS_STATUS)
+    : statusFromSegment(segments[2] ?? "") ?? "all";
   const params = useMemo(() => {
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     next.delete("status");

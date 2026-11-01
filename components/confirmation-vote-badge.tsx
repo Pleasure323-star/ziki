@@ -71,7 +71,8 @@ export function ConfirmationVoteBadge({ bugId, accepts, rejects, needed, confirm
         type="button"
         onClick={() => vote(verdict)}
         disabled={pending}
-        aria-label={up ? "Confirm this issue" : "Reject this issue"}
+        // The visible count is part of the name (label-content-name-mismatch).
+        aria-label={`${count} ${up ? "confirms" : "rejects"}: ${up ? "confirm" : "reject"} this issue`}
         title={up ? "Confirm" : "Reject"}
         className={`relative items-center gap-0.5 rounded px-0.5 ${tone} hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue disabled:cursor-wait ${className}`}
         data-testid={testId}
