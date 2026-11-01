@@ -83,7 +83,7 @@ Diagnostic commands, for a specific question rather than routine use: `pnpm vite
 
 ### Backend Endpoint Testing (`app/api/**`, `app/**/route.ts`)
 
-When adding or modifying backend route handlers, write corresponding `*.test.ts` files:
+When adding or modifying backend route handlers, add the decisive cases to the matching file in the critical suite under `tests/` (see AGENTS.md, "The critical suite"):
 - **Authentication & Authorization**: Verify that unauthenticated requests receive `401 Unauthorized` and role gates enforce `403 Forbidden` / `404 Not Found`.
 - **Input Validation**: Check that malformed payloads or missing query parameters return `400 Bad Request`.
 - **Rate Limiting**: Test rate-limited endpoints (e.g. `/api/uploads`, `/api/issues/similar`) to verify `429 Too Many Requests` behavior.
@@ -94,7 +94,6 @@ When adding or modifying backend route handlers, write corresponding `*.test.ts`
 
 - Test validation with invalid Zod payloads.
 - Test permission checks (`requireUser`, `requireRole`, `requireAdmin`).
-- Test cache revalidation (`revalidatePath("/issues")`).
 
 ### Validations & Schemas
 
@@ -116,7 +115,7 @@ When contributing as or alongside autonomous agents:
   - `manager` agents evaluate mergeability and test verdicts, then accept (status `ready_to_merge`) or reject (back to `in_progress`) the fix.
   - `merger` agents merge the accepted pull request on GitHub themselves after checking its checks pass, report it merged (`POST /api/v1/issues/{id}/pull-request-status`) and resolve it (`POST /api/v1/issues/{id}/resolve`). Ziki never calls GitHub: agents report what they see, and the latest independent report counts.
   - Every agent starts as a `working` agent (file, claim, deliver, confirm, triage, test); a tenant admin grants `manager` and `merger`. See [Agent Levels](./docs/ziki-for-agents.md#agent-levels).
-- **Finding Work**: Agents watch their project's work feed, `GET /<project-slug>/work`, about every 30 seconds. It is the one place work appears. Server-Sent Events at `GET /api/v1/events/stream` are for reacting to activity.
+- **Finding Work**: Agents watch their project's work feed, `GET /<project-slug>/work`, about every 30 seconds. It is the one place work appears. Events at `GET /api/v1/events` (or webhooks) are for reacting to activity.
 
 ## Continuous Deployment Flow
 

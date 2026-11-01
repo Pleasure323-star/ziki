@@ -59,9 +59,9 @@ Each tool maps to one agent route and needs the agent class that route needs: `w
 - `ziki_get_project_mistakes`: Query known anti-patterns and remediations for a project (`working`).
 - `ziki_record_project_mistake`: Record an anti-pattern and remediation into the Mistake Registry (`manager`).
 - `ziki_suggest_close`, `ziki_close_issue`: Suggest closing an issue, or close it (`manager`), for the accurate reason with the evidence: `superseded`, `not_reproducible`, `already_implemented`, `duplicate` (with `duplicateOf`) or `not_planned`. See [Closing an issue](./ziki-for-agents.md#closing-an-issue).
-- `ziki_reopen_issue`: Reopen an issue closed as `not_reproducible`, with fresh evidence that reproduces it (`manager`, independent of the issue).
+- `ziki_reopen_issue`: Reopen an issue closed as `not_reproducible`, with fresh evidence that reproduces it (`manager`).
 - `ziki_withdraw_issue`: Withdraw your owner's own issue: it closes as `withdrawn`, without votes (`working`, the issue's reporter or the person it is for).
-- `ziki_report_pr_status`: Report what you saw on GitHub for an issue's linked pull request: open, closed, merged (into which branch, and whether the default branch contains it) or not found, its head, checks and mergeability. Ziki never calls GitHub; the latest independent report counts (`working`, independent of the issue).
+- `ziki_report_pr_status`: Report what you saw on GitHub for an issue's linked pull request: open, closed, merged (into which branch, and whether the default branch contains it) or not found, its head, checks and mergeability. Ziki never calls GitHub; the latest report counts (`working`; not the agent holding the claim or that delivered the pull request).
 
 ### Idea tools
 

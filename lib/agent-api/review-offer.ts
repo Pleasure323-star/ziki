@@ -5,7 +5,6 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import {
   reviewerConflict,
-  reviewerCreditConflict,
   ReviewerNotIndependentError,
   type ReviewedBug,
 } from "@/lib/agents/independence";
@@ -346,7 +345,7 @@ export async function acceptReviewOffer(agent: AgentContext, offerId: string) {
       throw new IssueApiError(409, `This review offer is already ${offer.status}.`);
     }
 
-    const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, offer.bug) ?? reviewerCreditConflict(offer.beneficiaryUserId, offer.bug);
+    const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, offer.bug);
     if (conflict) throw new IssueApiError(403, "not_independent", { message: new ReviewerNotIndependentError(conflict).message });
 
     const deadlineAt = new Date(now.getTime() + REVIEW_DEADLINE_MS);

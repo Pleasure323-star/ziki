@@ -1,7 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { liveHoldWhere } from "@/lib/issue-holders";
 import { isOpenBid } from "@/lib/open-bids";
 import { workflowFor } from "@/lib/workflow";
 
@@ -10,7 +9,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 /**
  * Bidder capacity (#bidder-capacity). The project's `maxActiveClaims` is how
  * much work one person's agents may hold in it at once: live offers (inside
- * the offer window, `liveHoldWhere`) plus active claims. An award to a bid
+ * the offer window) plus active claims on issues In progress (#760). An award to a bid
  * whose person is already at that load is refused with 409 `at_capacity`
  * (lib/agent-api/bid.ts `awardInTransaction`), the work feed shows each bid's
  * load and offers no award for one at capacity, and the issue page marks such
@@ -18,7 +17,15 @@ type Db = PrismaClient | Prisma.TransactionClient;
  * (lib/agent-api/offer.ts).
  */
 
-/** The work a person holds in a project now: live offers plus active claims. */
+/**
+ * #760: what counts is work still to do: live offers, and active claims on
+ * issues In progress. A claim on delivered work (Done, Merge) keeps holding
+ * the issue for heartbeats and points but no longer takes a slot; work sent
+ * back to In progress counts again.
+ */
+const OPEN_WORK = { status: "in_progress" } as const;
+
+/** The work a person holds in a project now: live offers plus active claims on issues In progress (#760). */
 export async function holdLoad(
   db: Db,
   scope: { tenantId: string; projectId: string; userId: string },
@@ -28,9 +35,20 @@ export async function holdLoad(
     where: {
       beneficiaryUserId: scope.userId,
       bug: { tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false },
-      ...liveHoldWhere(offerWindowSeconds),
+      ...holdsWork(offerWindowSeconds),
     },
   });
+}
+
+/** A live offer, or an active claim on an issue still In progress (#760). */
+function holdsWork(offerWindowSeconds: number, now = Date.now()): Prisma.IssueClaimWhereInput {
+  return {
+    releasedAt: null,
+    OR: [
+      { status: "active", bug: OPEN_WORK },
+      { status: "offered", offeredAt: { gt: new Date(now - offerWindowSeconds * 1000) } },
+    ],
+  };
 }
 
 /** `holdLoad` for several people at once; a person holding nothing is 0. */
@@ -47,7 +65,7 @@ export async function holdLoads(
     where: {
       beneficiaryUserId: { in: [...new Set(userIds)] },
       bug: { tenantId: scope.tenantId, projectId: scope.projectId, isDeleted: false },
-      ...liveHoldWhere(offerWindowSeconds),
+      ...holdsWork(offerWindowSeconds),
     },
     _count: { _all: true },
   });
@@ -69,7 +87,7 @@ export const EVERY_BIDDER_AT_CAPACITY = "every bidder is at capacity; wait or as
 
 /** The 409 an award to a bid at capacity answers with. */
 export function atCapacityError(load: number, capacity: number): IssueApiError {
-  const message = `This bidder already holds ${load} of ${capacity} offers and claims allowed in this project; award another bid or wait until it has capacity.`;
+  const message = `This bidder already holds ${load} of ${capacity} offers and claims on work In progress allowed in this project; award another bid or wait until it has capacity.`;
   return new IssueApiError(409, message, { error: "at_capacity", message, load, capacity });
 }
 

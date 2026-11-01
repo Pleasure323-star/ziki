@@ -251,8 +251,8 @@ export async function reclaimStaleIssue(agent: AgentContext, projectId: string, 
 
 /**
  * #idle: a manager agent takes idle In progress work that nobody holds back to
- * Open (lib/agent-api/idle.ts). Only a manager (or merger) agent independent of
- * the issue may: not its filer's, beneficiary's or assignee's. A stranded
+ * Open (lib/agent-api/idle.ts). Any manager (or merger) agent may, the owner's
+ * own included (#owner-agents), except the agent holding the claim. A stranded
  * delivery is delivered instead (deliver_stranded), never reclaimed. The issue
  * goes to Open with no assignee, the activity log and an `issue.updated` event
  * record it with the reason `idle`, and the pull request link, if any, stays.
@@ -269,7 +269,7 @@ async function reclaimIdleIssue(
       beneficiaryUserId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
     },
   });
   const conflict = reviewed ? reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, reviewed) : null;

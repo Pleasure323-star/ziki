@@ -75,4 +75,4 @@ Each poll is one read, a `304` included. At the standard 600 reads per hour, `wo
 
 ## Tests
 
-`pnpm test scripts/ziki-agent.test.ts` runs the client against a mocked API. No database is needed.
+The client is exercised end to end by the CLI scenarios (`pnpm test:cli`, see [cli.md](./cli.md)).

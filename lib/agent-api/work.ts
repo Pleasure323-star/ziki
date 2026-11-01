@@ -6,6 +6,7 @@ import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
 import type { AgentLevel } from "@prisma/client";
 import { findClaimableIssues } from "@/lib/agent-api/contributor";
 import { findReadyToMergeIssues } from "@/lib/agent-api/merger";
+import { verdictClass, type VerdictClass } from "@/lib/agent-api/merge-verdicts";
 import { findReviewableIssues } from "@/lib/agent-api/reviewer";
 import { openIssueConfirmations } from "@/lib/issue-stage";
 import { REVIEW_OFFER_TTL_MS } from "@/lib/agent-api/review-offer";
@@ -167,7 +168,7 @@ type OpenBid = {
   weightedVotes: number;
   /** Who already voted for it. */
   voters: string[];
-  /** Live offers plus active claims its person holds in the project (#bidder-capacity, lib/agent-api/capacity.ts). */
+  /** Live offers plus active claims on work In progress its person holds in the project (#bidder-capacity, #760, lib/agent-api/capacity.ts). */
   load: number;
   createdAt: Date;
 };
@@ -197,9 +198,10 @@ type IssueFacts = ReviewedBug & {
    * and one working-class entry (#confirmation-weights).
    */
   confirmerOwners: string[];
-  /** Whose delivery is on the linked pull request: the people credited and the delivering agents' owners. */
-  deliveryOwners: string[];
-  testerOwners: { ownerUserId: string; pullRequestUrl: string | null }[];
+  /** The agents that delivered the linked pull request: they can't report on it (#owner-agents). */
+  deliveryAgentIds: string[];
+  /** Who judged which pull request, and with which class: a person judges once per class (#owner-agents). */
+  testerOwners: { ownerUserId: string; verdictClass: VerdictClass; pullRequestUrl: string | null }[];
 };
 
 /** Who filed an idea and who already gave it a verdict (#idea-table). */
@@ -275,7 +277,7 @@ export type ProjectWork = {
   facts: Map<string, IssueFacts>;
   ideaFacts: Map<string, IdeaFacts>;
   offerWindowSeconds: number;
-  /** The project's maxActiveClaims: the live offers plus active claims one person may hold (#bidder-capacity). */
+  /** The project's maxActiveClaims: the live offers plus active claims on work In progress one person may hold (#bidder-capacity, #760). */
   capacity: number;
   /** How the voted steps are decided (#vote-governance, lib/governance.ts), and their thresholds. */
   governance: { thresholdOnly: boolean; managerVoteWeight: number; closeThreshold: number; awardThreshold: number; acceptThreshold: number };
@@ -835,11 +837,11 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
       createdByAgentId: true,
       pullRequestUrl: true,
       createdByAgent: { select: { ownerUserId: true } },
-      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
-      deliveries: { select: { pullRequestUrl: true, beneficiaryUserId: true, agent: { select: { ownerUserId: true } } } },
+      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      deliveries: { select: { pullRequestUrl: true, agentId: true } },
       confirmations: { where: { undoneAt: null }, select: { updatedAt: true, onBehalfOfUserId: true, weightClass: true } },
       revisions: { orderBy: { editedAt: "desc" }, take: 1, select: { editedAt: true } },
-      testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true } } } },
+      testVerdicts: { select: { pullRequestUrl: true, agent: { select: { ownerUserId: true, level: true } } } },
     },
   });
   return new Map(
@@ -857,10 +859,8 @@ async function loadFacts(ids: string[]): Promise<Map<string, IssueFacts>> {
         confirmerOwners: bug.confirmations
           .filter((c) => !bug.revisions[0] || c.updatedAt > bug.revisions[0].editedAt)
           .map((c) => `${c.onBehalfOfUserId}:${c.weightClass}`),
-        testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, pullRequestUrl: v.pullRequestUrl })),
-        deliveryOwners: bug.deliveries
-          .filter((d) => d.pullRequestUrl === bug.pullRequestUrl)
-          .flatMap((d) => [d.beneficiaryUserId, d.agent.ownerUserId]),
+        testerOwners: bug.testVerdicts.map((v) => ({ ownerUserId: v.agent.ownerUserId, verdictClass: verdictClass(v.agent.level), pullRequestUrl: v.pullRequestUrl })),
+        deliveryAgentIds: bug.deliveries.filter((d) => d.pullRequestUrl === bug.pullRequestUrl).map((d) => d.agentId),
       },
     ]),
   );
@@ -1040,7 +1040,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       kind: "confirm_issue",
       key: `confirm_issue:${issue.id}`,
       title: `Confirm issue #${issue.number}`,
-      detail: `Converted from an idea. Confirm it if it is real and not a duplicate, reject it if not (with duplicateOfId when it duplicates another issue), or stay neutral. Give a summary of at most two sentences and a full description that names the files and lines of code where you found it; when it shows on screen, attach screenshots (attachmentIds, several allowed). ${issue.confirmations} of ${issue.needed} confirmations so far; your confirmation counts ${confirmWeight}${can("manager") ? " (your owner may also confirm once with a worker agent, counting 1)" : ""}, or 1 on your owner's own issue. Once confirmed, any agent moves it to Open.`,
+      detail: `Converted from an idea. Confirm it if it is real and not a duplicate, reject it if not (with duplicateOfId when it duplicates another issue), or stay neutral. Give a summary of at most two sentences and a full description that names the files and lines of code where you found it; when it shows on screen, attach screenshots (attachmentIds, several allowed). ${issue.confirmations} of ${issue.needed} confirmations so far; your confirmation counts ${confirmWeight}${can("manager") ? " (your owner may also confirm once with a worker agent, counting 1)" : ""}, your owner's own issue included. Once confirmed, any agent moves it to Open.`,
       minimumRole: "working",
       canAct: true,
       issue: issueRef(issue),
@@ -1084,7 +1084,9 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   for (const test of work.tests) {
     if (!independent(test.id)) continue;
     const facts = work.facts.get(test.id);
-    if (facts?.testerOwners.some((v) => v.ownerUserId === owner && v.pullRequestUrl === test.pullRequestUrl)) continue;
+    // One judgement per person per class (#owner-agents): the owner's agent of the other class may still judge.
+    const mine = verdictClass(agent.level);
+    if (facts?.testerOwners.some((v) => v.ownerUserId === owner && v.verdictClass === mine && v.pullRequestUrl === test.pullRequestUrl)) continue;
     items.push({
       kind: "test_fix",
       key: `test_fix:${test.id}:${test.pullRequestUrl ?? ""}`,
@@ -1097,11 +1099,11 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
     });
   }
   // Pull requests to check on GitHub and report (#pr-reports): Ziki never asks
-  // GitHub, so its rules wait for an independent agent's report. Not for the
-  // issue's own side: they can't report on their own work.
+  // GitHub, so its rules wait for an agent's report. Any agent but the one
+  // holding the claim, the owner's other agents included (#owner-agents).
   for (const issue of work.toReportPr) {
     if (!independent(issue.id)) continue;
-    if (work.facts.get(issue.id)?.deliveryOwners.includes(owner)) continue;
+    if (work.facts.get(issue.id)?.deliveryAgentIds.includes(agent.agentId)) continue;
     const number = /\/pull\/(\d+)/.exec(issue.pullRequestUrl)?.[1];
     const last = issue.report
       ? ` The latest report (${issue.report.state}) is from ${issue.report.agent.name} at ${issue.report.createdAt.toISOString()}.`
@@ -1224,7 +1226,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   // 5. Manager and merger work. Listed for everyone; only those classes act.
   const roleGate = (role: AgentLevel, id?: string): { canAct: boolean; blockedReason?: string } => {
     if (!can(role)) return { canAct: false, blockedReason: `Needs a ${role} agent.` };
-    if (id && !independent(id)) return { canAct: false, blockedReason: "Your owner filed, claimed or is credited on this issue." };
+    if (id && !independent(id)) return { canAct: false, blockedReason: "This agent holds the claim on this issue; another agent acts on its work." };
     return { canAct: true };
   };
   // Threshold-only (#vote-governance): the steps votes decide are vote items any independent agent acts on.
@@ -1376,7 +1378,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       detail: `In progress with a linked pull request (${issue.pullRequestUrl}) but no delivery, and ${issue.goodVerdicts} of ${issue.needed} good-to-merge judgements already given on it. File the delivery for ${issue.creditedName} so it can be evaluated: the same pull request, a summary, a description and the evidence. The judgements are counted at once.`,
       minimumRole: "manager",
       // The delivery is credited to that person, so neither they nor anyone the independence rule excludes files it.
-      ...(gate.canAct && issue.creditedUserId === owner ? { canAct: false, blockedReason: "Your owner is credited on this issue." } : gate),
+      ...gate,
       issue: issueRef(issue),
       actions: [
         { name: "list_test_verdicts", minimumRole: "working", method: "GET", path: apiPath(issue.id, "test-results", pid), cli: `list-test-verdicts --id ${issue.id}` },

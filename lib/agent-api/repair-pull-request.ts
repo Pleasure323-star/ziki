@@ -97,7 +97,7 @@ export async function repairPullRequestLink(
       createdByAgent: { select: { ownerUserId: true } },
       project: { select: { repoUrl: true } },
       claims: {
-        select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } },
+        select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } },
       },
     },
   });

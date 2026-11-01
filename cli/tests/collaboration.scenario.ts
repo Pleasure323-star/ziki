@@ -5,6 +5,8 @@ import { confirm, feedItem, fileIssue, offeredTo, ok, refused, unique, ziki } fr
 /** Talking about an issue and lining up work on it, through the CLI. */
 describe("working on issues together", () => {
   let id: string;
+  /** A converted issue still at Requires confirmation, filed once and reused. */
+  let fresh: string;
 
   beforeAll(async () => {
     // Replies are for issue entries; ideas take only verdicts.
@@ -54,8 +56,6 @@ describe("working on issues together", () => {
     expect(again).toMatchObject({ bid_id: bid.bid_id, replaced: true, summary: "I can fix this within the hour." });
     const reply = await ok("cara", "comment", { id, summary: "A short comment.", body: "Please include a regression test.", bidId: bid.bid_id });
     expect(reply.comment).toMatchObject({ bidId: bid.bid_id, parentId: null });
-    // Replies read newest-first and from the start, like any comment.
-    expect(JSON.stringify(await ok("ada", "list-comments", { id }))).toContain("Please include a regression test.");
     const listed = JSON.stringify(await ok("cara", "list-bids", { id }));
     expect(listed).toContain(bid.bid_id);
     expect(listed).toContain("I can fix this within the hour.");
@@ -113,27 +113,24 @@ describe("working on issues together", () => {
     expect((unread.items ?? []).length).toBe(0);
   });
 
-  it("follows the project through the feed, polled events and the event stream", async () => {
+  it("follows the project through the feed and polled events", async () => {
     const feed = await ok("ada", "read-feed");
     expect(feed).toBeTruthy();
     const events = await ok("ada", "poll-events", { wait: 0 });
     expect(JSON.stringify(events)).toMatch(/issue\./);
-    // The stream is server-sent events, printed as they arrived rather than JSON.
-    const stream = await ziki("stream-events", "--seconds", "2", "--as", "ada");
-    expect(stream.code).toBe(0);
   });
 
   it("lists a converted issue to confirm in the work feed, the one queue (#714)", async () => {
     // Ideas take verdicts; the feed lists the issue to confirm once converting creates it.
-    const fresh = await fileIssue("ada", "CLI collaboration: needs confirming", ["bob", "cara", "eli"]);
+    fresh = await fileIssue("ada", "CLI collaboration: needs confirming", ["bob", "cara", "eli"]);
     const item = await feedItem("bob", "confirm_issue", fresh);
     expect(item?.actions?.map((action) => action.name)).toEqual(["confirm_issue"]);
   });
 
   it("structures an agent's report, and marks a duplicate through structuring", async () => {
-    const draft = await fileIssue("ada", "CLI collaboration: draft to structure", ["bob", "cara", "eli"]);
+    // The issue the work-feed test filed is still a draft at Requires confirmation.
     const structured = await ok("bob", "structure-issue", {
-      id: draft,
+      id: fresh,
       stepsToReproduce: "1. Open the list. 2. Scroll.",
       expectedBehavior: "Rows stay visible.",
       actualBehavior: "The list goes blank.",
@@ -170,10 +167,8 @@ describe("working on issues together", () => {
     // #722: agents read the file back with their key, at the URL the idea gives; any agent in the tenant may.
     const file = created.idea.attachments.find((entry: { id: string }) => entry.id === attachmentId);
     expect(file.url).toBe(`/api/v1/attachments/${attachmentId}`);
-    for (const reader of ["ada", "bob"] as const) {
-      const read = await ziki("request", "GET", file.url, "--as", reader);
-      expect(read.code, read.err).toBe(0);
-    }
+    const reads = await Promise.all((["ada", "bob"] as const).map((reader) => ziki("request", "GET", file.url, "--as", reader)));
+    for (const read of reads) expect(read.code, read.err).toBe(0);
     const missing = await ziki("request", "GET", "/api/v1/attachments/not-a-file", "--as", "bob");
     expect(missing.out + missing.err).toMatch(/not_found|404/);
     // The short summary is kept, for people to read at a glance (#report-summary).

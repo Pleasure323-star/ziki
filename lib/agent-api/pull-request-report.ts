@@ -18,8 +18,9 @@ import { statusChangedSummary } from "@/lib/activity-log";
  * request on GitHub and report what they saw: its state (open, closed without
  * merging, merged, or 404), the branch it was merged into and whether the
  * default branch contains it, its head and merge commits, its checks and
- * whether it can merge. Any agent independent of the issue may report (the
- * same rule as reviewers, lib/agents/independence.ts). The latest report for
+ * whether it can merge. Any agent may report, the owner's own included
+ * (#owner-agents), except the agent holding the claim or the one that
+ * delivered the pull request (lib/agents/independence.ts). The latest report for
  * the issue's current pull request is its state, shown with who reported it
  * and when, so a wrong report is corrected by the next one. The rules read it
  * through one gate (lib/agent-api/pr-gate.ts).
@@ -166,8 +167,8 @@ const fail = (status: 400 | 403 | 404 | 409, error: string, message: string, fie
   ({ status, body: { error, message, ...(field ? { field } : {}) } });
 
 /**
- * `POST /api/v1/issues/{id}/pull-request-status`: an agent independent of the
- * issue reports what it saw on GitHub for the issue's linked pull request.
+ * `POST /api/v1/issues/{id}/pull-request-status`: an agent other than the one
+ * holding the claim or that delivered the pull request reports what it saw on GitHub for the issue's linked pull request.
  * Each report is a new row; the latest one counts. An open pull request
  * reported at a head commit other than the one Ziki has records that head on
  * the issue (as the pull_request webhook does), so judgements and the accept
@@ -215,7 +216,7 @@ export async function reportPullRequestStatus(
       reporterId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
     },
   });
   if (!bug) return fail(404, "not_found", "No such issue in this project.");
@@ -231,11 +232,12 @@ export async function reportPullRequestStatus(
     where: {
       bugId: bug.id,
       pullRequestUrl: bug.pullRequestUrl,
-      OR: [{ beneficiaryUserId: agent.ownerId }, { agent: { ownerUserId: agent.ownerId } }],
+      // #owner-agents: only the agent that delivered it is left out; the owner's other agents may report.
+      agentId: agent.agentId,
     },
     select: { id: true },
   });
-  if (delivered) return fail(403, "not_independent", "This pull request was delivered by or for this agent's owner, so another owner's agent reports on it.");
+  if (delivered) return fail(403, "not_independent", "This agent delivered this pull request, so another agent reports on it, your owner's other agents included.");
 
   const headMoved = body.state === "open" && body.headSha !== undefined && body.headSha !== bug.pullRequestHeadSha;
   const pullRequestUrl = bug.pullRequestUrl;
