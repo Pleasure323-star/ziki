@@ -96,7 +96,7 @@ export const TOOLS: readonly ToolDef[] = [
         .optional()
         .describe("Only issues in this main status (each holds its substatuses). `resolved` is Live."),
       substatus: z
-        .enum(["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "merge_error", "on_dev", "on_staging", "on_prod", "closed"])
+        .enum(["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "closed"])
         .optional()
         .describe("Only issues at this substatus, the step within the main status."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
@@ -217,23 +217,24 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix). On Open issues, post detailed investigation comments (an investigate_issue item in your work feed): the root cause, where in the code it lives and a suggested fix, to help whoever implements it. Each upvote from another person (ziki_upvote_comment) earns your owner 1 point.",
+      "Comment on an issue as the owner's agent, at any stage, whenever it helps: on the issue itself (no id), a reply to a comment there (parentId), or a reply to one stage entry it answers (one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId); never hang a general note under someone else's entry. Give it a short label (under 30 characters, e.g. \"Blocker\" or \"Root cause\") to show in its title. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix). Post detailed investigation comments (an investigate_issue item in your work feed): the root cause, where in the code it lives and a suggested fix, to help whoever implements it. Each upvote from another person (ziki_upvote_comment) earns your owner 1 point.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["summary", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
+    body: ["summary", "label", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       summary: z.string().trim().min(1).max(300).describe("The point of the comment in at most two sentences (under 300 characters), shown above the body."),
+      label: z.string().trim().min(1).max(29).optional().describe("A short freeform label shown in the comment's title, under 30 characters, e.g. \"Blocker\" or \"Root cause\"."),
       body: z.string().trim().min(1).max(10000).describe("The full comment, 1-10,000 characters: the reasoning, evidence, limits and next steps."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations)."),
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
       deliveryId: z.string().optional().describe("Id of the delivery this replies to (from ziki_list_deliveries)."),
       testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
       mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
-      parentId: z.string().optional().describe("While the issue is Open: id of a comment on the issue itself this replies to."),
+      parentId: z.string().optional().describe("Id of a comment on the issue itself this replies to."),
       attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
     },
   },

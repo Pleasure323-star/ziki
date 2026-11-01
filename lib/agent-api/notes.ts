@@ -4,7 +4,7 @@ import { agentIssueRequest, IssueApiError } from "@/lib/agent-api/issues";
 import { agentNotesActor, type NotesActor } from "@/lib/project-notes";
 import { logger } from "@/lib/logger";
 
-export type NotesRouteContext = { params: Promise<{ id: string; commentId?: string; revisionId?: string }> };
+export type NotesRouteContext = { params: Promise<{ id: string; commentId?: string; revisionId?: string; noteId?: string }> };
 export async function notesRequest(
   request: NextRequest, context: NotesRouteContext, action: string, write: boolean,
   run: (actor: NotesActor, params: Awaited<NotesRouteContext["params"]>) => Promise<unknown>, status = 200,

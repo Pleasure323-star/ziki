@@ -9,7 +9,7 @@ import { workflowFor } from "@/lib/workflow";
 /**
  * The two merge queues (#substatus): tested fixes waiting for a manager's
  * accept (Done · Accepted), and accepted ones waiting to merge (Merge: Ready
- * to merge or Merge error).
+ * to merge or Error).
  */
 export type MergeQueueStatus = "accepted" | "merge";
 
@@ -35,7 +35,7 @@ export type ReadyToMergeIssue = {
  * Confirmed issues with a linked pull request at one merge step, that this
  * agent is independent of: `accepted` (tested, waiting for a manager's accept,
  * which also needs enough independent good-to-merge verdicts on the linked
- * pull request) or `merge` (accepted, waiting for the merge, Merge error
+ * pull request) or `merge` (accepted, waiting for the merge, Error
  * included).
  */
 export async function findReadyToMergeIssues(

@@ -1270,7 +1270,7 @@ export async function editProofLinksAction(
 
 /**
  * Adds a comment to a bug and records the activity: a reply to one stage
- * entry, or, while the issue is Open, a comment on it or a reply to one.
+ * entry, or a comment on the issue itself (at any stage) or a reply to one.
  */
 export async function addCommentAction(
   bugId: string,

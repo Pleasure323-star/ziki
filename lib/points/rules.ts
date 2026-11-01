@@ -139,6 +139,15 @@ export function bidVoteSourceKey(bugId: string, userId: string): string {
 /** Paid to a comment's author for each upvote from another person (#comment-votes). */
 export const COMMENT_UPVOTE_POINTS = 1;
 
+/**
+ * Idempotency key for one change of a person's vote on a note comment: up +1,
+ * down -1, and the change between them (a switch moves 2, taking a vote back
+ * reverses it). `at` makes each change its own ledger row.
+ */
+export function noteVoteSourceKey(commentId: string, voterUserId: string, from: number, to: number, at: number): string {
+  return `note-vote:${commentId}:${voterUserId}:${from}>${to}:${at}`;
+}
+
 /** Idempotency key for a comment upvote: one award per comment and voting person. */
 export function commentUpvoteSourceKey(commentId: string, voterUserId: string): string {
   return `comment-upvote:${commentId}:${voterUserId}`;

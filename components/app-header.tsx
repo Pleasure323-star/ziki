@@ -468,13 +468,11 @@ export function AppHeader({
     <header className="relative z-40 border-b border-zk-border bg-zk-surface shadow-[0_1px_3px_rgba(0,0,0,0.04)] lg:sticky lg:top-0">
       <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6`}>
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
-            The logo is the way to the Dashboard; phones show just its mark. */}
+            The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
           <Link href={projectSlug ? `/${encodeURIComponent(projectSlug)}/dashboard` : "/dashboard"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
-            <ZikiMark className="h-7 w-auto text-electric-blue-strong max-sm:h-6" />
-            <span aria-hidden="true" className="pr-1 text-[15px] font-semibold tracking-[-0.02em] text-zk-text max-sm:hidden">
-              ziki
-            </span>
+            {/* The mark alone; the link's name says Ziki. */}
+            <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
           <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className="min-w-0 max-sm:max-w-44" />

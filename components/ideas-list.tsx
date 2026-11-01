@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { IdeaScoreBadge } from "@/components/idea-verdicts";
+import { IdeaVoteBadge } from "@/components/vote-badge";
 import { IdeaRowStatus } from "@/components/issue-row-status";
 import { LocalTime } from "@/components/local-time";
 import { ideaPath } from "@/lib/project-paths";
@@ -106,7 +106,14 @@ export function IdeasList({ slug, ideas, empty, sort, sortHref }: {
                 }`}
               >
                 <div className="issues-vote w-[52px] shrink-0">
-                  <IdeaScoreBadge score={idea.score} threshold={idea.threshold} bad={idea.bad} />
+                  <IdeaVoteBadge
+                    ideaId={idea.id}
+                    good={idea.good}
+                    bad={idea.badVotes}
+                    score={idea.score}
+                    threshold={idea.threshold}
+                    votable={!idea.rejected && !idea.archived}
+                  />
                 </div>
                 <Link
                   href={ideaPath(slug, idea.number)}

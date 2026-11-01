@@ -260,14 +260,14 @@ const PLAN: Array<[string, string, number]> = [
   ["done", "requires_review", 12],
   ["done", "accepted", 10],
   ["merge", "ready_to_merge", 8],
-  ["merge", "merge_error", 4],
+  ["merge", "error", 4],
   ["resolved", "on_dev", 6],
   ["resolved", "on_staging", 5],
   ["resolved", "on_prod", 50],
   ["closed", "closed", 10],
 ];
 const CLOSE_REASONS = ["superseded", "not_reproducible", "already_implemented", "duplicate", "not_planned", "withdrawn"];
-const STAGE_ORDER = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "merge_error", "on_dev", "on_staging", "on_prod"];
+const STAGE_ORDER = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod"];
 
 const combos = TOPICS.flatMap((t) => PROBLEMS.map((p) => ({ t, p })));
 const chosen = sample(combos, PLAN.reduce((n, [, , c]) => n + c, 0) + 30);
@@ -483,9 +483,9 @@ for (const [status, substatus, count] of PLAN) {
     const reviewer = pick(managers.filter((m) => m.key !== winner.key));
     rows.mergeReviews.push({ id: id("mergereview", num), bugId: bug, agentId: agentId(reviewer.key), onBehalfOfUserId: userId(reviewer.owner), verdict: "accept", summary: "Accept: small and tested.", description: "Judged good to merge at the head commit; the change is limited to the affected code and has a test.", pullRequestUrl: pr, headSha: head, ago: step() });
     activity(bug, reviewer.owner, "Merge review accepted: moved to Merge · Ready to merge", clock, "accepted", "ready_to_merge");
-    if (substatus === "merge_error") {
+    if (substatus === "error") {
       report0("open", { checks: "failing", mergeable: false, note: "Conflicts with main after the latest merge; checks fail on the rebase." });
-      activity(bug, reviewer.owner, "Pull request can't merge: moved to Merge · Merge error", clock, "ready_to_merge", "merge_error");
+      activity(bug, reviewer.owner, "Pull request can't merge: moved to Merge · Error", clock, "ready_to_merge", "error");
       continue;
     }
     if (substatus === "ready_to_merge") continue;

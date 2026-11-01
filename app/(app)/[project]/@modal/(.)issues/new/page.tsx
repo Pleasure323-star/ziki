@@ -1,7 +1,7 @@
-import "../../../../[project]/issues/new/create-issue.css";
+import "../../../issues/new/create-issue.css";
 import { ReportIssueModal } from "@/components/report-issue-modal";
 import { safeReportedFrom } from "@/lib/reported-from";
-import { loadReportFormData } from "../../../../[project]/issues/new/load-form-data";
+import { loadReportFormData } from "../../../issues/new/load-form-data";
 
 /**
  * Opening "Report an issue" from inside the app shows the quick report in a

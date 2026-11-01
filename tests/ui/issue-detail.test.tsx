@@ -148,7 +148,8 @@ describe("IssueBidsPanel (#issue-bids)", () => {
     const buttons = screen.getAllByRole("button", { name: /Award/ });
     expect(buttons).toHaveLength(2);
     const awardedIds = buttons.map((button) => (button.closest("form")?.querySelector("input[name=bidId]") as HTMLInputElement | null)?.value);
-    expect(awardedIds).toEqual(["open1", "open2"]);
+    // The most voted open bid is listed first.
+    expect(awardedIds).toEqual(["open2", "open1"]);
     expect(screen.getByTestId("bid-withdrawn").querySelector("button")).toBeNull();
     expect(screen.getByTestId("bid-released").querySelector("button")).toBeNull();
     unmount();

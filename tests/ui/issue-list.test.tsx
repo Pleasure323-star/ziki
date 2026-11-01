@@ -133,7 +133,7 @@ const clean = (html: string) => html.replace(/<!-- -->/g, "");
 /** The stage bar above the panel, and the status list down its left. */
 const stages = (html: string) => clean(html).match(/<nav aria-label="Stages"[\s\S]*?<\/nav>/)?.[0] ?? "";
 const statusList = (html: string) => clean(html).match(/<nav aria-label="Status"[\s\S]*?<\/nav>/)?.[0] ?? "";
-const links = (nav: string) => [...nav.matchAll(/<a [^>]*>[\s\S]*?<\/a>/g)].map((m) => m[0]);
+const links = (nav: string) => [...nav.matchAll(/<a [^>]*>[\s\S]*?<\/a>/g)].map((m) => m[0]).filter((link) => !/^<a [^>]*aria-hidden="true"/.test(link));
 const labelOf = (link: string) => link.match(/>([A-Za-z][A-Za-z ]*?)(?:<span|<\/a>)/)?.[1] ?? "";
 const current = (nav: string) => links(nav).filter((link) => link.includes('aria-current="page"')).map(labelOf);
 /** Each link's label and count: beside the label in the stage bar, read out after it in the status list. */
@@ -173,7 +173,7 @@ describe("issue list layout", () => {
     }));
     expect(html).toContain('href="/acme/ideas/12"');
     expect(html).toContain("Idea #12");
-    expect(html).toContain('aria-label="Idea score 2 of 4"');
+    expect(html).toMatch(/aria-label="[^"]*idea score 2 of 4"/);
     expect(html).toContain("3 verdicts");
     expect(html).not.toMatch(/click to mark important/);
     // No issue row matches an idea list.
@@ -230,8 +230,9 @@ describe("issue list layout", () => {
         ]) as never);
     const html = await renderList({ status: "open" });
     // Ideas: new ideas + rejected ideas. Working: Open, In progress, Closed. Delivered: Done, Merge, Live.
+    // Possibly delivered is a list inside Open, so Working's total doesn't count it again.
     expect(counted(stages(html))).toEqual({ Ideas: 8, Working: 18, Delivered: 15 });
-    expect(counted(statusList(html))).toEqual({ Open: 13, "In progress": 2, Closed: 3 });
+    expect(counted(statusList(html))).toEqual({ Open: 13, "In progress": 2, Closed: 3, "Possibly delivered": 1 });
   });
 
 });

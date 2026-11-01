@@ -7,7 +7,7 @@ import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
-import { commentSchema, statusSchema, substatusSchema } from "@/lib/validations/issue";
+import { commentSchema, statusSchema, substatusSchema, commentLabel } from "@/lib/validations/issue";
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
@@ -21,7 +21,7 @@ import { extractMentionedUserIds, normalizeMentions } from "@/lib/mentions";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 import { publish } from "@/lib/agent-api/events";
-import { ENTRY_REPLY_FIELDS, STAGE_ENTRY_ROUTES, TYPED_COMMENT_MESSAGE } from "@/lib/stage-entry-route";
+import { STAGE_ENTRY_ROUTES, TYPED_COMMENT_MESSAGE } from "@/lib/stage-entry-route";
 import { CommentPlacementError, placeComment, type CommentPlacement } from "@/lib/comment-placement";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { notifyLater } from "@/lib/notify";
@@ -48,7 +48,7 @@ function enumFilter<T extends string>(name: string, raw: string | null, allowed:
 /** Files uploaded with POST /api/v1/attachments, linked on save (#645). */
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
 // #730: an agent's comment leads with its point, in at most two sentences, then the full body.
-export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
+export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, label: commentLabel.optional(), projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
 
 /**
  * Authenticate before parsing input, charge the shared budget, and audit outcomes including denials.
@@ -391,13 +391,6 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
       placement = await placeComment(tx, found, input);
     } catch (error) {
       if (!(error instanceof CommentPlacementError)) throw error;
-      if (error.code === "use_stage_entry") {
-        throw new IssueApiError(409, "use_stage_entry", {
-          message: error.message,
-          entryRoute: error.entryRoute,
-          replyFields: [...ENTRY_REPLY_FIELDS],
-        });
-      }
       throw new IssueApiError(error.status, error.message);
     }
     parentAuthorId = placement.parentAuthorId;
@@ -408,6 +401,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         authorId: agent.ownerId,
         agentId: agent.agentId,
         summary: input.summary,
+        label: input.label ?? null,
         body,
         confirmationId: placement.confirmationId,
         bidId: placement.bidId,
@@ -422,6 +416,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         authorId: true,
         agentId: true,
         summary: true,
+        label: true,
         body: true,
         parentId: true,
         confirmationId: true,

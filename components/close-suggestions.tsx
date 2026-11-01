@@ -41,7 +41,7 @@ export function CloseSuggestionsPanel({ data }: { data: CloseSuggestionsData }) 
             {others.length > 0
               ? ` · ${others.map((tally) => `${closeReasonLabel(tally.reason) ?? tally.reason} ${tally.votes}`).join(", ")}`
               : ""}
-            {data.thresholdOnly ? ` · closes at ${data.threshold}; managers' votes count ${data.managerVoteWeight}` : ""}
+            {data.thresholdOnly ? ` · closes at ${data.threshold}` : ""}
           </span>
         ) : null}
       </div>

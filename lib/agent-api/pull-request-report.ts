@@ -175,14 +175,14 @@ const fail = (status: 400 | 403 | 404 | 409, error: string, message: string, fie
  * bind to the code that is there now.
  */
 /**
- * Where a report puts an issue in Merge (#substatus): Merge error when its
+ * Where a report puts an issue in Merge (#substatus): Error when its
  * pull request can't merge as it is (closed without merging, missing,
  * conflicting or with failing checks), else Ready to merge. A merged report
  * leaves it Ready to merge: the merger resolves it.
  */
-export function mergeSubstatusFor(report: { state: string; mergeable?: boolean | null; checks?: string | null }): "ready_to_merge" | "merge_error" {
-  if (report.state === "closed" || report.state === "not_found") return "merge_error";
-  if (report.state === "open" && (report.mergeable === false || report.checks === "failing")) return "merge_error";
+export function mergeSubstatusFor(report: { state: string; mergeable?: boolean | null; checks?: string | null }): "ready_to_merge" | "error" {
+  if (report.state === "closed" || report.state === "not_found") return "error";
+  if (report.state === "open" && (report.mergeable === false || report.checks === "failing")) return "error";
   return "ready_to_merge";
 }
 
@@ -263,7 +263,7 @@ export async function reportPullRequestStatus(
     if (headMoved) {
       await tx.bug.updateMany({ where: { id: bug.id, pullRequestUrl }, data: { pullRequestHeadSha: body.headSha } });
     }
-    // In Merge, the latest report decides Ready to merge or Merge error (#substatus).
+    // In Merge, the latest report decides Ready to merge or Error (#substatus).
     const mergeStep = bug.status === "merge" ? mergeSubstatusFor(body) : null;
     if (mergeStep && mergeStep !== bug.substatus) {
       const moved = await tx.bug.updateMany({ where: { id: bug.id, status: "merge", pullRequestUrl }, data: moveTo(mergeStep) });

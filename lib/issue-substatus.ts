@@ -9,7 +9,7 @@ import type { Status, Substatus } from "@prisma/client";
  * - Open: Requires confirmation → Open (waiting for bids)
  * - In progress
  * - Done: Requires review (delivered, being judged) → Accepted (judged good to merge)
- * - Merge: Ready to merge, or Merge error (the latest pull request report says it can't merge)
+ * - Merge: Ready to merge, or Error (the latest pull request report says it can't merge)
  * - Live (`resolved`): On dev → On staging → On prod (where agents report it is deployed)
  * - Closed
  */
@@ -20,7 +20,7 @@ export const STATUS_OF = {
   requires_review: "done",
   accepted: "done",
   ready_to_merge: "merge",
-  merge_error: "merge",
+  error: "merge",
   on_dev: "resolved",
   on_staging: "resolved",
   on_prod: "resolved",
@@ -32,7 +32,7 @@ export const SUBSTATUSES: Record<Status, readonly Substatus[]> = {
   open: ["requires_confirmation", "open"],
   in_progress: ["in_progress"],
   done: ["requires_review", "accepted"],
-  merge: ["ready_to_merge", "merge_error"],
+  merge: ["ready_to_merge", "error"],
   resolved: ["on_dev", "on_staging", "on_prod"],
   closed: ["closed"],
 };

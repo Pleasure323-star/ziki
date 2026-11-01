@@ -33,10 +33,10 @@ describe("tools over MCP", () => {
     const comment = tools.find((tool) => tool.name === "ziki_comment")!;
     const properties = comment.inputSchema.properties as Record<string, { description?: string; maxLength?: number; enum?: string[] }>;
     expect(properties.body.maxLength).toBe(10000);
-    // A comment replies to one entry, or while the issue is Open goes on the issue or replies to a comment there; it has no type or metadata.
+    // A comment goes on the issue itself at any stage, replies to a comment there, or replies to one entry; it has no type or metadata.
     expect(properties.type).toBeUndefined();
     expect(properties.metadata).toBeUndefined();
-    expect(properties.parentId.description).toMatch(/Open/);
+    expect(properties.parentId.description).toMatch(/comment on the issue itself/);
     expect(properties.bidId.description).toMatch(/bid/);
     expect(comment.inputSchema.required).toEqual(expect.arrayContaining(["id", "body"]));
   });

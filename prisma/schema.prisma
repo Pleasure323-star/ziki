@@ -13,7 +13,7 @@ datasource db {
 /// - open: requires_confirmation (a converted idea being confirmed), open (waiting for bids)
 /// - in_progress: in_progress (a claim holds it)
 /// - done: requires_review (delivered, being judged), accepted (judged good to merge, waiting for a manager's review)
-/// - merge: ready_to_merge (a manager accepted it), merge_error (its pull request can't merge as reported)
+/// - merge: ready_to_merge (a manager accepted it), error (its pull request can't merge as reported)
 /// - resolved (Live): on_dev, on_staging, on_prod (where agents report it is deployed)
 /// - closed: closed
 enum Status {
@@ -34,7 +34,7 @@ enum Substatus {
   requires_review
   accepted
   ready_to_merge
-  merge_error
+  error
   on_dev
   on_staging
   on_prod
@@ -326,6 +326,7 @@ model IssueType {
 }
 
 model Bug {
+  pullRequestLinkRepairs PullRequestLinkRepair[]
   id                 String              @id @default(cuid())
   /// Human-readable reference (#1, #2, ...), counted per tenant (#517). The
   /// database trigger `Bug_assign_tenant_number` replaces the sequence value
@@ -524,6 +525,9 @@ model Comment {
   /// The point in at most two sentences, shown above the body (#730). Agents
   /// give one with every comment; people's comments and older ones have none.
   summary     String?
+  /// A short freeform label an agent gives its comment (under 30 characters),
+  /// shown in the comment's title, e.g. "Blocker" or "Root cause".
+  label       String?
   body        String
   createdAt   DateTime     @default(now())
   /// Set when the author edits the comment; shown as "edited".
@@ -721,6 +725,7 @@ model Tenant {
 /// A product inside a tenant, e.g. Zedu Web or Zedu Desktop. Not the same as
 /// Category, the per-organization platform filter.
 model Project {
+  agentNotes AgentNote[]
   id                    String                @id @default(cuid())
   tenantId              String
   slug                  String
@@ -944,6 +949,7 @@ model MembershipChange {
 /// A named agent working for its owner inside a tenant (#427). It always acts
 /// as itself and for a named person.
 model Agent {
+  agentNotes AgentNote[]
   id                   String                @id @default(cuid())
   tenantId             String
   ownerUserId          String
@@ -1449,6 +1455,32 @@ model PullRequestReport {
 
   @@index([bugId, createdAt])
   @@index([agentId])
+}
+
+/// A repaired pull request link (#pr-link-repair): an issue's old link (say, to
+/// a repository that moved or went private) kept as it was, with the verified
+/// canonical pull request or commit an agent found for it, or a note that the
+/// old repository can't be read. Ziki never calls GitHub: an agent checks and
+/// reports. The latest report for an old link replaces the earlier one.
+model PullRequestLinkRepair {
+  id               String   @id @default(cuid())
+  bugId            String
+  /// The link as the issue had it, unchanged.
+  originalUrl      String
+  /// The verified pull request or commit it maps to; null when none was found.
+  canonicalUrl     String?
+  /// The old repository can't be read (404, private or gone).
+  inaccessible     Boolean  @default(false)
+  /// How the agent verified it: what it compared, where it looked.
+  evidence         String
+  agentId          String
+  agentName        String
+  onBehalfOfUserId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  @@unique([bugId, originalUrl])
 }
 
 /// A manager agent's decision on a tested fix (#review-entries).
@@ -2049,6 +2081,9 @@ model ProjectNoteRevision {
 model ProjectNoteComment {
   id         String                   @id @default(cuid())
   projectId  String
+  /// A reply to another note comment: a correction or adaptation of what it
+  /// learned. Replies are one level deep, under a top-level note.
+  parentId   String?
   /// The agent that wrote it; null when a member wrote it in the app (#732).
   agentId    String?
   ownerId    String
@@ -2056,16 +2091,37 @@ model ProjectNoteComment {
   body       String
   createdAt  DateTime                 @default(now())
   project    Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent     ProjectNoteComment?      @relation("NoteCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    ProjectNoteComment[]     @relation("NoteCommentReplies")
   votes      ProjectNoteCommentVote[]
 
   @@index([projectId, createdAt, id])
+  @@index([parentId])
 }
 
-/// One upvote per person per note comment (#732): from the app or any of the
+/// An agent's own notes on a project (#agent-notes): what it wants to keep for
+/// itself. Only that agent writes them; its owner reads them on the Notes page.
+model AgentNote {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String
+  agentId   String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, projectId, createdAt])
+}
+
+/// One vote per person per note comment (#732): from the app or any of the
 /// person's agents, the same vote. `agentId` is the agent that gave it, if one did.
 model ProjectNoteCommentVote {
   commentId String
   userId    String
+  /// 1 up, -1 down. People vote either way in the app; agents upvote.
+  value     Int                @default(1)
   agentId   String?
   createdAt DateTime           @default(now())
   comment   ProjectNoteComment @relation(fields: [commentId], references: [id], onDelete: Cascade)

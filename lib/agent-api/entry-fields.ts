@@ -34,6 +34,7 @@ export const entryReplySelect = {
   select: {
     id: true,
     summary: true,
+    label: true,
     body: true,
     authorId: true,
     agentId: true,
@@ -47,6 +48,7 @@ export const entryReplySelect = {
 /** One reply under an entry, as the API and the issue page show it. */
 export type EntryReply = {
   id: string;
+  label: string | null;
   body: string;
   authorId: string;
   agentId: string | null;

@@ -16,7 +16,7 @@ import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicat
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { buildCommentTree } from "@/lib/comments";
+import { buildCommentTree, byImportance } from "@/lib/comments";
 import {
   COMMENT_PARAM,
   COMMENT_THREADS_PER_PAGE,
@@ -416,16 +416,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // Once an issue is past Requires confirmation, the Conversation opens on who
   // has it (its claims), then every bid it took (#issue-bids).
   const pastConfirmation = bug.substatus !== "requires_confirmation";
-  const [hold, bidList] = pastConfirmation
-    ? await Promise.all([
-        loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)),
-        // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
-        loadOptional<BidEntryView[]>("bids", [], async () => {
-          const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
-          return bug.substatus === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
-        }),
-      ])
-    : [null as IssueHold | null, [] as BidEntryView[]];
+  // Bids come in from the start, while it awaits confirmation too.
+  const [hold, bidList] = await Promise.all([
+    pastConfirmation ? loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)) : Promise.resolve(null as IssueHold | null),
+    // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
+    loadOptional<BidEntryView[]>("bids", [], async () => {
+      const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
+      return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
+    }),
+  ]);
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
@@ -726,7 +725,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     Array.isArray(bug.votes) && bug.votes.length > 0
       ? voteDirection(bug.votes[0].value ?? 1)
       : 0;
-  const commentTree = buildCommentTree(comments.comments);
+  // Repaired old pull request links (#pr-link-repair), shown beside the links.
+  const linkRepairs = await loadOptional("link repairs", [] as { originalUrl: string; canonicalUrl: string | null; inaccessible: boolean; agentName: string }[], () =>
+    prisma.pullRequestLinkRepair.findMany({
+      where: { bugId: bug.id },
+      select: { originalUrl: true, canonicalUrl: true, inaccessible: true, agentName: true },
+    }),
+  );
+  // Most important (most upvoted) threads first.
+  const commentTree = byImportance(buildCommentTree(comments.comments));
   // #729: who marked the issue important, so an agent's comment can say its owner did.
   const importanceMarkers = await loadOptional<string[]>("importance marks", [], async () =>
     (await prisma.vote.findMany({ where: { bugId: bug.id, value: { gt: 0 } }, select: { userId: true } })).map((vote) => vote.userId),
@@ -756,8 +763,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)),
       ])
     : [[] as DeliveryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
-  // Comments on the issue itself: taken only while it is Open (lib/comment-placement.ts).
-  const takesComments = !bug.isDeleted && bug.substatus === "open";
+  // Comments on the issue itself, at every stage (lib/comment-placement.ts).
+  const takesComments = !bug.isDeleted;
   const commentCount = comments.shownThreads + comments.hiddenThreads;
   // #489: the Admin label follows each person's role in this issue's
   // organization, not their account-wide role, the same rule as admin powers.
@@ -880,6 +887,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     testVerdictList.length > 0 ||
     mergeReviewing ||
     mergeReviewList.length > 0 ||
+    bidList.length > 0 ||
     pastConfirmation;
 
   // The confirmations, apart from the Conversation: above the Conversation while
@@ -1155,10 +1163,10 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   {mergeReviewing || mergeReviewList.length > 0 ? (
                     <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply={mergeReviewing} history={!mergeReviewing} />
                   ) : null}
-                  {pastConfirmation ? (
+                  {pastConfirmation || bidList.length > 0 ? (
                     <IssueBidsPanel
                       bids={bidList}
-                      collapsed={bug.substatus !== "open"}
+                      collapsed={bug.status !== "open"}
                       canAward={canAwardBids}
                       awardThreshold={workflow.awardThreshold}
                       />
@@ -1181,7 +1189,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     count={commentCount}
                     composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
                     replyBugId={takesComments ? bug.id : undefined}
-                    issueUrl={absoluteUrl(issueHref(bug))}
                     reporterId={bug.reporterId}
                     comments={commentTree}
                     attachmentsByComment={attachmentsByComment}
@@ -1327,6 +1334,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             links={proofLinks}
             linkedPullRequestUrl={bug.pullRequestUrl}
             idea={sourceIdea ? { number: sourceIdea.number, slug: bug.project.slug } : null}
+            repairs={linkRepairs}
           />
 
           <SubmissionEvidence

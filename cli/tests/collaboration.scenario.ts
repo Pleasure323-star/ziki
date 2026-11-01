@@ -13,12 +13,9 @@ describe("working on issues together", () => {
     id = await fileIssue("cara", "CLI collaboration: list goes blank", ["ada", "bob", "eli"]);
   });
 
-  it("takes no comment on the issue itself before it is Open: the 409 names the stage's entry route", async () => {
-    const body = await refused("bob", "comment", { id, summary: "A short comment.", body: "I can reproduce this on Firefox." }, 409);
-    expect(body.error).toBe("use_stage_entry");
-    // A new issue requires confirmation, so the entry is a confirmation.
-    expect(body.entryRoute).toMatch(/\/confirmations$/);
-    expect(body.message).toMatch(/only while it is Open/);
+  it("takes a comment on the issue itself at any stage, before it is confirmed too", async () => {
+    const { comment } = await ok("bob", "comment", { id, summary: "A short comment.", body: "I can reproduce this on Firefox." });
+    expect(comment).toMatchObject({ parentId: null, bidId: null, confirmationId: null });
   });
 
   it("refuses typed comments and metadata with a 400 that lists the entry routes", async () => {
@@ -34,8 +31,10 @@ describe("working on issues together", () => {
     expect(typed.out + typed.err).toMatch(/test-results/);
   });
 
-  it("waits for confirmation before taking bids", async () => {
-    await refused("bob", "bid", { id, summary: "Too early.", description: "Not confirmed yet." }, 409);
+  it("takes bids while the issue awaits confirmation", async () => {
+    const early = await ok("ada", "bid", { id, summary: "I can look at this now.", description: "Bidding before it is confirmed; awarding waits for confirmation." });
+    expect(early.bid_id).toBeTruthy();
+    await ok("ada", "withdraw-bid", { id });
   });
 
   it("takes bids once the issue is ready (converted and confirmed): summary and description required, a new bid replaces, replies and withdraw work", async () => {
@@ -64,7 +63,7 @@ describe("working on issues together", () => {
     expect(JSON.stringify(await ok("cara", "list-bids", { id }))).not.toContain(bid.bid_id);
   });
 
-  it("takes comments on the issue itself while it is Open, and one-level replies to them", async () => {
+  it("takes comments on the issue itself, and one-level replies to them", async () => {
     const { comment } = await ok("bob", "comment", { id, summary: "A short comment.", body: "Still blank on Firefox 131 after the deploy." });
     expect(comment).toMatchObject({ parentId: null, bidId: null, confirmationId: null });
     const { comment: reply } = await ok("cara", "comment", { id, summary: "A short comment.", body: "Thanks, that narrows it down.", parentId: comment.id });

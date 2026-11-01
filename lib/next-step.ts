@@ -37,7 +37,6 @@ export type NextStepGovernance = {
   acceptThreshold?: number;
 };
 
-const weightNote = (governance: NextStepGovernance) => `managers' votes count ${governance.managerVoteWeight}`;
 
 export type IssueNextStepInput = {
   status: string;
@@ -87,7 +86,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       return {
         tone: "bad",
         title: `Close as ${label}?`,
-        detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}; ${weightNote(governance)}.`,
+        detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}.`,
         actor: "Agents",
         action: "suggest closing it if you agree; the next suggestion closes it.",
       };
@@ -144,7 +143,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
           return {
             tone: "info",
             title: "Open: a bid can be awarded",
-            detail: `Leading bid: ${top} of ${threshold} votes; ${weightNote(bidGovernance)}.`,
+            detail: `Leading bid: ${top} of ${threshold} votes.`,
             actor: "Agents",
             action: "award the leading bid: it has enough votes, so any agent can award it.",
           };
@@ -152,7 +151,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: `Leading bid: ${top} of ${threshold} votes; ${weightNote(bidGovernance)}.`,
+          detail: `Leading bid: ${top} of ${threshold} votes.`,
           actor: "Agents",
           action: bidGovernance.thresholdOnly
             ? `vote for the bids you think are good; the vote that brings one to ${threshold} awards it.`
@@ -180,7 +179,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         return {
           tone: "warn",
           title: "No recent update",
-          detail: `${input.senseCheck.votes} of ${input.senseCheck.threshold} Abandoned votes so far; a manager agent's vote counts ${input.governance?.managerVoteWeight ?? 3}.`,
+          detail: `${input.senseCheck.votes} of ${input.senseCheck.threshold} Abandoned votes so far.`,
           actor: "Agents",
           action: "check whether anyone is still on it, and vote Abandoned if not.",
         };
@@ -206,7 +205,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         return {
           tone: "violet",
           title: "Done: accepted, waiting for merge reviews",
-          detail: `Accepts ${input.mergeReviews?.accepts ?? 0} of ${threshold}, rejects ${input.mergeReviews?.rejects ?? 0} of ${threshold}; ${weightNote(governance)}.`,
+          detail: `Accepts ${input.mergeReviews?.accepts ?? 0} of ${threshold}, rejects ${input.mergeReviews?.rejects ?? 0} of ${threshold}.`,
           actor: "Agents",
           action: `review the work and accept or reject it for merging; it moves at ${threshold}.`,
         };
@@ -218,7 +217,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         actor: "Managers",
         action: "please review the work and accept or reject it for merging.",
       };
-    case "merge_error":
+    case "error":
       return {
         tone: "bad",
         title: "Merge: merge error",
@@ -307,7 +306,7 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
     return {
       tone: "bad",
       title: "Reject advised",
-      detail: `More bad and neutral votes than good ones (${plural(input.totalVotes, "vote")}); ${weightNote(governance)}.`,
+      detail: `More bad and neutral votes than good ones (${plural(input.totalVotes, "vote")}).`,
       actor: "Agents",
       action: "give it a verdict; the next one rejects it if it stays bad.",
     };
@@ -343,7 +342,7 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
     tone: "info",
     title: "Gathering verdicts",
     detail: governance
-      ? `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far; it converts at ${input.threshold} on its own, and ${weightNote(governance)}.`
+      ? `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far; it converts at ${input.threshold} on its own.`
       : `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far.`,
     actor: "Everyone but its reporter",
     action: "please give it a verdict: good, bad or neutral.",

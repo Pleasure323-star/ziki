@@ -50,7 +50,7 @@ test("an issue at Requires confirmation takes confirmations, and replies under t
   await expect(panel.getByText(reply)).toBeVisible();
 });
 
-test("an Open issue says it is waiting for bids and takes comments and replies; in progress it keeps them but takes no more", async ({ page, uniq }) => {
+test("an Open issue says it is waiting for bids and takes comments and replies; in progress it still takes them", async ({ page, uniq }) => {
   const url = await fileIssue(page, uniq("Open comments check"));
   const number = Number(new URL(url).pathname.split("/").pop());
   const setStatus = async (status: "open" | "in_progress") => {
@@ -88,10 +88,9 @@ test("an Open issue says it is waiting for bids and takes comments and replies; 
   await expect(comments.getByText(body).first()).toBeVisible();
   await expect(comments.getByText(reply)).toBeVisible();
 
-  // In progress, the comments stay but the issue takes no new ones.
+  // In progress, the comments stay and the issue still takes new ones: helpful comments are welcome at any stage.
   await setStatus("in_progress");
   await page.reload();
   await expect(comments.getByText(body).first()).toBeVisible();
-  await expect(comments.getByRole("form", { name: "Add a comment" })).toHaveCount(0);
-  await expect(comments.getByRole("button", { name: "Reply" })).toHaveCount(0);
+  await expect(comments.getByRole("form", { name: "Add a comment" })).toHaveCount(1);
 });

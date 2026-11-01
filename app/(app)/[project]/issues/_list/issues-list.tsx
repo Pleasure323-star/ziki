@@ -1,3 +1,5 @@
+import { LocalTime } from "@/components/local-time";
+import { POSSIBLY_DELIVERED_STATUS, POSSIBLY_DELIVERED_WHERE, deliverySignals, type DeliverySignals } from "@/lib/possibly-delivered";
 import Link from "next/link";
 import { newIssueHref } from "@/lib/reported-from";
 import "./issues.css";
@@ -62,7 +64,7 @@ import { UnwatchButton, UnwatchFinishedButton } from "@/components/unwatch-butto
 import { parseTagFilter, serializeTags, tagTypeIds } from "@/lib/tag-filter";
 import { bugInTenant, isMissingTenantColumnError } from "@/lib/tenant-context";
 import { requireProject } from "@/lib/project-route";
-import { ideasPath, issuesPath, orgPath } from "@/lib/project-paths";
+import { ideasPath, issuesPath, orgPath, projectPath } from "@/lib/project-paths";
 import { RichText } from "@/components/rich-text";
 import { isOrganizationAdmin } from "@/lib/organization-role";
 import { cookies } from "next/headers";
@@ -77,7 +79,7 @@ import {
 } from "@/lib/platform-filter";
 import { PlatformMenu, type PlatformTab } from "@/components/platform-tabs";
 import { IssueRowStatus } from "@/components/issue-row-status";
-import { ConfirmationVoteBadge } from "@/components/confirmation-vote-badge";
+import { BidsVoteBadge, ImportanceVoteBadge } from "@/components/vote-badge";
 import { mergePathOf } from "@/lib/merge-history";
 import { IssuesToolsToggle } from "@/components/issues-tools-toggle";
 import { LoadError } from "@/components/load-error";
@@ -86,7 +88,6 @@ import { AREA_PARAM, parseProjectAreaFilter, projectAreaFilterWhere } from "@/li
 import { openIssueConfirmations, parseIssueStageView, type IssueStage } from "@/lib/issue-stage";
 import { issueHref } from "@/lib/issue-ref";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
-import { CountBadge } from "@/components/count-badge";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 
 /* Distinct browser-tab title; the root layout appends "· Ziki". */
@@ -109,6 +110,10 @@ const IDEAS_LIMIT = 100;
 
 /** `?status=rejected`: someone's confirmation entry rejected the issue (#1122, #issue-confirmations). */
 const REJECTED_STATUS = "rejected";
+/** Delivered work that can't go live: the Merge · Error substatus (the latest pull request report says it can't merge). */
+const ERROR_STATUS = "error";
+/** Open issues that may already be done (#possibly-delivered): a manager's list to check and close. */
+const POSSIBLY_DELIVERED = POSSIBLY_DELIVERED_STATUS;
 const REJECTED_WHERE = { some: { verdict: "reject", undoneAt: null } } satisfies Prisma.IssueConfirmationListRelationFilter;
 /** `?status=duplicate`: marked as a duplicate of another issue. */
 const DUPLICATE_STATUS = "duplicate";
@@ -126,8 +131,8 @@ const STAGE_GROUPS = [
   // lists every substatus of its status together (Open: Requires confirmation
   // and Open), and each row says which one it is at.
   { label: "Ideas", statuses: [IDEAS_STATUS, REJECTED_IDEAS_STATUS] },
-  { label: "Working", statuses: ["open", "in_progress", "closed"] },
-  { label: "Delivered", statuses: ["done", "merge", "resolved"] },
+  { label: "Working", statuses: ["open", "in_progress", "closed", POSSIBLY_DELIVERED] },
+  { label: "Delivered", statuses: ["done", "merge", "resolved", ERROR_STATUS] },
 ] as const;
 
 /** "+ Add Idea": every report starts as an idea (#idea-table). */
@@ -342,6 +347,12 @@ export async function IssuesList({
   }
   if (statusParam === DUPLICATE_STATUS && !isDeletedView) {
     where.duplicateOfId = { not: null };
+  }
+  if (statusParam === ERROR_STATUS) where.substatus = "error";
+  if (statusParam === POSSIBLY_DELIVERED) {
+    // Added with AND, so a search's own OR stays as it is.
+    const and = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+    where.AND = [...and, POSSIBLY_DELIVERED_WHERE];
   }
   // Platform filter: one category, or the issues with none set.
   const selectedPlatform = parsePlatformFilter(params.platform, platforms);
@@ -683,6 +694,8 @@ export async function IssuesList({
   // titles costs nothing extra. No search → no query at all.
   const searchText = qParam?.trim() ?? "";
   const snippets = new Map<string, Snippet>();
+  // Possibly delivered: why each issue is on the list, and why it is still Open.
+  const signals = statusParam === POSSIBLY_DELIVERED ? await loadOrEmpty("delivery signals", () => deliverySignals(prisma, bugs.map((b) => b.id)), new Map()) : new Map<string, DeliverySignals>();
   if (searchText) {
     const needDescription = bugs
       .filter((bug) => !hasMatch(bug.title, searchText))
@@ -763,7 +776,7 @@ export async function IssuesList({
   const confirmingCount = [...stages.values()].filter((stage) => stage === "confirming").length;
   const readyCount = [...stages.values()].filter((stage) => stage === "ready").length;
 
-  const [statusCounts, rejectedCount, duplicateCount] = isDeletedView || !tenantId ? [[], 0, 0] : await Promise.all([
+  const [statusCounts, rejectedCount, duplicateCount, errorCount, possiblyDeliveredCount] = isDeletedView || !tenantId ? [[], 0, 0, 0, 0] : await Promise.all([
     loadOrEmpty("status tabs", () => prisma.bug.groupBy({
       by: ["status"], where: statusTabWhere, _count: { _all: true },
     }), []),
@@ -772,6 +785,12 @@ export async function IssuesList({
     }), 0),
     loadOrEmpty("duplicate filter", () => prisma.bug.count({
       where: { ...statusTabWhere, duplicateOfId: { not: null } },
+    }), 0),
+    loadOrEmpty("merge error list", () => prisma.bug.count({
+      where: { ...statusTabWhere, substatus: "error" },
+    }), 0),
+    loadOrEmpty("possibly delivered list", () => prisma.bug.count({
+      where: { AND: [statusTabWhere, POSSIBLY_DELIVERED_WHERE] },
     }), 0),
   ]);
   // One status per issue, so the status tabs never overlap and add up to All.
@@ -813,7 +832,7 @@ export async function IssuesList({
   const confirmationsView = currentStatus === "open" && !isDeletedView;
   const stageIndex = isDeletedView ? -1 : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
   const statusCount = (value: string) =>
-    value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : countForStatus(value);
+    value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
   const headerContent = (
@@ -972,7 +991,7 @@ export async function IssuesList({
               <div>
                 <div className="issues-table-heading">
                   {confirmationsView ? (
-                    <abbr className="w-[52px] no-underline" title="Confirmations">Conf.</abbr>
+                    <span className="w-[52px] shrink-0 text-center">Bids</span>
                   ) : (
                     <span className="w-[76px] shrink-0 text-center">Importance</span>
                   )}
@@ -996,7 +1015,7 @@ export async function IssuesList({
                     // Importance in a list is a number to read, not a button: it is marked on the issue's page.
                     // Green once an Open issue has a bid: someone wants to do it.
                     const hasBids = bug.substatus === "open" && bug._count.bids > 0;
-                    const importance = <CountBadge value={bug.voteCount} label={`Importance ${bug.voteCount}`} tone={hasBids ? "ok" : "neutral"} testId="importance-count" />;
+                    const importance = <ImportanceVoteBadge bugId={bug.id} count={bug.voteCount} highlighted={hasBids} votable={false} />;
                     const rowStatus = (
                       <IssueRowStatus substatus={bug.substatus} stage={stage} botConfirmations={confirmationCounts.get(bug.id) ?? 0} work={work}
                         closeReason={bug.closeReason}
@@ -1015,11 +1034,7 @@ export async function IssuesList({
                       >
                         {confirmationsView ? (
                           <div className="w-[52px] shrink-0">
-                            <ConfirmationVoteBadge
-                              bugId={bug.id}
-                              votable={bug.substatus === "requires_confirmation"}
-                              {...(confirmationStates.get(bug.id) ?? { accepts: 0, rejects: 0, needed: 0, confirmed: false })}
-                            />
+                            <BidsVoteBadge count={bug._count.bids} />
                           </div>
                         ) : (
                           <div className="issues-vote w-[76px] shrink-0">{importance}</div>
@@ -1078,6 +1093,7 @@ export async function IssuesList({
                               <span className="inline-flex min-w-0 md:sr-only">{rowStatus}</span>
                             </span>
                             {snippets.has(bug.id) ? <SearchSnippet snippet={snippets.get(bug.id)!} /> : null}
+                            {signals.has(bug.id) ? <DeliverySignalsLine signals={signals.get(bug.id)!} /> : null}
                           </span>
                         </Link>
                         <span className="issues-status-cell" aria-hidden="true">{rowStatus}</span>
@@ -1153,7 +1169,8 @@ export async function IssuesList({
         <PipelineSteps
           stages={STAGE_GROUPS.map((group, index) => ({
             label: group.label,
-            count: group.statuses.reduce((sum, value) => sum + statusCount(value), 0),
+            // Error is part of Merge, so the stage total counts it once.
+            count: group.statuses.reduce((sum, value) => sum + (value === ERROR_STATUS || value === POSSIBLY_DELIVERED ? 0 : statusCount(value)), 0),
             href: statusLink(group.statuses[0]),
             selected: index === stageIndex,
           }))}
@@ -1182,6 +1199,12 @@ export async function IssuesList({
           />
         ) : null}
         <div className="min-w-0 flex-1">
+          {statusParam === POSSIBLY_DELIVERED ? (
+            <p className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-zk-warn-bg px-4 py-2.5 text-sm text-zk-warn-fg">
+              <span>Open issues that may already be done: a linked or reported pull request, a delivery, or a comment that mentions a merge.</span>
+              <Link href={projectPath(slug, "/issues/bulk-close")} className="font-bold underline">Review and close</Link>
+            </p>
+          ) : null}
           {listContent}
         </div>
       </div>
@@ -1250,5 +1273,18 @@ function FirstRunWelcome({
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** Possibly delivered (#possibly-delivered): why the issue is on the list, its last activity, and why it is still Open. */
+function DeliverySignalsLine({ signals }: { signals: DeliverySignals }) {
+  return (
+    <span data-testid="delivery-signals" className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-zk-text2">
+      <span className="font-semibold text-zk-warn-fg">{signals.reasons.join(" · ")}</span>
+      <span className="text-zk-muted">Still Open: {signals.stillOpenBecause}</span>
+      {signals.lastActivityAt ? (
+        <span className="text-zk-muted">Last activity <LocalTime date={signals.lastActivityAt} /></span>
+      ) : null}
+    </span>
   );
 }

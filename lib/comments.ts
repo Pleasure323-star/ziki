@@ -10,6 +10,8 @@ export type FlatComment = {
   id: string;
   /** The point in at most two sentences (#730); null for people's and older comments. */
   summary?: string | null;
+  /** A short freeform label shown in its title, e.g. "Blocker"; null when none was given. */
+  label?: string | null;
   body: string;
   createdAt: Date | string;
   editedAt?: Date | string | null;
@@ -45,6 +47,18 @@ export function countVisibleComments(
 }
 
 /** Build a nested tree from a flat, chronological comment list. */
+/**
+ * The conversation's threads, most important first: the most upvoted top-level
+ * comments lead, and threads with the same upvotes keep their order. Replies
+ * inside a thread stay in the order they were written.
+ */
+export function byImportance(roots: CommentNode[]): CommentNode[] {
+  return roots
+    .map((node, index) => ({ node, index }))
+    .sort((a, b) => (b.node.votes?.length ?? 0) - (a.node.votes?.length ?? 0) || a.index - b.index)
+    .map(({ node }) => node);
+}
+
 export function buildCommentTree(comments: FlatComment[]): CommentNode[] {
   const byId = new Map<string, CommentNode>();
 

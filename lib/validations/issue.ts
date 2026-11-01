@@ -9,7 +9,7 @@ export const statuses = ["open", "in_progress", "done", "merge", "resolved", "cl
 export const statusSchema = z.enum(statuses);
 
 /** The step within a main status (#substatus, lib/issue-substatus.ts). */
-export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "merge_error", "on_dev", "on_staging", "on_prod", "closed"] as const;
+export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "closed"] as const;
 
 export const substatusSchema = z.enum(substatuses);
 
@@ -137,6 +137,15 @@ export const platformSchema = categorySchema;
 /** Comments hold detailed investigations, so they can be long. */
 export const COMMENT_MAX_CHARS = 10_000;
 
+/** The longest comment label: under 30 characters. */
+export const COMMENT_LABEL_MAX_CHARS = 29;
+/** A comment's freeform label, e.g. "Blocker" or "Root cause", shown in its title. */
+export const commentLabel = z
+  .string()
+  .trim()
+  .min(1, "A label can't be empty")
+  .max(COMMENT_LABEL_MAX_CHARS, `A label is under ${COMMENT_LABEL_MAX_CHARS + 1} characters`);
+
 export const commentSchema = z.object({
   body: z
     .string()
@@ -183,7 +192,7 @@ export const commentSchema = z.object({
     .max(191)
     .optional()
     .transform((value) => (value && value.length > 0 ? value : undefined)),
-  /** A reply to a comment on an Open issue names it here (lib/comment-placement.ts). */
+  /** A reply to a comment on the issue itself names it here (lib/comment-placement.ts). */
   parentId: z
     .string()
     .trim()

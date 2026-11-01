@@ -1,12 +1,12 @@
 /**
- * The Ziki mark: a lowercase z with an arrow pointing up above its slope (an
- * issue being voted up). Drawn in currentColor so it follows the theme; the
- * arrow takes the lighter brand blue.
+ * The Ziki mark: a Z with a short line through its middle. Drawn in
+ * currentColor so it follows the theme; the same shape is the favicon
+ * (app/icon.svg), light on a dark tile.
  */
 export function ZikiMark({ className = "h-7 w-auto", title }: { className?: string; title?: string }) {
   return (
     <svg
-      viewBox="0 0 28 32"
+      viewBox="0 0 100 100"
       fill="none"
       className={className}
       role={title ? "img" : undefined}
@@ -14,13 +14,12 @@ export function ZikiMark({ className = "h-7 w-auto", title }: { className?: stri
       aria-label={title}
     >
       <path
-        d="M5 13h16L5 27.5h16"
+        d="M22 22H78L22 78H78M30 50H70"
         stroke="currentColor"
-        strokeWidth="4.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        strokeWidth="11"
+        strokeLinejoin="miter"
+        strokeMiterlimit="10"
       />
-      <path d="M16.5 2.5 21 9h-9Z" fill="#38A3FF" stroke="#38A3FF" strokeWidth="1.6" strokeLinejoin="round" />
     </svg>
   );
 }

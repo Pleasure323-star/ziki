@@ -131,9 +131,10 @@ describe("placeBid", () => {
     expect(db.bidVote.deleteMany).not.toHaveBeenCalled();
   });
 
-  it("refuses an issue that is not confirmed or is already being worked", async () => {
+  it("takes a bid while the issue awaits confirmation, and refuses one while it is already being worked", async () => {
     vi.mocked(isConfirmed).mockResolvedValue(false);
-    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
+    await expect(placePlan(caller, "project", "issue1")).resolves.toMatchObject({ replaced: false });
+    db.issueBid.create.mockClear();
     vi.mocked(isConfirmed).mockResolvedValue(true);
     db.issueClaim.findFirst.mockResolvedValue({ id: "claim", status: "active", offeredAt: null, bug: { tenantId: "tenant", projectId: "project" } });
     await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409 });
