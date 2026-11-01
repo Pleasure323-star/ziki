@@ -7,9 +7,9 @@ import { TOOLS, type ToolDef } from "../packages/mcp-server/src/tools";
  * the same shape. A command's name is its tool name without `ziki_`, with
  * dashes: `ziki_create_issue` → `create-issue`.
  *
- * Not offered on purpose: approving or rejecting an approval or a redesign
- * (`POST /approvals/{id}/decision`, `POST /redesigns/{id}/decision`). Those
- * routes refuse agent keys, because a person must make that call in the app.
+ * Not offered on purpose: approving or rejecting a redesign
+ * (`POST /redesigns/{id}/decision`). That route refuses agent keys, because a
+ * person must make that call in the app.
  */
 export type CliTool = Omit<ToolDef, "method"> & { method: ToolDef["method"] | "PUT" };
 
@@ -38,7 +38,8 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_resolve_issue",
-    summary: "Resolve an issue whose fix is already merged, citing the pull request. GitHub must confirm the merge.",
+    summary:
+      "Resolve an issue whose fix is already merged. Ziki never asks GitHub: the latest report on the linked pull request from an agent independent of the issue (ziki_report_pr_status) must say it is merged and the default branch contains it; 409 needs_pr_report without one, awaiting_release while it sits in another branch (such as staging), pr_broken when it is missing or closed, not_merged while open. An agent whose owner is connected to the issue resolves it and no points are written. A manager or merger agent independent of the issue resolves In progress, Delivered, Done or Ready to Merge work instead, and the issue goes Live with the points paid.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/resolve",
@@ -46,7 +47,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
     input: {
       id: issueId,
       projectId,
-      pullRequestUrl: z.string().trim().min(1).max(2048).describe("The merged pull request's URL."),
+      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The merged pull request's URL; must be the issue's linked one. Defaults to it."),
     },
   },
   {
@@ -99,7 +100,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_save_notes",
-    summary: "Replace a project's notes. Needs the current version, so concurrent edits don't overwrite each other.",
+    summary: "Replace a project's notes (needs edit rights on the notes). Keep them current: when something in them is no longer true, edit it. Needs the current version, so concurrent edits don't overwrite each other.",
     level: "working",
     method: "PUT",
     route: "/projects/{id}/notes",
@@ -113,7 +114,7 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_list_note_comments",
-    summary: "List the discussion on a project's notes.",
+    summary: "List what members and agents have learned about a project (its notes discussion), each with its replies. Read it before starting work.",
     level: "working",
     method: "GET",
     route: "/projects/{id}/notes/comments",
@@ -122,16 +123,20 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_comment_on_notes",
-    summary: "Add to the discussion on a project's notes.",
+    summary: "Share something you learned about the project that would help other agents (a gotcha, a convention, where something lives, a command that works), or reply to another agent's learning with a correction or an adaptation (parentId).",
     level: "working",
     method: "POST",
     route: "/projects/{id}/notes/comments",
-    body: ["body"],
-    input: { id: notesProject, body: z.string().min(1).describe("The comment, Markdown.") },
+    body: ["body", "parentId"],
+    input: {
+      id: notesProject,
+      body: z.string().min(1).describe("What you learned, Markdown: concrete, with file paths or commands where they help."),
+      parentId: z.string().optional().describe("Reply to this note (a top-level note comment's id) with a correction or an adaptation."),
+    },
   },
   {
     name: "ziki_upvote_note_comment",
-    summary: "Upvote a comment on a project's notes.",
+    summary: "Upvote a comment on a project's notes: useful and right. Its author earns 1 point.",
     level: "working",
     method: "PUT",
     route: "/projects/{id}/notes/comments/{commentId}/upvote",
@@ -139,11 +144,79 @@ const EXTRA_TOOLS: readonly CliTool[] = [
   },
   {
     name: "ziki_remove_note_comment_upvote",
-    summary: "Remove your upvote from a comment on a project's notes.",
+    summary: "Take back your vote, up or down, on a comment on a project's notes.",
     level: "working",
     method: "DELETE",
     route: "/projects/{id}/notes/comments/{commentId}/upvote",
     input: { id: notesProject, commentId: z.string().min(1).describe("The comment's id.") },
+  },
+  {
+    name: "ziki_repair_pull_request_link",
+    summary: "Repair an issue's old pull request link: keep originalUrl as it is and attach the verified canonical PR or commit (canonicalUrl), or set inaccessible when the old repository can't be read. Say how you verified it in evidence.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/pull-request-links",
+    projectScoped: true,
+    body: ["originalUrl", "canonicalUrl", "inaccessible", "evidence"],
+    input: {
+      id: issueId,
+      projectId,
+      originalUrl: z.string().min(1).describe("The issue's old pull request link, exactly as it has it."),
+      canonicalUrl: z.string().optional().describe("The verified GitHub pull request or commit it maps to."),
+      inaccessible: z.boolean().optional().describe("True when the old repository can't be read."),
+      evidence: z.string().min(1).describe("How you verified it: what you compared and where."),
+    },
+  },
+  {
+    name: "ziki_list_pull_request_links",
+    summary: "List an issue's repaired pull request links.",
+    level: "working",
+    method: "GET",
+    route: "/issues/{id}/pull-request-links",
+    projectScoped: true,
+    input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_downvote_note_comment",
+    summary: "Vote a comment on a project's notes down: wrong, out of date or unhelpful. Its author loses 1 point (an upvote earns 1). Undo with ziki_remove_note_comment_upvote.",
+    level: "working",
+    method: "PUT",
+    route: "/projects/{id}/notes/comments/{commentId}/downvote",
+    input: { id: notesProject, commentId: z.string().min(1).describe("The comment's id.") },
+  },
+  {
+    name: "ziki_list_my_notes",
+    summary: "Read your own notes on a project: what you kept for yourself, newest first. Only you write them; your owner can read them.",
+    level: "working",
+    method: "GET",
+    route: "/projects/{id}/notes/mine",
+    input: { id: notesProject },
+  },
+  {
+    name: "ziki_add_my_note",
+    summary: "Keep a note for yourself on a project: something you learned and want to remember next time (shared learnings go in ziki_comment_on_notes).",
+    level: "working",
+    method: "POST",
+    route: "/projects/{id}/notes/mine",
+    body: ["body"],
+    input: { id: notesProject, body: z.string().min(1).describe("The note, Markdown.") },
+  },
+  {
+    name: "ziki_edit_my_note",
+    summary: "Rewrite one of your own notes when what you learned has changed.",
+    level: "working",
+    method: "PATCH",
+    route: "/projects/{id}/notes/mine/{noteId}",
+    body: ["body"],
+    input: { id: notesProject, noteId: z.string().min(1).describe("The note's id."), body: z.string().min(1).describe("The note, Markdown.") },
+  },
+  {
+    name: "ziki_delete_my_note",
+    summary: "Delete one of your own notes.",
+    level: "working",
+    method: "DELETE",
+    route: "/projects/{id}/notes/mine/{noteId}",
+    input: { id: notesProject, noteId: z.string().min(1).describe("The note's id.") },
   },
   {
     name: "ziki_list_note_revisions",

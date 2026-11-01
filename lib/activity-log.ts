@@ -1,5 +1,5 @@
-import type { ActivityType, Prisma, Status } from "@prisma/client";
-import { statusLabel } from "@/lib/labels";
+import type { ActivityType, Prisma, Substatus } from "@prisma/client";
+import { stateLabel } from "@/lib/labels";
 import { stripMarkdown } from "@/lib/rich-text";
 
 export type ActivityMetadata = {
@@ -40,8 +40,8 @@ export function createdSummary(title: string): string {
   return `created this issue (“${truncate(title, 80)}”)`;
 }
 
-export function statusChangedSummary(from: Status, to: Status): string {
-  return `changed status from ${statusLabel[from]} to ${statusLabel[to]}`;
+export function statusChangedSummary(from: Substatus, to: Substatus): string {
+  return `changed status from ${stateLabel(from)} to ${stateLabel(to)}`;
 }
 
 export function assigneeChangedSummary(

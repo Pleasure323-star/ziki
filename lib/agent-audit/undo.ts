@@ -4,6 +4,7 @@ import { correct } from "@/lib/points/correct";
 import { pointSourceKey } from "@/lib/points/rules";
 import { isTenantAdminRole } from "@/lib/agents/membership";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * Reverses an agent action recorded in the audit log (#450).
@@ -208,9 +209,9 @@ async function undoConfirmation(tx: Db, event: AuditEvent): Promise<UndoResult> 
   }
 
   // #requires-confirmation: an Open issue that loses its confirmation goes back.
-  const issue = await tx.bug.findUnique({ where: { id: confirmation.bugId }, select: { status: true } });
-  if (issue?.status === "open" && !(await isConfirmed(confirmation.bugId, tx))) {
-    await tx.bug.update({ where: { id: confirmation.bugId }, data: { status: "requires_confirmation" } });
+  const issue = await tx.bug.findUnique({ where: { id: confirmation.bugId }, select: { substatus: true } });
+  if (issue?.substatus === "open" && !(await isConfirmed(confirmation.bugId, tx))) {
+    await tx.bug.update({ where: { id: confirmation.bugId }, data: moveTo("requires_confirmation") });
   }
 
   return { ok: true, message: "Confirmation undone." };

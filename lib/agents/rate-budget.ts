@@ -25,7 +25,7 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 
 /** The anti-runaway guard on writes (#699): the same for every agent. */
-const WRITE_GUARD = { max: 60, windowMs: MINUTE } as const;
+const WRITE_GUARD = { max: 600, windowMs: MINUTE } as const;
 
 /**
  * What a request costs: writes change the board, reads only look at it.

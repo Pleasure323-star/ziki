@@ -16,7 +16,7 @@ export async function loadAgentCenter(userId: string, tenantId: string | null, p
     select: { role: true },
   });
   if (!member) return null;
-  // Match decideApproval's workspace role gate, including for site admins.
+  // Workspace owners and admins see every agent's work, including site admins.
   const isAdmin = isTenantAdminRole(member.role);
   const filters = activityFilters(params);
   const bug: Prisma.BugWhereInput = {
@@ -26,7 +26,7 @@ export async function loadAgentCenter(userId: string, tenantId: string | null, p
   const agent: Prisma.AgentWhereInput = { tenantId, ...(isAdmin ? {} : { ownerUserId: userId }) };
   const optionalBug = filters.issueNumber !== undefined ? { bug } : { OR: [{ bugId: null }, { bug }] };
 
-  const [questions, approvals, work, events] = await Promise.all([
+  const [questions, work, events] = await Promise.all([
     prisma.agentQuestion.findMany({
       where: { AND: [
         // Even admins only read their own private requests. No answers selected.
@@ -36,15 +36,6 @@ export async function loadAgentCenter(userId: string, tenantId: string | null, p
       orderBy: [...orderBy], take: ACTIVITY_PAGE_SIZE + 1,
       select: { id: true, createdAt: true, body: true, agent: { select: { name: true } }, bug: { select: issueSelect } },
     }),
-    isAdmin ? prisma.issueApproval.findMany({
-      where: { AND: [{ status: "pending", bug }, activityBefore(params.approvals) ?? {}] },
-      orderBy: [...orderBy], take: ACTIVITY_PAGE_SIZE + 1,
-      select: {
-        id: true, createdAt: true, stage: true, status: true,
-        bug: { select: issueSelect },
-        rule: { select: { fileGlob: true, issueType: { select: { name: true } } } },
-      },
-    }) : Promise.resolve([]),
     prisma.issueClaim.findMany({
       where: { AND: [
         { agent, bug, ...(filters.state !== "all" ? { status: filters.state } : {}) },
@@ -67,5 +58,5 @@ export async function loadAgentCenter(userId: string, tenantId: string | null, p
       select: { id: true, createdAt: true, action: true, undoneAt: true, agent: { select: { name: true } }, bug: { select: issueSelect } },
     }),
   ]);
-  return { isAdmin, questions: activityPage(questions), approvals: activityPage(approvals), work: activityPage(work), events: activityPage(events) };
+  return { isAdmin, questions: activityPage(questions), work: activityPage(work), events: activityPage(events) };
 }

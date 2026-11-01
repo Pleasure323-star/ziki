@@ -54,7 +54,7 @@ export default async function FeedPage({ searchParams }: {
           {tenantId ? "No new tickets in this project yet." : "Join a workspace to see its new tickets."}{" "}
           <Link href="/feed" className="font-semibold text-zk-accent hover:underline">Refresh the feed</Link>
           {" "}or{" "}
-          <Link href="/issues" className="font-semibold text-zk-accent hover:underline">browse issues</Link>.
+          <Link href="/dashboard" className="font-semibold text-zk-accent hover:underline">browse issues</Link>.
         </p>
       )}
       <Link

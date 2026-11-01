@@ -8,7 +8,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
-import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verdicts";
+import { countedMergeVerdicts, deliveredClaim, MANAGER_VERDICT_WEIGHT } from "@/lib/agent-api/merge-verdicts";
 import { award, awardDispatcher } from "@/lib/points/award";
 import { pointSourceKey, reviewerPointsAt } from "@/lib/points/rules";
 import {
@@ -19,22 +19,16 @@ import { getProjectRewardConfig } from "@/lib/points/platform-rewards";
 import { assertRedesignOpen } from "@/lib/redesigns";
 import { statusChangedSummary } from "@/lib/activity-log";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
-import { parseIssueRef } from "@/lib/issue-ref";
+import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
-import {
-  clientForInstallation,
-  isPullRequestClosedUnmerged,
-  parseGitHubRepoUrl,
-  parsePullRequestUrl,
-  sameRepo,
-  type GitHubClient,
-  type MergePullResult,
-  type PullRequest,
-} from "@/lib/github/merge-pr";
+import { isThresholdOnly, thresholdDecision, type ThresholdDecision } from "@/lib/governance";
+import { mergeReviewTally } from "@/lib/agent-api/merge-review-tally";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 import { recordMistake, recordMistakeSchema, type RecordMistakeInput } from "@/lib/agent-api/mistakes";
-import { checksProblem, combineProblems, notifyAuthor, readinessProblems } from "@/lib/agent-api/pr-readiness";
-import { notifyMergeFailed } from "@/lib/agent-notifications";
-import { MERGE_BLOCKED, MERGE_FAILED, recordMergeOutcome, type MergeOutcomeStatus } from "@/lib/merge-status";
+import { prGate, type PrGate } from "@/lib/agent-api/pr-gate";
+import { gateReport, latestPullRequestReport, notifyAuthor } from "@/lib/agent-api/pull-request-report";
+import { conflictComment } from "@/lib/agent-api/merge-conflict";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
  * A merger accepting a fix (#434). The gate: the issue is confirmed, no
@@ -50,17 +44,23 @@ import { MERGE_BLOCKED, MERGE_FAILED, recordMergeOutcome, type MergeOutcomeStatu
  * and a full description (a reject's description is the feedback the fix's
  * author acts on). One per agent per issue; reviewing again replaces it.
  * The issue's status follows it: an accept makes it `ready_to_merge`, a reject
- * sends it back to `in_progress`. Nothing is
+ * sends it back to `in_progress`. In a threshold-only project
+ * (#vote-governance) any independent agent gives a merge review, and the
+ * status follows only once the weighted accepts (or rejects) reach the
+ * project's `acceptThreshold` (`mergeReviewTally`). Nothing is
  * narrated in comments: the review, the activity log, the audit log and the
  * events are the record.
  *
- * The merger agent's admin merge (`executeAdminMerge`) is an action, not an
- * entry: it merges on GitHub, sets the issue to `resolved` and awards points
- * through `award()` (#428) for the solver and up to two reviewers. Where it
- * stops, the merge status and its reason are on the issue's activity.
+ * Ziki never calls GitHub (#pr-reports). An accept needs the latest
+ * independent report on the linked pull request to say it can merge
+ * (lib/agent-api/pr-gate.ts): open, its checks passing (or none), no conflict,
+ * at the head Ziki has. The merge itself happens on GitHub, by the merger agent;
+ * an independent agent then reports it merged, and resolving it
+ * (`POST /issues/{id}/resolve`, lib/agent-api/reconcile-merged.ts) makes the
+ * issue Live and pays the points (`finalizeResolved`).
  */
 
-const mergeBugSelect = {
+export const mergeBugSelect = {
   id: true,
   title: true,
   tenantId: true,
@@ -68,12 +68,13 @@ const mergeBugSelect = {
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   status: true,
+  substatus: true,
   assigneeId: true,
   beneficiaryUserId: true,
   reporterId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  project: { select: { repoUrl: true, githubInstallationId: true } },
+  project: { select: { repoUrl: true } },
   claims: {
     select: {
       status: true,
@@ -87,7 +88,11 @@ const mergeBugSelect = {
   },
 } satisfies Prisma.BugSelect;
 
-type LoadedBug = Prisma.BugGetPayload<{ select: typeof mergeBugSelect }>;
+/** An issue as the merge steps read it. */
+export type MergeBug = Prisma.BugGetPayload<{ select: typeof mergeBugSelect }>;
+type LoadedBug = MergeBug;
+/** The claim a fix was delivered under (`deliveredClaim`), or null. */
+export type MergeClaim = MergeBug["claims"][number] | null;
 
 
 /** A merge review as the API returns it. */
@@ -108,14 +113,22 @@ export type AcceptFixResult =
       status: 200;
       accepted: boolean;
       readyToMerge?: boolean;
-      merged?: boolean;
-      mergeCommitSha?: string;
       solverUserId?: string | null;
       rewardedReviewerUserIds?: string[];
       /** The manager's merge review this call recorded (#review-entries). */
       review?: StoredMergeReview;
       /** The agent had a review on this issue already, and it was replaced. */
       replaced?: boolean;
+      /**
+       * Threshold-only projects (#vote-governance): the weighted reviews with
+       * this verdict on the pull request linked now, and the project's
+       * acceptThreshold. At the threshold an accept makes the issue Ready to
+       * merge and a reject sends it back to In progress.
+       */
+      votes?: number;
+      threshold?: number;
+      /** Threshold-only: true when this reject's votes reached the threshold and sent the issue back. */
+      rejected?: boolean;
     }
   | { status: 400; error: "invalid_request"; message: string; field?: string }
   | { status: 403; error: "insufficient_level" | "not_independent"; message: string }
@@ -123,25 +136,25 @@ export type AcceptFixResult =
   | {
       status: 409;
       error: "not_ready";
-      missing:
-        | "already_accepted"
-        | "redesign"
-        | "confirmation"
-        | "verdicts"
-        | "claim"
-        | "pull_request"
-        | "deployment_verification"
-        | "github_merge_failed"
-        | "github_app"
-        | "review_threads"
-        | "merge_conflict";
+      missing: "already_accepted" | "redesign" | "confirmation" | "verdicts" | "claim" | "pull_request";
       message: string;
       /** What the fix's author has to do, when the refusal is theirs to fix. */
       todo?: string;
-    };
+    }
+  | ({ status: 409 } & AcceptBlock);
 
-export type AcceptFixDeps = {
-  client?: GitHubClient | null;
+/**
+ * Why the pull request's reported state stops an accept (#pr-reports): nobody
+ * reported it yet or the report is out of date (`needs_pr_report`), it is
+ * merged already (`already_merged`), merged into a branch not released yet
+ * (`awaiting_release`), missing, closed or linked outside the project's
+ * repository (`pr_broken`), or open but not ready: checks failing or a
+ * conflict (`pr_not_ready`).
+ */
+export type AcceptBlock = {
+  error: "needs_pr_report" | "already_merged" | "awaiting_release" | "pr_broken" | "pr_not_ready";
+  message: string;
+  todo?: string;
 };
 
 /**
@@ -228,51 +241,47 @@ async function saveMergeReview(
 }
 
 /**
- * The merger agent's admin merge: an action, not an entry. It merges the fix
- * a manager accepted on GitHub, resolves the issue and pays the points.
- */
-export async function executeAdminMerge(
-  agent: AgentContext,
-  bugId: string,
-  deps: AcceptFixDeps = {},
-): Promise<AcceptFixResult> {
-  if (!hasLevel(agent.level, "merger")) {
-    return { status: 403, error: "insufficient_level", message: "Only merger agents can execute the final merge." };
-  }
-  return reviewFix(agent, bugId, deps, null, true);
-}
-
-/**
- * `POST /issues/{id}/merge`: a manager agent's merge review, accept or
- * reject. The body must carry a summary and a description (400 otherwise).
- * A merger agent's accept here merges straight away.
+ * `POST /issues/{id}/merge`: a merge review, accept or reject. The body must
+ * carry a summary and a description (400 otherwise). In a manager-governed
+ * project only manager and merger agents review, and one accept makes the
+ * issue Ready to merge. In a threshold-only project (#vote-governance) any
+ * independent agent reviews, and the review whose weighted verdicts reach the
+ * project's `acceptThreshold` decides it (accepts: Ready to merge; rejects:
+ * back to In progress).
  */
 export async function acceptFix(
   agent: AgentContext,
-  bugId: string,
-  deps: AcceptFixDeps = {},
+  issueRef: string,
   rawBody: unknown = {},
 ): Promise<AcceptFixResult> {
-  if (!hasLevel(agent.level, "manager")) {
-    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents can accept a fix." };
-  }
   const parsed = parseMergeReview(rawBody);
   if (!parsed.ok) return parsed.error;
-  return reviewFix(agent, bugId, deps, parsed.review, false);
+  return reviewFix(agent, issueRef, parsed.review);
 }
 
 async function reviewFix(
   agent: AgentContext,
-  bugId: string,
-  deps: AcceptFixDeps,
-  review: MergeReviewInput | null,
-  forceAdminMerge: boolean,
+  issueRef: string,
+  review: MergeReviewInput,
 ): Promise<AcceptFixResult> {
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
+  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
     select: mergeBugSelect,
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
+
+  // #vote-governance: a merge review is a manager's decision, or in a
+  // threshold-only project one weighted vote among any independent agents'.
+  const workflow = await workflowFor(bug.projectId);
+  const voting: Voting | null = isThresholdOnly(workflow)
+    ? { threshold: workflow.acceptThreshold, managerVoteWeight: workflow.managerVoteWeight }
+    : null;
+  if (!voting && !hasLevel(agent.level, "manager")) {
+    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents can accept a fix." };
+  }
 
   // #493: the merger is an independent reviewer too. The same rule that keeps
   // a claim holder's side out of the verdicts keeps it out of the review —
@@ -283,7 +292,7 @@ async function reviewFix(
     return { status: 403, error: "not_independent", message: new ReviewerNotIndependentError(conflict).message };
   }
 
-  if (review?.verdict === "reject") return rejectFix(agent, bug, review);
+  if (review.verdict === "reject") return rejectFix(agent, bug, review, voting);
 
   if (bug.status === "resolved") {
     return {
@@ -295,14 +304,7 @@ async function reviewFix(
   }
 
   const claim = deliveredClaim(bug);
-  // A delivery a manager filed on the holder's behalf (#stranded-delivery) has
-  // no claim: the person it credits stands in for the claim's side.
-  const credited = claim
-    ? []
-    : (await prisma.delivery.findMany({
-        where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl ?? "" },
-        select: { beneficiaryUserId: true },
-      })).map((delivery) => delivery.beneficiaryUserId);
+  const credited = await creditedDeliveryUsers(bug, claim);
   if (!claim && credited.length === 0) {
     return {
       status: 409,
@@ -319,33 +321,6 @@ async function reviewFix(
       message: "This issue needs a linked pull request before its fix can be accepted.",
     };
   }
-
-  const ref = parsePullRequestUrl(bug.pullRequestUrl);
-  const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
-  if (ref && repo && !sameRepo(ref, repo)) {
-    return {
-      status: 409,
-      error: "not_ready",
-      missing: "pull_request",
-      message: "That pull request is not in this project's repository.",
-    };
-  }
-
-  // #642: a pull request closed without being merged cannot be accepted.
-  const isClosed = await isPullRequestClosedUnmerged(
-    bug.pullRequestUrl,
-    bug.project?.githubInstallationId,
-    deps.client,
-  );
-  if (isClosed) {
-    return {
-      status: 409,
-      error: "not_ready",
-      missing: "pull_request",
-      message: "That pull request is closed without being merged.",
-    };
-  }
-  const reviewed: ReviewedBug = bug;
 
   try {
     await assertRedesignOpen(bug.id);
@@ -370,12 +345,184 @@ async function reviewFix(
     };
   }
 
+  const { reviewers, weight, acceptedHeadSha } = await countedReviewers(bug, claim, credited);
+
+  const { verdictsNeeded } = workflow;
+  if (weight < verdictsNeeded) {
+    return {
+      status: 409 as const,
+      error: "not_ready" as const,
+      missing: "verdicts" as const,
+      message: `This needs good-to-merge judgements weighing ${verdictsNeeded} (a manager's counts ${MANAGER_VERDICT_WEIGHT}, a working agent's 1); ${weight} so far.`,
+    };
+  }
+
+  const rewardedReviewerUserIds = reviewers;
+  const solverUserId = claim?.beneficiaryUserId ?? credited[0] ?? bug.assigneeId;
+
+  // The pull request has to be ready to merge, by the latest independent report
+  // on it (#pr-reports): Ziki doesn't ask GitHub. Nothing is accepted otherwise;
+  // the caller is told why, and the author when it is theirs to fix.
+  const report = await latestPullRequestReport(bug.id, bug.pullRequestUrl);
+  const gate = prGate(gateReport(report), {
+    pullRequestUrl: bug.pullRequestUrl,
+    pullRequestHeadSha: bug.pullRequestHeadSha,
+    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+  });
+  const block = acceptBlock(gate, report?.mergeable === false ? conflictComment(claim?.agent.name).todo : undefined);
+  if (block) {
+    if (block.error === "pr_not_ready" || block.error === "pr_broken") {
+      notifyAuthor({ bug, recipientId: claim?.beneficiaryUserId ?? bug.assigneeId, reason: block.message, fromAgentName: agent.name });
+    }
+    return { status: 409, ...block };
+  }
+  // #489: the accept binds to the commit the testers approved; a reported head
+  // past it carries commits nobody judged.
+  const reportedHead = report?.headSha ?? null;
+  if (reportedHead && acceptedHeadSha && reportedHead !== acceptedHeadSha) {
+    return {
+      status: 409,
+      error: "not_ready",
+      missing: "pull_request",
+      message: `The pull request's head commit (${reportedHead.slice(0, 7)}) changed after the testers approved ${acceptedHeadSha.slice(0, 7)}.`,
+      todo: "Testers check the new commit and report again. Then the fix can be accepted.",
+    };
+  }
+  const headSha = acceptedHeadSha ?? reportedHead;
+  const pullRequestUrl = bug.pullRequestUrl;
+
+  return prisma.$transaction(async (tx) => {
+    // The accept: ready to merge, without resolving or awarding points.
+    const saved = await saveMergeReview(tx, agent, bug, review, pullRequestUrl, headSha);
+    // Threshold-only: the accept is a vote; only the one that reaches acceptThreshold moves the issue.
+    let decision: ThresholdDecision | null = null;
+    if (voting) {
+      await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+      const votes = await mergeReviewTally(tx, bug, "accept", voting.managerVoteWeight);
+      // Short of the threshold, or already accepted by earlier votes: the review is recorded and nothing moves.
+      if (votes < voting.threshold || bug.status === "merge") {
+        return recordReviewVote(tx, agent, bug, saved, votes, voting.threshold);
+      }
+      decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, voting.threshold);
+    }
+    await tx.bug.update({
+      where: { id: bug.id },
+      data: moveTo("ready_to_merge"),
+    });
+    await tx.bugActivity.create({
+      data: {
+        bugId: bug.id,
+        actorId: agent.ownerId,
+        type: "status_changed",
+        summary: decision ? "Fix accepted by agents' merge reviews and marked ready to merge" : "Fix accepted by a manager agent and marked ready to merge",
+        metadata: { field: "status", readyToMerge: true, headSha, mergeReviewId: saved.review.id, pullRequestReportId: report?.id ?? null, ...(decision ?? {}) },
+      },
+    });
+    await audit(
+      agent,
+      "issue.accepted",
+      `bug:${bug.id}`,
+      {
+        solverUserId,
+        rewardedReviewerUserIds,
+        pullRequestUrl,
+        headSha,
+        readyToMerge: true,
+        ...moveTo("ready_to_merge"),
+        mergeReviewId: saved.review.id,
+        pullRequestReportId: report?.id ?? null,
+        summary: saved.review.summary,
+        ...(decision ?? {}),
+      },
+      { bugId: bug.id, db: tx },
+    );
+    await publish(tx, {
+      tenantId: bug.tenantId,
+      type: "issue.updated",
+      payload: {
+        issueId: bug.id,
+        solverUserId,
+        rewardedReviewerUserIds,
+        pullRequestUrl,
+        headSha,
+        readyToMerge: true,
+        ...moveTo("ready_to_merge"),
+        mergeReviewId: saved.review.id,
+        summary: saved.review.summary,
+        ...(decision ?? {}),
+      },
+      actorAgentId: agent.agentId,
+      bugId: bug.id,
+    });
+
+    return {
+      status: 200 as const,
+      accepted: true as const,
+      readyToMerge: true as const,
+      solverUserId,
+      rewardedReviewerUserIds,
+      review: saved.review,
+      replaced: saved.replaced,
+      ...(decision ? { votes: decision.votes, threshold: decision.threshold } : {}),
+    };
+  });
+}
+
+/** Why the pull request's reported state stops an accept, or null when the gate allows one. */
+export function acceptBlock(gate: PrGate, conflictTodo?: string): AcceptBlock | null {
+  if (gate.canAccept) return null;
+  const reason = gate.reason ?? "The pull request can't be accepted as reported.";
+  if (gate.canReconcile) {
+    return {
+      error: "already_merged",
+      message: "The latest report says the pull request is merged into the default branch already.",
+      todo: "Resolve it instead (POST /api/v1/issues/{id}/resolve): that makes it Live and pays the points.",
+    };
+  }
+  if (gate.awaitingRelease) return { error: "awaiting_release", message: reason };
+  if (gate.broken) return { error: "pr_broken", message: reason };
+  if (gate.needsReport) {
+    return {
+      error: "needs_pr_report",
+      message: reason,
+      todo: "Check the pull request on GitHub and report it (POST /api/v1/issues/{id}/pull-request-status), or wait for an independent agent to. Then accept again.",
+    };
+  }
+  return { error: "pr_not_ready", message: reason, ...(conflictTodo ? { todo: conflictTodo } : {}) };
+}
+
+/**
+ * The people a delivery filed on the holder's behalf credits (#stranded-delivery),
+ * when no claim stands for the fix's side: the person it credits stands in for
+ * the claim's side. Empty when a claim does.
+ */
+export async function creditedDeliveryUsers(
+  bug: { id: string; pullRequestUrl: string | null },
+  claim: MergeClaim,
+): Promise<string[]> {
+  if (claim) return [];
+  const deliveries = await prisma.delivery.findMany({
+    where: { bugId: bug.id, pullRequestUrl: bug.pullRequestUrl ?? "" },
+    select: { beneficiaryUserId: true },
+  });
+  return deliveries.map((delivery) => delivery.beneficiaryUserId);
+}
+
+/**
+ * The reviewers whose good-to-merge verdicts on the linked pull request count
+ * (one per independent owner), and the commit the last of them approved.
+ */
+export async function countedReviewers(
+  bug: ReviewedBug & { id: string; pullRequestUrl: string | null; pullRequestHeadSha: string | null },
+  claim: MergeClaim,
+  credited: readonly string[],
+): Promise<{ reviewers: string[]; weight: number; acceptedHeadSha: string | null }> {
   const verdicts = await prisma.testVerdict.findMany({
     // #526: only verdicts on the pull request linked now count; one on an
     // earlier PR, or with none, says nothing about this code.
     where: { bugId: bug.id, goodToMerge: true, pullRequestUrl: bug.pullRequestUrl ?? "" },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, headSha: true, onBehalfOfUserId: true, agent: { select: { id: true, ownerUserId: true } } },
+    select: { id: true, headSha: true, onBehalfOfUserId: true, agent: { select: { id: true, ownerUserId: true, level: true } } },
   });
 
   // Checked again now, not only when submitted: a claim taken since, or a
@@ -385,355 +532,162 @@ async function reviewFix(
   const countable = claim
     ? verdicts
     : verdicts.filter((v) => !credited.includes(v.agent.ownerUserId) && !credited.includes(v.onBehalfOfUserId));
-  const { reviewers, acceptedHeadSha } = countedMergeVerdicts(countable, claim, reviewed, bug.pullRequestHeadSha ?? null);
-
-  const { verdictsNeeded } = await workflowFor(bug.projectId);
-  if (reviewers.length < verdictsNeeded) {
-    return {
-      status: 409 as const,
-      error: "not_ready" as const,
-      missing: "verdicts" as const,
-      message: `This needs ${verdictsNeeded} reviewers saying it is good to merge; ${reviewers.length} count so far.`,
-    };
-  }
-
-  const rewardedReviewerUserIds = reviewers;
-  const solverUserId = claim?.beneficiaryUserId ?? credited[0] ?? bug.assigneeId;
-  const isAdminMerge = forceAdminMerge || agent.level === "merger";
-
-  if (!isAdminMerge) {
-    // Before a manager says yes, GitHub has to say the fix won't break the
-    // code: no conflict with the base branch, checks green on the commit the testers approved. Nothing is
-    // accepted otherwise; the caller is told why. A merge conflict is the same:
-    // no "ready to merge", and the author is told to resolve it.
-    const block = await acceptCheck(githubClientFor(bug, deps), ref, acceptedHeadSha, claim?.agent.name);
-    if (block) {
-      if (block.missing === "merge_conflict" || block.missing === "review_threads" || block.missing === "deployment_verification") {
-        notifyAuthor({ bug, recipientId: claim?.beneficiaryUserId ?? bug.assigneeId, reason: block.message, fromAgentName: agent.name });
-      }
-      // #review-entries: nothing is posted on the issue; the caller gets the
-      // reason and what to do.
-      return { status: 409 as const, error: "not_ready" as const, missing: block.missing, message: block.message, todo: block.todo };
-    }
-    const pullRequestUrl = bug.pullRequestUrl;
-    return prisma.$transaction(async (tx) => {
-      // The manager's accept: ready to merge, without resolving or awarding points.
-      const saved = await saveMergeReview(tx, agent, bug, review ?? DEFAULT_ACCEPT, pullRequestUrl, acceptedHeadSha);
-      await tx.bug.update({
-        where: { id: bug.id },
-        data: { status: "ready_to_merge" },
-      });
-      await tx.bugActivity.create({
-        data: {
-          bugId: bug.id,
-          actorId: agent.ownerId,
-          type: "status_changed",
-          summary: "Fix accepted by merger agent and marked ready to merge",
-          metadata: { field: "status", readyToMerge: true, headSha: acceptedHeadSha, mergeReviewId: saved.review.id },
-        },
-      });
-      await audit(
-        agent,
-        "issue.accepted",
-        `bug:${bug.id}`,
-        {
-          solverUserId,
-          rewardedReviewerUserIds,
-          pullRequestUrl: bug.pullRequestUrl,
-          headSha: acceptedHeadSha,
-          readyToMerge: true,
-          status: "ready_to_merge",
-          mergeReviewId: saved.review.id,
-          summary: saved.review.summary,
-        },
-        { bugId: bug.id, db: tx },
-      );
-      await publish(tx, {
-        tenantId: bug.tenantId,
-        type: "issue.updated",
-        payload: {
-          issueId: bug.id,
-          solverUserId,
-          rewardedReviewerUserIds,
-          pullRequestUrl: bug.pullRequestUrl,
-          headSha: acceptedHeadSha,
-          readyToMerge: true,
-          status: "ready_to_merge",
-          mergeReviewId: saved.review.id,
-          summary: saved.review.summary,
-        },
-        actorAgentId: agent.agentId,
-        bugId: bug.id,
-      });
-
-      return {
-        status: 200 as const,
-        accepted: true as const,
-        readyToMerge: true as const,
-        solverUserId,
-        rewardedReviewerUserIds,
-        review: saved.review,
-        replaced: saved.replaced,
-      };
-    });
-  }
-
-  // Admin merger role: Finalizes resolution, awards points, and releases claim
-  // Must strictly verify GitHub state and execute the merge BEFORE resolving or disbursing points.
-  if (!ref) {
-    return {
-      status: 409 as const,
-      error: "not_ready" as const,
-      missing: "pull_request" as const,
-      message: "No pull request is linked to this issue.",
-    };
-  }
-
-  const ghClient = githubClientFor(bug, deps);
-
-  // Every way the merge can stop records a merge status with its reason on the
-  // issue's activity, so the issue says exactly where it is. None of them
-  // resolves it or pays points.
-  const stop = async (
-    status: MergeOutcomeStatus,
-    missing: "pull_request" | "deployment_verification" | "github_merge_failed" | "github_app" | "review_threads" | "merge_conflict",
-    message: string,
-    todo?: string,
-  ) => {
-    // #1446: a failed check is logged so the issue page lists it under Ready to merge.
-    await audit(agent, "github.merge_failed", `bug:${bug.id}`, { reason: message, missing, ...(todo ? { todo } : {}) }, { bugId: bug.id, db: prisma });
-    await recordMergeOutcome(prisma, { agent, bug, status, reason: message, todo });
-    return { status: 409 as const, error: "not_ready" as const, missing, message, ...(todo ? { todo } : {}) };
-  };
-
-  // Without a GitHub client nothing can be checked or merged, so the merge
-  // stops here instead of marking the issue merged.
-  if (!ghClient) {
-    return stop(
-      MERGE_BLOCKED,
-      "github_app",
-      "The GitHub App is not set up for this project, so Ziki can't check or merge the pull request.",
-      GITHUB_APP_TODO,
-    );
-  }
-
-  // 1. Verify PR state directly from GitHub
-  let pullRequest: PullRequest;
-  try {
-    pullRequest = await ghClient.getPullRequest(ref);
-  } catch (error) {
-    const detail = error instanceof Error && error.message ? error.message : "GitHub could not be reached to verify the pull request.";
-    const message = detail.startsWith("GitHub could not be reached")
-      ? detail
-      : `GitHub could not be reached to verify the pull request: ${detail}`;
-    return stop(MERGE_BLOCKED, "deployment_verification", message);
-  }
-
-  if (pullRequest.state === "closed" && !pullRequest.merged) {
-    return stop(MERGE_BLOCKED, "pull_request", "That pull request is closed without being merged.");
-  }
-
-  const headToVerify = acceptedHeadSha || pullRequest.headSha;
-  if (pullRequest.headSha && headToVerify && pullRequest.headSha !== headToVerify) {
-    return stop(
-      MERGE_BLOCKED,
-      "pull_request",
-      "The pull request's head commit changed since verification. Please re-review.",
-      "Testers check the new commit and report again, then a manager accepts it again. Ziki only merges the exact commit the testers approved.",
-    );
-  }
-
-  // 2. The fix must not break the code and must be ready to go: every check
-  // on the head commit green, CodeRabbit's threads resolved, no conflict with
-  // the base branch. The same three things testers and managers check; they
-  // are read again here because time has passed. Every problem is listed in
-  // one reason, and the author is told. A merged pull request is already in,
-  // so only its checks are read.
-  if (pullRequest.merged) {
-    const checks = combineProblems(
-      [await checksProblem(ghClient, ref, headToVerify)].filter((problem) => problem !== null),
-    );
-    if (checks) return stop(MERGE_BLOCKED, checks.missing, checks.message, checks.todo);
-  } else {
-    const block = combineProblems(await readinessProblems(ghClient, ref, pullRequest, headToVerify, claim?.agent.name));
-    if (block) {
-      notifyAuthor({ bug, recipientId: claim?.beneficiaryUserId ?? bug.assigneeId, reason: block.message, fromAgentName: agent.name });
-      return stop(MERGE_BLOCKED, block.missing, block.message, block.todo);
-    }
-  }
-
-  // The merge commit comes only from GitHub's answer, never from the request.
-  let mergeCommitSha: string | null;
-
-  // 3. Execute GitHub merge if not already merged
-  if (!pullRequest.merged) {
-    let mergeResult: MergePullResult;
-    try {
-      mergeResult = await ghClient.mergePullRequest(ref, headToVerify);
-    } catch {
-      mergeResult = { merged: false };
-    }
-
-    if (!mergeResult.merged) {
-      const detailSuffix = mergeResult.message ? `: ${mergeResult.message}` : ".";
-      const failureReason = mergeResult.conflict
-        ? `The pull request changed after its checks were verified${detailSuffix}`
-        : mergeResult.forbidden
-          ? `The app is not allowed to merge this repository${detailSuffix}`
-          : mergeResult.noAllowedMethod
-            ? `The repository allows no merge method the app can use${detailSuffix}`
-            : (mergeResult.message ? `GitHub refused the merge: ${mergeResult.message}` : "GitHub refused the merge.");
-
-      await publish(prisma, {
-        tenantId: bug.tenantId,
-        type: "github.merge_failed",
-        payload: { issueId: bug.id, reason: failureReason, pullRequestUrl: bug.pullRequestUrl },
-        actorAgentId: agent.agentId,
-        bugId: bug.id,
-      });
-
-      const recipient = claim?.beneficiaryUserId ?? bug.assigneeId ?? null;
-      if (recipient) {
-        notifyMergeFailed({
-          bugId: bug.id,
-          bugTitle: bug.title,
-          recipientId: recipient,
-          reason: failureReason,
-          agent: { name: agent.name },
-        });
-      }
-
-      return stop(MERGE_FAILED, "github_merge_failed", failureReason);
-    }
-
-    mergeCommitSha = mergeResult.sha ?? null;
-  } else {
-    mergeCommitSha = pullRequest.headSha ?? null;
-  }
-
-  return prisma.$transaction(async (tx) => {
-    const current = await tx.bug.findUnique({
-      where: { id: bug.id },
-      select: { status: true },
-    });
-    if (current?.status === "resolved") {
-      return {
-        status: 409 as const,
-        error: "not_ready" as const,
-        missing: "already_accepted" as const,
-        message: "This issue's fix has already been accepted.",
-      };
-    }
-
-    // A merger agent's accept through POST /merge is its review too.
-    const saved = review ? await saveMergeReview(tx, agent, bug, review, bug.pullRequestUrl!, acceptedHeadSha) : null;
-    await tx.bug.update({ where: { id: bug.id }, data: { status: "resolved" } });
-    // #review-entries: the merge is recorded here, not in a comment.
-    await tx.bugActivity.create({
-      data: {
-        bugId: bug.id,
-        actorId: agent.ownerId,
-        type: "status_changed",
-        summary: statusChangedSummary(bug.status, "resolved"),
-        metadata: {
-          field: "status",
-          from: bug.status,
-          to: "resolved",
-          merged: true,
-          pullRequestUrl: bug.pullRequestUrl,
-          mergeCommitSha,
-          ...(saved ? { mergeReviewId: saved.review.id } : {}),
-        },
-      },
-    });
-
-    await tx.issueClaim.updateMany({
-      where: { bugId: bug.id, status: "active", releasedAt: null },
-      data: { status: "released", releasedAt: new Date(), releaseReason: "resolved" },
-    });
-
-
-    const rewardConfig = await getProjectRewardConfig(tx, bug.projectId);
-    if (solverUserId) {
-      await award(tx, {
-        tenantId: bug.tenantId,
-        userId: solverUserId,
-        bugId: bug.id,
-        role: "solver",
-        points: calculateSolverPoints(rewardConfig),
-        sourceKey: pointSourceKey("solver", bug.id, solverUserId),
-      });
-    }
-    await awardDispatcher(tx, bug, claim?.dispatcherUserId);
-    const reviewerPoints = calculateReviewerPoints(rewardConfig);
-    for (const [index, userId] of rewardedReviewerUserIds.entries()) {
-      await award(tx, {
-        tenantId: bug.tenantId,
-        userId,
-        bugId: bug.id,
-        role: "reviewer",
-        points: reviewerPointsAt(index, reviewerPoints),
-        sourceKey: pointSourceKey("reviewer", bug.id, userId),
-      });
-    }
-
-    await audit(
-      agent,
-      "issue.accepted",
-      `bug:${bug.id}`,
-      {
-        solverUserId,
-        rewardedReviewerUserIds,
-        pullRequestUrl: bug.pullRequestUrl,
-        headSha: acceptedHeadSha,
-        mergeCommitSha,
-        merged: true,
-        ...(saved ? { mergeReviewId: saved.review.id } : {}),
-      },
-      { bugId: bug.id, db: tx },
-    );
-    await publish(tx, {
-      tenantId: bug.tenantId,
-      type: "issue.accepted",
-      payload: {
-        issueId: bug.id,
-        solverUserId,
-        rewardedReviewerUserIds,
-        pullRequestUrl: bug.pullRequestUrl,
-        headSha: acceptedHeadSha,
-        mergeCommitSha,
-        status: "resolved",
-        merged: true,
-      },
-      actorAgentId: agent.agentId,
-      bugId: bug.id,
-    });
-
-    return {
-      status: 200 as const,
-      accepted: true as const,
-      merged: true as const,
-      mergeCommitSha: mergeCommitSha ?? undefined,
-      solverUserId,
-      rewardedReviewerUserIds,
-      ...(saved ? { review: saved.review, replaced: saved.replaced } : {}),
-    };
-  });
+  return countedMergeVerdicts(countable, claim, bug, bug.pullRequestHeadSha ?? null);
 }
 
-/** Unreachable in practice: a manager's accept always comes through `acceptFix` with its review. */
-const DEFAULT_ACCEPT: MergeReviewInput = {
-  verdict: "accept",
-  summary: "Accepted for merging.",
-  description: "Accepted without a written review.",
+type RecordValue = string | number | boolean | null;
+
+export type FinalizeResolvedInput = {
+  agent: AgentContext;
+  bug: Pick<MergeBug, "id" | "tenantId" | "projectId" | "status" | "substatus" | "pullRequestUrl">;
+  claim: MergeClaim;
+  solverUserId: string | null;
+  rewardedReviewerUserIds: readonly string[];
+  acceptedHeadSha: string | null;
+  mergeCommitSha: string | null;
+  /** Facts for the activity and the audit row: the merge review, or how a merge already made was verified. */
+  record?: Record<string, RecordValue>;
+  /** Facts for the `issue.accepted` event too. */
+  eventRecord?: Record<string, RecordValue>;
 };
 
 /**
- * A manager's reject (#review-entries): the merge review carries the
- * feedback, the issue goes back to `rejected`, and an anti-pattern may go in
- * the mistake registry. It needs the pull request it rejects.
+ * Moves a fix an independent agent reported merged into the default branch to
+ * Live (`resolved`), in the caller's transaction: the status and its activity,
+ * the claim released, the solver, dispatcher and reviewer points paid (each
+ * once, by its source key), and the `issue.accepted` audit row and event. A
+ * manager's resolve of merged work (`POST /issues/{id}/resolve`,
+ * lib/agent-api/reconcile-merged.ts) finishes here. The caller has checked
+ * that the issue isn't resolved yet.
  */
-async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeReviewInput): Promise<AcceptFixResult> {
+export async function finalizeResolved(tx: Prisma.TransactionClient, input: FinalizeResolvedInput): Promise<void> {
+  const { agent, bug, claim, solverUserId, acceptedHeadSha, mergeCommitSha } = input;
+  const rewardedReviewerUserIds = [...input.rewardedReviewerUserIds];
+  const record = input.record ?? {};
+  await tx.bug.update({ where: { id: bug.id }, data: moveTo("on_dev") });
+  // #review-entries: the merge is recorded here, not in a comment.
+  await tx.bugActivity.create({
+    data: {
+      bugId: bug.id,
+      actorId: agent.ownerId,
+      type: "status_changed",
+      summary: statusChangedSummary(bug.substatus, "on_dev"),
+      metadata: {
+        field: "status",
+        from: bug.substatus,
+        to: "on_dev",
+        merged: true,
+        pullRequestUrl: bug.pullRequestUrl,
+        mergeCommitSha,
+        ...record,
+      },
+    },
+  });
+
+  await tx.issueClaim.updateMany({
+    where: { bugId: bug.id, status: "active", releasedAt: null },
+    data: { status: "released", releasedAt: new Date(), releaseReason: "resolved" },
+  });
+
+  const rewardConfig = await getProjectRewardConfig(tx, bug.projectId);
+  if (solverUserId) {
+    await award(tx, {
+      tenantId: bug.tenantId,
+      userId: solverUserId,
+      bugId: bug.id,
+      role: "solver",
+      points: calculateSolverPoints(rewardConfig),
+      sourceKey: pointSourceKey("solver", bug.id, solverUserId),
+      // The agent that held the claim and delivered the work.
+      agentId: claim?.agentId ?? null,
+    });
+  }
+  await awardDispatcher(tx, bug, claim?.dispatcherUserId);
+  const reviewerPoints = calculateReviewerPoints(rewardConfig);
+  for (const [index, userId] of rewardedReviewerUserIds.entries()) {
+    await award(tx, {
+      tenantId: bug.tenantId,
+      userId,
+      bugId: bug.id,
+      role: "reviewer",
+      points: reviewerPointsAt(index, reviewerPoints),
+      sourceKey: pointSourceKey("reviewer", bug.id, userId),
+    });
+  }
+
+  await audit(
+    agent,
+    "issue.accepted",
+    `bug:${bug.id}`,
+    {
+      solverUserId,
+      rewardedReviewerUserIds,
+      pullRequestUrl: bug.pullRequestUrl,
+      headSha: acceptedHeadSha,
+      mergeCommitSha,
+      merged: true,
+      ...record,
+    },
+    { bugId: bug.id, db: tx },
+  );
+  await publish(tx, {
+    tenantId: bug.tenantId,
+    type: "issue.accepted",
+    payload: {
+      issueId: bug.id,
+      solverUserId,
+      rewardedReviewerUserIds,
+      pullRequestUrl: bug.pullRequestUrl,
+      headSha: acceptedHeadSha,
+      mergeCommitSha,
+      ...moveTo("on_dev"),
+      merged: true,
+      ...(input.eventRecord ?? {}),
+    },
+    actorAgentId: agent.agentId,
+    bugId: bug.id,
+  });
+}
+
+/** A threshold-only project's merge-review vote (#vote-governance): the threshold and the manager weight. */
+type Voting = { threshold: number; managerVoteWeight: number };
+
+/**
+ * A threshold-only merge review short of the threshold: the review is
+ * recorded (by the caller) and announced; the issue stays where it is.
+ */
+async function recordReviewVote(
+  tx: Prisma.TransactionClient,
+  agent: AgentContext,
+  bug: Pick<LoadedBug, "id" | "tenantId" | "status">,
+  saved: { review: StoredMergeReview; replaced: boolean },
+  votes: number,
+  threshold: number,
+): Promise<AcceptFixResult> {
+  const facts = { mergeReviewId: saved.review.id, verdict: saved.review.verdict, votes, threshold, summary: saved.review.summary };
+  await audit(agent, "issue.merge_reviewed", `bug:${bug.id}`, facts, { bugId: bug.id, db: tx });
+  await publish(tx, {
+    tenantId: bug.tenantId,
+    type: "issue.updated",
+    payload: { issueId: bug.id, status: bug.status, ...facts },
+    actorAgentId: agent.agentId,
+    bugId: bug.id,
+  });
+  return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced, votes, threshold, ...(saved.review.verdict === "reject" ? { rejected: false } : {}) };
+}
+
+/**
+ * A manager's reject (#review-entries): the merge review carries the
+ * feedback, the issue goes back to `in_progress`, and an anti-pattern may go
+ * in the mistake registry. It needs the pull request it rejects. In a
+ * threshold-only project (`voting`) the reject is a vote: the issue goes back
+ * only once the weighted rejects reach the threshold.
+ */
+async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeReviewInput, voting: Voting | null): Promise<AcceptFixResult> {
+  // The mistake registry is a manager's (lib/agent-api/mistakes.ts), in either governance mode.
+  if (review.mistake && !hasLevel(agent.level, "manager")) {
+    return { status: 403, error: "insufficient_level", message: "Only manager or merger agents record mistakes. Send the reject without mistake." };
+  }
   if (bug.status === "resolved") {
     return {
       status: 409,
@@ -751,16 +705,27 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       message: "This issue has no linked pull request to review.",
     };
   }
-  const saved = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx): Promise<AcceptFixResult> => {
     const saved = await saveMergeReview(tx, agent, bug, review, pullRequestUrl, bug.pullRequestHeadSha ?? null);
-    await tx.bug.update({ where: { id: bug.id }, data: { status: "in_progress" } });
+    if (review.mistake) {
+      await recordMistake(agent, bug.projectId, { ...review.mistake, bugId: bug.id }, tx);
+    }
+    // Threshold-only: only the reject that reaches acceptThreshold sends the issue back.
+    let decision: ThresholdDecision | null = null;
+    if (voting) {
+      await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+      const votes = await mergeReviewTally(tx, bug, "reject", voting.managerVoteWeight);
+      if (votes < voting.threshold) return recordReviewVote(tx, agent, bug, saved, votes, voting.threshold);
+      decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, voting.threshold);
+    }
+    await tx.bug.update({ where: { id: bug.id }, data: moveTo("in_progress") });
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
         summary: `Fix rejected for merging: ${review.summary}`,
-        metadata: { field: "status", from: bug.status, to: "in_progress", rejected: true, mergeReviewId: saved.review.id },
+        metadata: { field: "status", from: bug.substatus, to: "in_progress", rejected: true, mergeReviewId: saved.review.id, ...(decision ?? {}) },
       },
     });
     // #1429: the audit log keeps every merge decision, the review only the latest.
@@ -769,13 +734,14 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       "issue.merge_rejected",
       `bug:${bug.id}`,
       {
-        status: "in_progress",
+        ...moveTo("in_progress"),
         rejected: true,
         mergeReviewId: saved.review.id,
         summary: review.summary,
         notes: review.description,
         pullRequestUrl,
         headSha: saved.review.headSha,
+        ...(decision ?? {}),
       },
       { bugId: bug.id, db: tx },
     );
@@ -785,20 +751,17 @@ async function rejectFix(agent: AgentContext, bug: LoadedBug, review: MergeRevie
       payload: {
         issueId: bug.id,
         rejected: true,
-        status: "in_progress",
+        ...moveTo("in_progress"),
         mergeReviewId: saved.review.id,
         summary: review.summary,
         notes: review.description,
+        ...(decision ?? {}),
       },
       actorAgentId: agent.agentId,
       bugId: bug.id,
     });
-    if (review.mistake) {
-      await recordMistake(agent, bug.projectId, { ...review.mistake, bugId: bug.id }, tx);
-    }
-    return saved;
+    return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced, ...(decision ? { votes: decision.votes, threshold: decision.threshold, rejected: true } : {}) };
   });
-  return { status: 200, accepted: false, review: saved.review, replaced: saved.replaced };
 }
 
 /** One merge review as the API and the issue page show it, with its replies. */
@@ -844,75 +807,16 @@ export async function listMergeReviews(scope: { tenantId: string; projectId?: st
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-    select: { id: true, number: true, status: true, pullRequestUrl: true, pullRequestHeadSha: true },
+    select: { id: true, number: true, status: true, substatus: true, pullRequestUrl: true, pullRequestHeadSha: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found.", { error: "not_found", message: "Issue not found." });
   return {
     issueId: bug.id,
     issueNumber: bug.number,
     status: bug.status,
+    substatus: bug.substatus,
     pullRequestUrl: bug.pullRequestUrl,
     headSha: bug.pullRequestHeadSha,
     reviews: await mergeReviewEntries(bug),
   };
-}
-
-const GITHUB_APP_TODO =
-  "A tenant admin installs the Ziki GitHub App on this project's repository and sets the repository on the project. Then try again.";
-
-/** The GitHub client for this issue's project, or null when the app isn't set up. */
-function githubClientFor(bug: LoadedBug, deps: AcceptFixDeps): GitHubClient | null {
-  if (deps.client !== undefined) return deps.client;
-  const hasAppConfig = Boolean(process.env.GITHUB_APP_ID && process.env.GITHUB_APP_PRIVATE_KEY);
-  return hasAppConfig ? clientForInstallation(bug.project?.githubInstallationId) : null;
-}
-
-/**
- * What stops a manager from accepting a fix: GitHub can't be asked, the pull
- * request moved after the testers approved it, its checks are not green, it
- * conflicts with its base branch, or CodeRabbit has unresolved review threads.
- * Null when the fix is safe to accept.
- */
-async function acceptCheck(
-  client: GitHubClient | null,
-  ref: ReturnType<typeof parsePullRequestUrl>,
-  acceptedHeadSha: string | null,
-  author?: string,
-): Promise<{
-  missing: "pull_request" | "deployment_verification" | "github_app" | "merge_conflict" | "review_threads";
-  message: string;
-  todo: string;
-} | null> {
-  if (!client) {
-    return {
-      missing: "github_app",
-      message: "The GitHub App is not set up for this project, so Ziki can't check that the fix won't break the code.",
-      todo: GITHUB_APP_TODO,
-    };
-  }
-  if (!ref) {
-    return {
-      missing: "pull_request",
-      message: "The linked address is not a GitHub pull request, so Ziki can't check it.",
-      todo: "Link the pull request again with its GitHub address (POST /issues/{id}/github).",
-    };
-  }
-  let pullRequest: PullRequest;
-  try {
-    pullRequest = await client.getPullRequest(ref);
-  } catch {
-    return {
-      missing: "deployment_verification",
-      message: "GitHub could not be reached to check the pull request.",
-      todo: "Nothing is wrong with the fix. Try accepting again in a few minutes.",
-    };
-  }
-  if (pullRequest.headSha && acceptedHeadSha && pullRequest.headSha !== acceptedHeadSha) {
-    return {
-      missing: "pull_request",
-      message: "The pull request's head commit changed after the testers approved it.",
-      todo: "Testers check the new commit and report again. Then a manager can accept it.",
-    };
-  }
-  return combineProblems(await readinessProblems(client, ref, pullRequest, acceptedHeadSha || pullRequest.headSha, author));
 }

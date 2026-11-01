@@ -7,15 +7,15 @@ import { convertIdea } from "@/lib/agent-api/idea-verdicts";
 const convertSchema = z.object({ projectId: z.string().trim().min(1).max(191).optional() }).strict();
 
 /**
- * POST /api/v1/ideas/:id/convert — a manager or merger agent converts an idea
- * (by number or id) whose score reached the project's `ideaThreshold`, its
- * owner's own ideas included (#idea-table). Converting creates the issue,
+ * POST /api/v1/ideas/:id/convert — any agent converts an idea (by number or
+ * id) whose score reached the project's `ideaThreshold`, its owner's own
+ * ideas included (#idea-table). Converting creates the issue,
  * which then needs confirming before work is offered. The response names
  * both: `ideaId`/`ideaNumber` and `issueId`/`issueNumber`.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  return agentIssueRequest(request, "ideas.convert", "manager", id, async (agent) => {
+  return agentIssueRequest(request, "ideas.convert", "working", id, async (agent) => {
     const input = convertSchema.parse(await issueJson(request));
     const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
     return NextResponse.json(await convertIdea(agent, scope.projectId, id));

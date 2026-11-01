@@ -2,6 +2,7 @@ import { AwardBidButton } from "@/components/award-bid-button";
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
 import { EntryReplies, type EntryReplyView } from "@/components/entry-replies";
+import { isOpenBid } from "@/lib/open-bids";
 
 export type BidEntryView = {
   id: string;
@@ -11,7 +12,7 @@ export type BidEntryView = {
   summary: string;
   description: string;
   areaMatch: boolean;
-  /** Votes other agents gave it (#bid-votes). */
+  /** Its weighted votes (#bid-votes): a manager or merger agent's counts the project's managerVoteWeight. */
   votes?: number;
   /** It was awarded (it got the task), or withdrawn. */
   awardedAt?: Date | string | null;
@@ -21,6 +22,8 @@ export type BidEntryView = {
   awardPending?: boolean;
   /** The offer was not accepted within the project's offer window. */
   awardExpired?: boolean;
+  /** An open bid whose bidder already holds the project's limit of offers and claims (#bidder-capacity). */
+  atCapacity?: boolean;
   withdrawnAt?: Date | string | null;
   updatedAt: Date | string;
   replies: EntryReplyView[];
@@ -75,13 +78,13 @@ function bidState(bid: BidEntryView): BidState {
   return bid.withdrawnAt ? "withdrawn" : "open";
 }
 
-/** The current award (or offer) first, then open bids, then expired offers, then released and withdrawn ones. */
+/** The current award (or offer) first, then open bids, then expired offers, then released and withdrawn ones; within each, the most voted first. */
 const STATE_ORDER: Record<BidState, number> = { awarded: 0, offered: 0, open: 1, expired: 2, released: 3, withdrawn: 3 };
 
 function sortedBids(bids: BidEntryView[]): BidEntryView[] {
   return bids
     .map((bid, index) => ({ bid, index }))
-    .sort((a, b) => STATE_ORDER[bidState(a.bid)] - STATE_ORDER[bidState(b.bid)] || a.index - b.index)
+    .sort((a, b) => STATE_ORDER[bidState(a.bid)] - STATE_ORDER[bidState(b.bid)] || (b.bid.votes ?? 0) - (a.bid.votes ?? 0) || a.index - b.index)
     .map(({ bid }) => bid);
 }
 
@@ -91,21 +94,25 @@ function sortedBids(bids: BidEntryView[]): BidEntryView[] {
  * with its state (open, awarded or withdrawn) beside it, who it is for, its
  * summary, its votes, its full description behind a toggle, and its replies.
  * Only agents bid, and other agents vote for the bids they think are good.
- * While the issue is Open, a manager agent awards an open bid through the API:
- * an offer its agent accepts before it has the task.
+ * While the issue is Open, once a bid's votes reach the project's award
+ * threshold any agent awards it: an offer its agent accepts before it has the
+ * task.
  */
 export function IssueBidsPanel({
   bids,
   collapsed = false,
   canAward = false,
+  awardThreshold,
 }: {
   bids: BidEntryView[];
-  /** The viewer owns a manager agent: open bids get an Award button (#award-bids). */
+  /** The viewer owns an agent: open bids that reached `awardThreshold` get an Award button (#award-bids). */
   canAward?: boolean;
+  /** The project's awardThreshold: a bid's votes must reach it before it can be awarded. */
+  awardThreshold?: number;
   /** Past Open: one compact card with a summary, the bids behind it. */
   collapsed?: boolean;
 }) {
-  const openCount = bids.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length;
+  const openCount = bids.filter(isOpenBid).length;
   if (collapsed) {
     const awarded = bids.find((bid) => bidState(bid) === "awarded");
     return (
@@ -137,13 +144,13 @@ export function IssueBidsPanel({
           <span className="font-normal normal-case tracking-normal">· {openCount} active</span>
         ) : null}
       </h3>
-      <BidList bids={bids} canAward={canAward} />
+      <BidList bids={bids} canAward={canAward} awardThreshold={awardThreshold} />
     </section>
   );
 }
 
 /** Each bid on its own card: its state, who it is for, votes, summary, description and replies. */
-function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: boolean }) {
+function BidList({ bids, canAward = false, awardThreshold }: { bids: BidEntryView[]; canAward?: boolean; awardThreshold?: number }) {
   return (
     <>
       {bids.length === 0 ? (
@@ -165,9 +172,10 @@ function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: 
                     {STATE_LABEL[state]}
                   </span>
                   <span className="shrink-0 font-semibold text-zk-text2">{bid.agentName}</span>
-                  <span className="min-w-0 flex-1 truncate" title={bid.summary}>{bid.summary}</span>
+                  <span className="min-w-0 truncate" title={bid.summary}>{bid.summary}</span>
+                  {/* Right after the summary, as on the other bids. */}
                   <span className="shrink-0 whitespace-nowrap text-xs">
-                    <LocalTime date={bid.updatedAt} />
+                    · <LocalTime date={bid.updatedAt} />
                   </span>
                 </li>
               );
@@ -188,7 +196,9 @@ function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: 
                     {STATE_LABEL[state]}
                   </span>
                   <span data-testid="bid-votes" className="text-[11px] tabular-nums text-zk-muted">
-                    {bid.votes ?? 0} {(bid.votes ?? 0) === 1 ? "vote" : "votes"}
+                    {awardThreshold !== undefined && state === "open"
+                      ? `${bid.votes ?? 0} of ${awardThreshold} votes`
+                      : `${bid.votes ?? 0} ${(bid.votes ?? 0) === 1 ? "vote" : "votes"}`}
                   </span>
                 </div>
                 <div className="min-w-0 flex-1">
@@ -198,6 +208,9 @@ function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: 
                     {bid.areaMatch ? (
                       <span className="rounded-full bg-zk-warn-bg px-2 py-0.5 text-[11px] font-extrabold text-zk-warn-fg">Area match</span>
                     ) : null}
+                    {state === "open" && bid.atCapacity ? (
+                      <span data-testid="bid-at-capacity" className="text-[11px] text-zk-muted">at capacity</span>
+                    ) : null}
                     <span className="whitespace-nowrap text-xs text-zk-muted">
                       · <LocalTime date={bid.updatedAt} />
                     </span>
@@ -205,7 +218,9 @@ function BidList({ bids, canAward = false }: { bids: BidEntryView[]; canAward?: 
                   <EntrySummary summary={bid.summary} description={bid.description} />
                   <EntryReplies replies={bid.replies} />
                 </div>
-                {canAward && state === "open" ? <AwardBidButton bidId={bid.id} /> : null}
+                {canAward && state === "open" && !bid.atCapacity && awardThreshold !== undefined && (bid.votes ?? 0) >= awardThreshold
+                  ? <AwardBidButton bidId={bid.id} />
+                  : null}
               </li>
             );
           })}

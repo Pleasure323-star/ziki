@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { issuesPath, orgPath } from "@/lib/project-paths";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
@@ -6,7 +7,6 @@ import { isTenantAdmin } from "@/lib/agents/membership";
 import { prisma } from "@/lib/prisma";
 import { ProjectSettingsForm } from "./settings-form";
 import { ProjectAreasManager } from "./areas-manager";
-import { ProjectApprovalRulesSection } from "./approval-rules";
 import { WorkflowSettingsForm } from "./workflow-settings-form";
 import { workflowValues } from "@/lib/workflow-config";
 import {
@@ -42,31 +42,14 @@ export default async function ProjectSettingsPage({
     orderBy: [{ name: "asc" }, { id: "asc" }],
     select: { id: true, name: true, slug: true, description: true, paths: true },
   });
-  const [issueTypes, approvalRules, platformRewards] = await Promise.all([
-    prisma.issueType.findMany({
-      where: { tenantId, isActive: true },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.approvalRule.findMany({
-      // A rule made before types were tenant-scoped can point at another
-      // organization's type. Don't show that type (or the stale rule) here.
-      where: {
-        projectId: project.id,
-        OR: [{ issueTypeId: null }, { issueType: { tenantId } }],
-      },
-      include: { issueType: { select: { id: true, name: true } } },
-      orderBy: { createdAt: "desc" },
-    }),
-    getPlatformRewardConfig(prisma),
-  ]);
+  const platformRewards = await getPlatformRewardConfig(prisma);
   const platformDefaults = projectDefaultsFromPlatform(platformRewards);
   const { github } = await searchParams;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="space-y-2">
-        <Link href="/org/projects" className="text-sm text-zk-accent hover:underline">← Projects</Link>
+        <Link href={orgPath(project.slug, "projects")} className="text-sm text-zk-accent hover:underline">← Projects</Link>
         <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">{project.name} settings</h1>
         <p className="text-sm text-zk-text2">Owners and admins can update project details and connect its GitHub App installation.</p>
       </div>
@@ -99,16 +82,8 @@ export default async function ProjectSettingsPage({
         </div>
         <WorkflowSettingsForm slug={project.slug} workflow={workflow} />
       </section>
-      <section className="space-y-5 rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-6">
-        <ProjectApprovalRulesSection
-          projectId={project.id}
-          slug={project.slug}
-          rules={approvalRules}
-          issueTypes={issueTypes}
-        />
-      </section>
       <ProjectAreasManager projectSlug={project.slug} areas={areas} />
-      <Link href="/issues" className="inline-block text-sm text-zk-accent hover:underline">Back to issues</Link>
+      <Link href={issuesPath(project.slug)} className="inline-block text-sm text-zk-accent hover:underline">Back to issues</Link>
     </div>
   );
 }

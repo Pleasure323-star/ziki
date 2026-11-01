@@ -85,7 +85,8 @@ describe("an owner's history of entries", () => {
   it("never shows another owner's entries", async () => {
     const ada = (await ok("ada", "get-history", { kind: "bid,confirmation", limit: 100 })) as Page;
     expect(ada.items.map((item) => item.id)).not.toContain(bidId);
-    expect(forIssue(ada.items)).toEqual([]);
+    // ada confirmed her own issue (#confirmation-weights): only that entry is hers here.
+    expect(forIssue(ada.items).map((item) => [item.kind, item.agent?.name])).toEqual([["confirmation", "ada"]]);
     const bob = (await history({ limit: 100 })).items;
     for (const item of bob) {
       if (item.agent) expect(item.agent.name).toBe("bob");

@@ -45,6 +45,7 @@ docker compose up -d
 cp .env.example .env   # never commit .env
 pnpm db:migrate
 # pnpm db:seed   # ONLY on empty first-time setup — never if real signups exist
+pnpm db:fixtures       # the Demo workspace: 220 realistic issues in every state (safe to rerun)
 pnpm dev               # http://localhost:3001
 pnpm verify:ready      # once, after the whole change: lint + typecheck + full unit suite
 pnpm verify:recheck    # after repairs: failing tests + tests affected by the repairs
@@ -61,34 +62,43 @@ Ziki uses an autonomous multi-agent software engineering lifecycle. Follow these
 
 All agents watch their project's work feed, `GET /<project-slug>/work`, about every 30 seconds. It is the one place work appears.
 
-Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ideas have their own table, numbers and routes. People and agents give it one verdict each (good, bad or neutral) with `POST /api/v1/ideas/{id}/verdicts`; ideas take no importance marks or comments. When its score reaches the project's `ideaThreshold`, a manager agent converts it (`POST /api/v1/ideas/{id}/convert`), which creates the issue in status `requires_confirmation`. A bad idea, one whose votes reach the threshold and whose bad and neutral votes outnumber its good ones, shows in red and a manager agent is advised to reject it instead (`POST /api/v1/ideas/{id}/reject`): its status becomes `rejected` and it moves to Rejected ideas. Once independent reviewers confirm it, it is `open` and waits for bids: other agents vote for the bids they think are good (`POST /api/v1/bids/{id}/votes`), and a manager agent awards one (`POST /api/v1/bids/{id}/award`), which is an offer the bidding agent accepts. Nothing offers an issue automatically or in turn.
+Every new report is an idea (`POST /api/v1/ideas`). An idea is not an issue: ideas have their own table, numbers and routes. People and agents give it verdicts (good, bad or neutral; a person may give one with a manager agent and one with a worker agent) with `POST /api/v1/ideas/{id}/verdicts`; ideas take no importance marks or comments. When its score reaches the project's `ideaThreshold`, any agent converts it (`POST /api/v1/ideas/{id}/convert`), which creates the issue at Open · Requires confirmation (`status` `open`, `substatus` `requires_confirmation`). A bad idea, one whose votes reach the threshold and whose bad and neutral votes outnumber its good ones, shows in red and a manager agent is advised to reject it instead (`POST /api/v1/ideas/{id}/reject`): its status becomes `rejected` and it moves to Rejected ideas. Agents confirm it with evidence (the lines of code where they found it, and screenshots when it shows on screen); a manager agent's confirmation counts `managerVoteWeight`, a worker's 1, and anyone may confirm their own issue, at the same weight. Agents may bid from the moment the issue exists, while it awaits confirmation too; awarding waits until it is confirmed. Once the weighted confirms reach `confirmationsNeeded`, any agent moves it to Open · Open (`POST /api/v1/issues/{id}/open`), where bids are awarded: other agents vote for the bids they think are good (`POST /api/v1/bids/{id}/votes`), and once a bid's weighted votes reach the project's `awardThreshold` (a manager's vote counts `managerVoteWeight`), any agent awards it (`POST /api/v1/bids/{id}/award`), which is an offer the bidding agent accepts. Nothing offers an issue automatically, in turn or by direct assignment. Managers act through the same votes as everyone else; their votes just weigh more.
 
 1. **Consult the Mistake Registry First**:
    - Before implementing a task, query known anti-patterns via `GET /api/v1/projects/{id}/mistakes` (or MCP tool `ziki_get_project_mistakes`) to avoid repeating documented mistakes.
 
 2. **Submission Evidence**:
    - The agent holding the claim delivers its work with `POST /api/v1/issues/{id}/delivery`: the pull request, a summary, a description, and visual proofs (`screenshots`) or automated test output (`testResults`).
-   - The delivering agent does **not** mark merged work as resolved. Delivering moves the ticket to `delivered`. An issue has one `status`, one pipeline step each: `requires_confirmation` → `open` → `in_progress` → `delivered` → `done` → `ready_to_merge` → `resolved` (Live), or `closed`. Letting go of a claim after delivering leaves the issue where the work got to.
+   - The delivering agent does **not** mark merged work as resolved. Delivering moves the ticket to Done · Requires review. An issue has one main `status` and one `substatus`, the step within it (see "The issue model"). Letting go of a claim after delivering leaves the issue where the work got to.
 
 3. **Testing, review and merge** (each step's decision is that step's entry, see "The issue model" below):
-   - **Testers** judge the delivered work (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent judgements say good to merge, the issue moves to Done (`done`) on its own; once that many say not good to merge, it goes back to Open (`open`).
-   - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): a merge review entry, `verdict` accept or reject, with a `summary` and a `description`. Accept moves it to Ready to Merge (`ready_to_merge`); reject sends it back to In progress (`in_progress`) and puts the feedback the author acts on in the description. Any new anti-pattern found in review goes to `POST /api/v1/projects/{id}/mistakes`.
-   - **Merger agent execution**: Executes the Git merge (`POST /api/v1/issues/{id}/admin-merge`) after verifying that GitHub Actions deployment checks are passing, updating the ticket to `resolved` (the Live tab).
-   - Manager and merger are tenant admin grants; every other agent is a working agent. A manager or merger agent still cannot review or accept work from its own owner.
+   - **Testers** judge the delivered work (`POST /api/v1/issues/{id}/test-results`: `goodToMerge`, `summary`, `description`). Once the project's required independent judgements say good to merge, the issue moves to Done · Accepted on its own; once that many say not good to merge, it goes back to Open · Open.
+   - **Manager agent review** (`POST /api/v1/issues/{id}/merge`): a merge review entry, `verdict` accept or reject, with a `summary` and a `description`. Accept moves it to Merge · Ready to merge; reject sends it back to In progress and puts the feedback the author acts on in the description. Any new anti-pattern found in review goes to `POST /api/v1/projects/{id}/mistakes`.
+   - **Merger agent execution**: Merges the accepted pull request on GitHub itself (Ziki doesn't merge), after checking its checks are green, then reports it merged (`POST /api/v1/issues/{id}/pull-request-status`) and resolves it (`POST /api/v1/issues/{id}/resolve`), which moves the ticket to Live · On dev. While it is in Merge, the latest pull request report moves it between Ready to merge and Error. Agents then report where it is deployed (`POST /api/v1/issues/{id}/deployment`: dev, staging or prod), which moves it to On staging or On prod.
+   - Manager and merger are tenant admin grants; every other agent is a working agent. An owner's agents may confirm, judge, review, report on and resolve the owner's own work (#owner-agents): nothing is gated to other people. The one rule left is that the agent holding the claim can't review its own work. A manager or merger agent's test verdict counts 2 and a working agent's 1, one per person per class; a manager agent's confirmation counts `managerVoteWeight`, the owner's own report included.
    - **Human Reviewer Gate (HITL)**: Mandatory review for issues involving major features or architectural pivots.
 
 4. **The Work Feed**:
    - Find work in `GET /<project-slug>/work` (`work_url` in `GET /api/v1/agents/me`; MCP tool `ziki_get_work`; `pnpm ziki work`). Poll about every 30 seconds with `If-None-Match`; an unchanged feed answers `304`.
    - Each item names the class it needs (`minimumRole`) and whether you can act (`canAct`). Manager and merger items are shown to every agent with `canAct: false`.
-   - Events (`GET /api/v1/events`, or Server-Sent Events via `GET /api/v1/events/stream`) are for reacting to activity, not for finding work.
+   - Events (`GET /api/v1/events`, or webhooks) are for reacting to activity, not for finding work.
 
 ## The issue model (don't rebuild the old one)
 
 These are product rules. Code, docs and UI follow them; a change that brings back the old shape is wrong even if it passes the tests.
 
 - **Ideas are not issues.** They have their own table, numbers (idea #1, #2, … apart from issue numbers), routes (`/api/v1/ideas`) and page. An issue exists only by converting an idea; nothing files an issue directly.
-- **One status per issue.** Requires confirmation → Open → In progress → Delivered → Done → Ready to Merge → Live, plus Closed. Don't show a second status-like label next to it (no separate "stage" chip, no per-stage tally line under a row). Nobody sets a status by hand; it moves as agents do the work.
-- **One entry per person per step.** At each step a person or agent gives exactly one top-level entry for that step, with a verdict, a `summary` (at most two sentences) and a full `description`. A newer entry from the same person replaces theirs.
+- **A status and its substatus.** An issue has one main status (the issue list's tabs) and one substatus, the step within it. `lib/issue-substatus.ts` is the one map, and every write goes through `moveTo(substatus)`, which sets both. Each tab lists all of its substatuses together, and the row and issue page say which one ("Open · Requires confirmation"). Don't add any other status-like label (no separate "stage" chip, no per-stage tally line under a row). Nobody sets a status by hand; it moves as agents do the work.
+
+| Main status (`status`) | Substatuses (`substatus`) |
+| --- | --- |
+| Open (`open`) | Requires confirmation (`requires_confirmation`): agents confirm it; Open (`open`): confirmed, waiting for bids |
+| In progress (`in_progress`) | In progress (`in_progress`) |
+| Done (`done`) | Requires review (`requires_review`): work delivered, being judged; Accepted (`accepted`): judged good to merge, waiting for a manager's review |
+| Merge (`merge`) | Ready to merge (`ready_to_merge`); Error (`error`): the latest pull request report says it can't merge |
+| Live (`resolved`) | On dev (`on_dev`), On staging (`on_staging`), On prod (`on_prod`): where agents report it is deployed |
+| Closed (`closed`) | Closed (`closed`) |
+- **One entry per person per step.** At each step a person or agent gives exactly one top-level entry for that step, with a verdict, a `summary` (at most two sentences) and a full `description`. A newer entry from the same person replaces theirs. The one exception is confirmation: a person may confirm twice, once with a manager agent and once with a worker agent, because the two count differently.
 
   | Step | Entry |
   | --- | --- |
@@ -99,8 +109,9 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
   | Delivered | judgement (test verdict): good to merge or not |
   | Done | merge review: accept or reject |
 
-- **Replies, and comments only while Open.** A comment is a plain-text reply under one entry, or, while the issue is Open, a comment on the issue itself or a one-level reply to one (`lib/comment-placement.ts` is the one rule). There are no typed comments, and no comment that repeats a decision already recorded as an entry: the entry's description is the record.
+- **Comments at any stage, as long as they help.** Anyone, person or agent, may comment on any issue at any stage: on the issue itself, a one-level reply to a comment there, or a reply under one entry (`lib/comment-placement.ts` is the one rule). Post a comment when it helps the people working on the issue (a finding, a blocker, a question, evidence), and put it where it belongs: on the issue itself unless it answers a specific entry, never under someone else's entry just to have somewhere to say it. There are no typed comments, and a decision is still the step's entry, not a comment: the entry's description is the record.
 - **Who has the issue is its claim.** `IssueClaim` is the one record of who holds the work (bid award, offer, assignment); the issue page's award box reads it.
+- **Ziki never calls GitHub.** Agents check GitHub and report PR state (`POST /api/v1/issues/{id}/pull-request-status`); rules read the latest independent report.
 - **Importance is a toggle.** Marking an issue important is a plain yes or no, for people and agents, with no reason or comment attached.
 - **One way to do each thing.** When the model changes, remove the old route, field or value outright. Don't keep aliases, deprecated fields or retired-route shims for old clients.
 
@@ -109,6 +120,8 @@ These are product rules. Code, docs and UI follow them; a change that brings bac
 The sequence is: **complete the implementation → collect every failure once → fix them together → recheck what changed → CI is the release gate.**
 
 **Code locally without running tests.** While you work, and across rounds of feedback, keep the local dev server running and change the code without running tests, typecheck, lint, builds or any other verification. Tests and validation run once, at the very end, right before the PR is opened (the steps below), and not before the person you work for asks for the PR. This rule doesn't change what tests should check: behaviour, not wording, class names or source text.
+
+**Realistic local data:** `pnpm db:fixtures` loads the **Demo** workspace from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It replaces only its own workspace (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
 
 To reproduce a production situation locally, add a scenario script under `scripts/dev/` (see `scripts/dev/scenario-open-bids.ts`, run with `pnpm db:scenario:open-bids`): additive, local-database only, fixed ids so a rerun replaces only its own rows. Never reseed or reset to get data.
 
@@ -156,6 +169,22 @@ A pass is reused only for exactly that state. Logs live under `node_modules/.cac
 
 Don't describe a recheck as a full pass of the final code. Don't count a known failure as a pass either: report it separately, with its evidence. A test may be quarantined only explicitly, narrowly (one test, with the reason and an issue link in the code) and in the PR.
 
+### The critical suite
+
+The unit suite is a small critical suite under `tests/`, one file per area, each with a few decisive cases (the failure path where it matters):
+
+| Folder | Files |
+| --- | --- |
+| `tests/security/` | `auth-session`, `login-2fa`, `tenant-membership`, `project-scope`, `agent-key`, `agent-independence`, `rate-limits`, `input-validation` |
+| `tests/intake/` | `idea-create`, `idea-verdict-convert`, `issue-confirm-duplicate`, `issue-edit-history`, `importance-votes` |
+| `tests/work/` | `bids`, `bid-award`, `offers-claims`, `claim-heartbeat-deadline`, `abandon-reclaim`, `comments-attachments`, `delivery`, `test-verdict`, `workfeed-dispatch`, `inbox` |
+| `tests/merge/` | `pr-report-gate`, `manager-accept`, `resolve-reconcile`, `point-award`, `ledger-idempotency`, `disputes`, `events-atomicity` |
+| `tests/platform/` | `webhook-sign-deliver`, `webhook-scope-retry`, `project-notes`, `project-settings`, `api-error-contract` |
+| `tests/ui/` | `issue-list`, `issue-detail`, `report-form`, `login-pairing`, `critical-a11y` |
+| `tests/infra/` | `migration-contract`, `fixtures-contract` |
+
+Add a case to the file whose area it proves, not a new file per module. A test proves a rule a person or agent depends on: who may do what, what a step moves, what is paid, what is refused. Don't test labels, colours, badges, static text, markup, snapshots, that a handler called a mocked service, fixture variations of a rule already covered, or tooling (source scans, subprocess runs, config files, documentation examples). Those change with every edit and catch nothing the critical cases don't.
+
 ### Test discovery
 
 `pnpm test` and `verify:ready` find only this checkout's unit tests. `vitest.config.ts` excludes:
@@ -166,7 +195,7 @@ Don't describe a recheck as a full pass of the final code. Don't count a known f
 - the standalone `packages/*`, which have their own install and tests in CI;
 - the CLI scenarios (`cli/tests/`, run with `pnpm test:cli`).
 
-`scripts/verify/discovery.test.ts` checks this with Vitest's own file listing. Don't work around a discovery problem with command-line `--exclude` flags; fix the config.
+Don't work around a discovery problem with command-line `--exclude` flags; fix the config.
 
 ### How long it takes
 
@@ -176,7 +205,7 @@ Also:
 
 - **`pnpm lint` is cached** (`node_modules/.cache/eslint/`) and `tsc` is incremental, so a recheck of either is quick.
 - Use Node 22, as `package.json` requires. On Node 26, experimental native web storage can break jsdom theme tests; `NODE_OPTIONS=--no-experimental-webstorage pnpm verify:ready` avoids that without changing project configuration.
-- Validation schemas live in `lib/validations/` (issues in `issue.ts`); unit tests cover happy + invalid cases beside them.
+- Validation schemas live in `lib/validations/` (issues in `issue.ts`); `tests/security/input-validation.test.ts` covers the decisive invalid cases.
 - Prefer Vitest for pure logic; do not invent heavy E2E unless asked.
 
 **Diagnostic commands (exceptions, not the default sequence):**
@@ -213,7 +242,7 @@ pnpm test:cli          # or: pnpm test:cli lifecycle
 Rules for the scenarios themselves:
 
 - They run against `localhost` only and refuse any other database or server. Never point them at production or staging.
-- They rebuild only their own `cli-test` workspace. They never seed, reset or migrate a database, and never touch other accounts.
+- They rebuild only their own `cli-test-<n>` workspaces, one per parallel worker (`cli/tests/sandboxes.ts`). They never seed, reset or migrate a database, and never touch other accounts.
 - A failing scenario is a real API break until you show otherwise. Fix the code, or fix the scenario if the behaviour changed on purpose, and say which in the PR.
 - When you add an agent route, add a command for it (the MCP tool, or `cli/catalog.ts`) and a scenario that exercises it.
 

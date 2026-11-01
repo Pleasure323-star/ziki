@@ -25,6 +25,9 @@ const NUMERIC_FIELDS = [
   "abandonCheckMinutes",
   "abandonThreshold",
   "closeThreshold",
+  "managerVoteWeight",
+  "awardThreshold",
+  "acceptThreshold",
 ] as const;
 
 async function projectSettingsAccess(slug: string) {
@@ -53,6 +56,7 @@ export async function updateProjectWorkflowAction(
 
   const raw: Record<string, unknown> = {
     autoMerge: formData.get("autoMerge") === "on",
+    governance: formData.get("governance"),
   };
   for (const field of NUMERIC_FIELDS) raw[field] = Number(formData.get(field));
 
@@ -72,7 +76,7 @@ export async function updateProjectWorkflowAction(
 
   const current = workflowValues(access.project.workflow);
   const changes: Record<string, { from: unknown; to: unknown }> = {};
-  for (const field of [...NUMERIC_FIELDS, "autoMerge"] as const) {
+  for (const field of [...NUMERIC_FIELDS, "autoMerge", "governance"] as const) {
     if (current[field] !== parsed.data[field]) {
       changes[field] = { from: current[field], to: parsed.data[field] };
     }

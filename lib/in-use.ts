@@ -1,3 +1,5 @@
+import { issuesPath } from "@/lib/project-paths";
+
 /**
  * Wording for "this platform / type can't be deleted because issues use it"
  * (#314). One function for both, so the two admin pages cannot drift apart
@@ -46,10 +48,11 @@ export function inUseText({
 
 /** Where those issues are, on the existing filtered list. */
 export function inUseHrefs(
+  slug: string,
   kind: InUseKind,
   value: string,
 ): { live: string; deleted: string } {
   const param = kind === "platform" ? "platform" : "tags";
   const q = `${param}=${encodeURIComponent(value)}`;
-  return { live: `/issues?${q}`, deleted: `/issues?deleted=true&${q}` };
+  return { live: issuesPath(slug, "all", q), deleted: issuesPath(slug, "all", `deleted=true&${q}`) };
 }

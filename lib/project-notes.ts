@@ -1,3 +1,5 @@
+import { award } from "@/lib/points/award";
+import { noteVoteSourceKey } from "@/lib/points/rules";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -12,7 +14,10 @@ export const notesInput = z.object({
   expectedVersion: z.number().int().min(0).max(2_147_483_646),
   reason: z.string().trim().min(1).max(500),
 }).strict();
-export const noteCommentInput = z.object({ body: z.string().trim().min(1).max(10_000) }).strict();
+/** Points a note comment's author gains per upvote, and loses per downvote, from someone else. */
+export const NOTE_VOTE_POINTS = 1;
+
+export const noteCommentInput = z.object({ body: z.string().trim().min(1).max(10_000), parentId: z.string().trim().min(1).max(64).optional() }).strict();
 export const restoreNotesInput = z.object({ expectedVersion: z.number().int().min(1).max(2_147_483_646), reason: z.string().trim().min(1).max(500) }).strict();
 export type NotesActor = {
   userId: string; name: string; tenantId: string; projectId: string; canEdit: boolean;
@@ -114,44 +119,109 @@ function pageResult<T extends { id: string; createdAt: Date }>(rows: T[], limit:
     ? Buffer.from(JSON.stringify({ id: last.id, createdAt: last.createdAt.toISOString() })).toString("base64url") : null };
 }
 
+/** A note comment's vote counts and the person's own vote (#732). */
+function withVotes<T extends { votes: { userId: string; value: number }[] }>(actor: NotesActor, { votes, ...comment }: T) {
+  const mine = votes.find((vote) => vote.userId === actor.userId)?.value ?? 0;
+  return {
+    ...comment,
+    upvotes: votes.filter((vote) => vote.value === 1).length,
+    downvotes: votes.filter((vote) => vote.value === -1).length,
+    upvoted: mine === 1,
+    myVote: mine,
+  };
+}
+
+/**
+ * The notes discussion: top-level notes in order, a page at a time, each with
+ * its replies (corrections and adaptations) oldest first.
+ */
 export async function listNoteComments(actor: NotesActor, params: URLSearchParams) {
   const { limit, cursor } = notesPage(params);
+  const voteSelect = { select: { userId: true, value: true } };
   const rows = await prisma.projectNoteComment.findMany({
-    where: { projectId: actor.projectId, ...(cursor ? { OR: [
+    where: { projectId: actor.projectId, parentId: null, ...(cursor ? { OR: [
       { createdAt: { gt: new Date(cursor.createdAt) } },
       { createdAt: new Date(cursor.createdAt), id: { gt: cursor.id } },
     ] } : {}) },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: limit + 1,
-    include: { _count: { select: { votes: true } }, votes: { where: { agentId: actor.agent?.agentId ?? "" }, select: { agentId: true } } },
+    // `myVote` is the person's vote (#732): theirs whether they gave it in the app or through any of their agents.
+    include: {
+      votes: voteSelect,
+      replies: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { votes: voteSelect } },
+    },
   });
   const result = pageResult(rows, limit);
-  return { ...result, items: result.items.map(({ _count, votes, ...comment }) => ({ ...comment, upvotes: _count.votes, upvoted: votes.length > 0 })) };
+  return { ...result, items: result.items.map(({ replies, ...comment }) => ({
+    ...withVotes(actor, comment),
+    replies: replies.map((reply) => withVotes(actor, reply)),
+  })) };
 }
 
+/**
+ * Adds a note comment (#732): any member of the project's workspace, in the
+ * app or through an agent, or a reply to one (`parentId`), such as a
+ * correction or an adaptation of what it learned. Comments are contributions;
+ * they never change the official notes, which only editors save.
+ */
 export async function addNoteComment(actor: NotesActor, input: unknown) {
-  if (!actor.agent) throw new IssueApiError(403, "Comments are contributed through the agent API.");
   const data = noteCommentInput.parse(input);
-  const agentId = actor.agent.agentId;
+  const agentId = actor.agent?.agentId ?? null;
   return prisma.$transaction(async (db) => {
+    if (data.parentId) {
+      // A reply goes under a top-level note in this project: one level deep.
+      const parent = await db.projectNoteComment.findFirst({ where: { id: data.parentId, projectId: actor.projectId }, select: { parentId: true } });
+      if (!parent) throw new IssueApiError(404, "The note you are replying to was not found.");
+      if (parent.parentId) throw new IssueApiError(422, "Reply to the note itself: replies are one level deep.");
+    }
     const comment = await db.projectNoteComment.create({ data: { projectId: actor.projectId, agentId,
-      ownerId: actor.userId, authorName: actor.name, body: data.body } });
+      ownerId: actor.userId, authorName: actor.name, body: data.body, parentId: data.parentId ?? null } });
     await notesAudit(db, actor, "notes.commented", comment.id, { projectId: actor.projectId });
     return { comment };
   });
 }
 
-export async function voteNoteComment(actor: NotesActor, commentId: string, upvote: boolean) {
-  if (!actor.agent) throw new IssueApiError(403, "Upvotes are contributed through the agent API.");
-  const agentId = actor.agent.agentId;
+/**
+ * Votes on a note comment (#732): up (1), down (-1), or takes the vote back
+ * (0). One vote per person: a member in the app and each of their agents share
+ * it, so repeating it changes nothing and voting the other way replaces it.
+ */
+export async function voteNoteComment(actor: NotesActor, commentId: string, value: 1 | -1 | 0) {
+  const userId = actor.userId;
+  const agentId = actor.agent?.agentId ?? null;
   return prisma.$transaction(async (db) => {
-    const comment = await db.projectNoteComment.findFirst({ where: { id: commentId, projectId: actor.projectId }, select: { id: true } });
+    const comment = await db.projectNoteComment.findFirst({ where: { id: commentId, projectId: actor.projectId }, select: { id: true, ownerId: true, agentId: true } });
     if (!comment) throw new IssueApiError(404, "Comment not found.");
-    if (upvote) {
-      // Database conflict handling makes concurrent PUT requests idempotent.
-      await db.projectNoteCommentVote.createMany({ data: [{ commentId, agentId }], skipDuplicates: true });
-    } else await db.projectNoteCommentVote.deleteMany({ where: { commentId, agentId } });
-    await notesAudit(db, actor, upvote ? "notes.comment_upvoted" : "notes.comment_unvoted", commentId, { projectId: actor.projectId });
-    return { upvoted: upvote, upvotes: await db.projectNoteCommentVote.count({ where: { commentId } }) };
+    const author = comment;
+    const previous = (await db.projectNoteCommentVote.findUnique({ where: { commentId_userId: { commentId, userId } }, select: { value: true } }))?.value ?? 0;
+    if (value === 0) await db.projectNoteCommentVote.deleteMany({ where: { commentId, userId } });
+    else {
+      await db.projectNoteCommentVote.upsert({
+        where: { commentId_userId: { commentId, userId } },
+        create: { commentId, userId, agentId, value },
+        update: { value, agentId },
+      });
+    }
+    // Points (#note-vote-points): the note's author gains 1 for each upvote from
+    // someone else and loses 1 for each downvote; a changed or withdrawn vote
+    // moves the points back. Paid to the agent that wrote it, if one did.
+    if (value !== previous && userId !== author.ownerId) {
+      await award(db, {
+        tenantId: actor.tenantId,
+        userId: author.ownerId,
+        bugId: null,
+        role: "comment",
+        points: (value - previous) * NOTE_VOTE_POINTS,
+        sourceKey: noteVoteSourceKey(commentId, userId, previous, value, Date.now()),
+        agentId: author.agentId,
+      });
+    }
+    const action = value === 1 ? "notes.comment_upvoted" : value === -1 ? "notes.comment_downvoted" : "notes.comment_unvoted";
+    await notesAudit(db, actor, action, commentId, { projectId: actor.projectId });
+    const [upvotes, downvotes] = await Promise.all([
+      db.projectNoteCommentVote.count({ where: { commentId, value: 1 } }),
+      db.projectNoteCommentVote.count({ where: { commentId, value: -1 } }),
+    ]);
+    return { upvoted: value === 1, myVote: value, upvotes, downvotes };
   });
 }
 

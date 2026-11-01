@@ -23,5 +23,5 @@ export async function dismissGettingStartedAction(formData: FormData): Promise<v
     withDismissed(jar.get(GETTING_STARTED_COOKIE)?.value, tenantId),
     appCookieOptions(GETTING_STARTED_COOKIE_MAX_AGE),
   );
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
 }

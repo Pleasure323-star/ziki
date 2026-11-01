@@ -7,26 +7,30 @@ import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { consumeAgentBudget, agentBudgetExceededResponse } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders, type AgentBudgetQuota } from "@/lib/agents/rate-budget-headers";
-import { commentSchema, statusSchema } from "@/lib/validations/issue";
+import { commentSchema, statusSchema, substatusSchema, commentLabel } from "@/lib/validations/issue";
 import { parsePlatformFilter, platformFilterWhere } from "@/lib/platform-filter";
 import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseProjectAreaFilter, projectAreaFilterWhere } from "@/lib/project-area-filter";
 import { currentHold } from "@/lib/issue-holders";
+import { OPEN_BID_WHERE } from "@/lib/open-bids";
 import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
-import { parseIssueRef } from "@/lib/issue-ref";
+import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { cursorOrderBy, cursorWhere, decodeCursor, LIMIT_RANGE_ERROR, pageSize, toPage, type IssueCursor } from "@/lib/agent-api/create-policy";
 import { commentedSummary, commentPreview } from "@/lib/activity-log";
 import { extractMentionedUserIds, normalizeMentions } from "@/lib/mentions";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
 import { publish } from "@/lib/agent-api/events";
-import { ENTRY_REPLY_FIELDS, STAGE_ENTRY_ROUTES, TYPED_COMMENT_MESSAGE } from "@/lib/stage-entry-route";
+import { STAGE_ENTRY_ROUTES, TYPED_COMMENT_MESSAGE } from "@/lib/stage-entry-route";
 import { CommentPlacementError, placeComment, type CommentPlacement } from "@/lib/comment-placement";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { notifyLater } from "@/lib/notify";
 import type { NotificationEvent } from "@/lib/notifications";
 import { logger } from "@/lib/logger";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
+import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
+import { entrySummary } from "@/lib/agent-api/entry-fields";
 
 export { IssueApiError };
 
@@ -43,7 +47,8 @@ function enumFilter<T extends string>(name: string, raw: string | null, allowed:
 
 /** Files uploaded with POST /api/v1/attachments, linked on save (#645). */
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
-const agentCommentSchema = commentSchema.extend({ projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
+// #730: an agent's comment leads with its point, in at most two sentences, then the full body.
+export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, label: commentLabel.optional(), projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
 
 /**
  * Authenticate before parsing input, charge the shared budget, and audit outcomes including denials.
@@ -137,7 +142,9 @@ export async function issueProject(agent: AgentContext, params: URLSearchParams,
 
 type Scope = { tenantId: string; projectId: string };
 export const issueSelect = {
-  id: true, number: true, title: true, summary: true, description: true, status: true, closeReason: true,
+  id: true, number: true, title: true, summary: true, description: true, status: true, substatus: true,
+  // #close-reasons: why, on what evidence and when a closed issue was closed.
+  closeReason: true, closeEvidence: true, closedAt: true,
   categoryId: true, typeId: true, reporterId: true, assigneeId: true, beneficiaryUserId: true,
   createdByAgentId: true, projectId: true, areaId: true, createdAt: true, updatedAt: true, proofLinks: true,
   voteCount: true,
@@ -166,6 +173,7 @@ export function requireKnownFilter(name: "platform" | "area", raw: string | null
 
 export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const status = enumFilter("status", params.get("status"), statusSchema.options);
+  const substatus = enumFilter("substatus", params.get("substatus"), substatusSchema.options);
   const assignee = params.get("assignee");
   let assigneeId: string | null | undefined;
   if (assignee) {
@@ -200,6 +208,7 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
   const filtered: Prisma.BugWhereInput = {
     ...scope, isDeleted: false, ...search,
     ...(status ? { status } : {}),
+    ...(substatus ? { substatus } : {}),
     ...(assigneeId !== undefined ? { assigneeId } : {}),
     ...platformFilterWhere(requireKnownFilter("platform", params.get("platform"), parsePlatformFilter(params.get("platform"), platforms))),
     ...projectAreaFilterWhere(requireKnownFilter("area", requestedArea, parseProjectAreaFilter(requestedArea, areas))),
@@ -213,6 +222,12 @@ export async function listAgentIssues(scope: Scope, params: URLSearchParams) {
 export function withImportance<T extends { voteCount: number }>(row: T): Omit<T, "voteCount"> & { importance: number } {
   const { voteCount, ...rest } = row;
   return { ...rest, importance: voteCount };
+}
+
+/** A comment's upvotes (#comment-votes) as `votes`, in place of Prisma's `_count`. */
+export function withCommentVotes<T extends { _count?: { votes: number } }>(row: T): Omit<T, "_count"> & { votes: number } {
+  const { _count, ...rest } = row;
+  return { ...rest, votes: _count?.votes ?? 0 };
 }
 
 const confirmationSelect = {
@@ -235,9 +250,9 @@ export async function readAgentIssue(scope: Scope, id: string) {
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true },
+      select: { id: true, summary: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true, _count: { select: { votes: true } } },
     }, attachments: {
-      // #645: metadata only; bytes are served to signed-in people at /api/attachments/{id}.
+      // #645: metadata only; agents read the bytes at `url` (#722).
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, filename: true, contentType: true, size: true, commentId: true, createdAt: true },
     }, confirmations: {
@@ -245,7 +260,7 @@ export async function readAgentIssue(scope: Scope, id: string) {
       select: confirmationSelect,
     }, bids: {
       // #issue-bids: the open bids (GET /issues/{id}/bid has their replies).
-      where: { withdrawnAt: null, awardedAt: null, agent: { revokedAt: null } },
+      where: OPEN_BID_WHERE,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true, agentId: true, beneficiaryUserId: true, summary: true, description: true, createdAt: true, updatedAt: true },
     }, _count: { select: { comments: { where: { deletedAt: null } } } } },
@@ -254,9 +269,15 @@ export async function readAgentIssue(scope: Scope, id: string) {
   const confirmed = await isConfirmed(issue.id);
   return {
     ...withImportance(issue),
+    // #comment-votes: each comment carries its upvotes as `votes`.
+    comments: (issue.comments ?? []).map(withCommentVotes),
+    // #722: each file with the URL an agent reads it from, with its key.
+    attachments: (issue.attachments ?? []).map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })),
     confirmed,
     // Who has the issue now (its claim), or null: the agent and the person it works for.
     holder: await currentHold(issue.id),
+    // #pr-reports: the latest independent report on the linked pull request, with who filed it and its age, or null.
+    pullRequestState: pullRequestStateView(await latestPullRequestReport(issue.id, issue.pullRequestUrl)),
   };
 }
 
@@ -266,26 +287,31 @@ export async function readAgentIssue(scope: Scope, id: string) {
  * `all` is every issue.
  */
 export async function countAgentIssues(scope: Scope) {
-  const [issueRows, ideaRows] = await Promise.all([
+  const [issueRows, substatusRows, ideaRows] = await Promise.all([
     prisma.bug.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
+    prisma.bug.groupBy({ by: ["substatus"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
     prisma.idea.groupBy({ by: ["status"], where: { ...scope, isDeleted: false }, _count: { _all: true } }),
   ]);
   const issues = Object.fromEntries(statusSchema.options.map((status) => [status, 0])) as Record<(typeof statusSchema.options)[number], number>;
   for (const row of issueRows) issues[row.status] = row._count._all;
-  const ideas = { open: 0, converted: 0, rejected: 0 };
+  const bySubstatus = Object.fromEntries(substatusSchema.options.map((substatus) => [substatus, 0])) as Record<(typeof substatusSchema.options)[number], number>;
+  for (const row of substatusRows) bySubstatus[row.substatus] = row._count._all;
+  const ideas = { open: 0, converted: 0, rejected: 0, archived: 0 };
   for (const row of ideaRows) ideas[row.status] = row._count._all;
   return {
     projectId: scope.projectId,
     issues: { ...issues, all: Object.values(issues).reduce((sum, n) => sum + n, 0) },
+    substatuses: bySubstatus,
     ideas,
   };
 }
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
+  id: true, summary: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
+  _count: { select: { votes: true } },
 } satisfies Prisma.CommentSelect;
 
 /** Comments strictly after `cursor` in the older-first paging order (#604). */
@@ -304,7 +330,7 @@ function commentsAfter(cursor: IssueCursor): Prisma.CommentWhereInput {
  * The cursor is the same shared (createdAt, id) one; `after` returns only newer
  * comments. The result follows the shared list shape: `{ items, nextCursor }`.
  */
-export async function listAgentIssueComments(scope: Scope, id: string, params: URLSearchParams) {
+export async function listAgentIssueComments(scope: Scope, issueRef: string, params: URLSearchParams) {
   const cursorRaw = params.get("after");
   const cursor = decodeCursor(cursorRaw);
   if (cursorRaw !== null && !cursor) throw new IssueApiError(400, "Invalid cursor.");
@@ -313,11 +339,13 @@ export async function listAgentIssueComments(scope: Scope, id: string, params: U
   // #entry-replies-only: comments have no type to filter by.
   if (params.has("type")) throw new IssueApiError(400, "comment_has_no_type", { message: TYPED_COMMENT_MESSAGE });
 
-  const issue = await prisma.bug.findFirst({ where: { ...scope, id, isDeleted: false }, select: { id: true } });
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const id = await issueIdFor(prisma, issueRef, scope.tenantId);
+  const issue = id ? await prisma.bug.findFirst({ where: { ...scope, id, isDeleted: false }, select: { id: true } }) : null;
   if (!issue) throw new IssueApiError(404, "Issue not found.");
   const rows = await prisma.comment.findMany({
     where: {
-      bugId: id,
+      bugId: issue.id,
       deletedAt: null,
       ...(cursor ? commentsAfter(cursor) : {}),
     },
@@ -325,7 +353,8 @@ export async function listAgentIssueComments(scope: Scope, id: string, params: U
     take: limit + 1,
     select: commentSelect,
   });
-  return toPage(rows, limit);
+  const page = toPage(rows, limit);
+  return { ...page, items: page.items.map(withCommentVotes) };
 }
 
 async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: string, body: string) {
@@ -336,7 +365,7 @@ async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: s
   return normalizeMentions(body, new Map(users.map((user) => [user.id, user.name])));
 }
 
-export async function commentOnAgentIssue(agent: AgentContext, request: NextRequest, bugId: string) {
+export async function commentOnAgentIssue(agent: AgentContext, request: NextRequest, issueRef: string) {
   const raw = await issueJson(request);
   // Comments have no type or metadata. Say why, instead of the bare
   // unknown-key error the strict schema would give.
@@ -348,24 +377,20 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
   let bug: { id: string; title: string; reporterId: string; assigneeId: string | null } | null = null;
   let parentAuthorId: string | null = null;
   const comment = await prisma.$transaction(async (tx) => {
-    const found = await tx.bug.findFirst({
-      where: { ...scope, id: bugId, isDeleted: false },
-      select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, pullRequestUrl: true },
-    });
+    // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+    const resolvedId = await issueIdFor(tx, issueRef, scope.tenantId);
+    const found = resolvedId ? await tx.bug.findFirst({
+      where: { ...scope, id: resolvedId, isDeleted: false },
+      select: { id: true, title: true, reporterId: true, assigneeId: true, status: true, substatus: true, pullRequestUrl: true },
+    }) : null;
     if (!found) throw new IssueApiError(404, "Issue not found.");
+    const bugId = found.id;
     bug = found;
     let placement: CommentPlacement;
     try {
       placement = await placeComment(tx, found, input);
     } catch (error) {
       if (!(error instanceof CommentPlacementError)) throw error;
-      if (error.code === "use_stage_entry") {
-        throw new IssueApiError(409, "use_stage_entry", {
-          message: error.message,
-          entryRoute: error.entryRoute,
-          replyFields: [...ENTRY_REPLY_FIELDS],
-        });
-      }
       throw new IssueApiError(error.status, error.message);
     }
     parentAuthorId = placement.parentAuthorId;
@@ -375,6 +400,8 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         bugId,
         authorId: agent.ownerId,
         agentId: agent.agentId,
+        summary: input.summary,
+        label: input.label ?? null,
         body,
         confirmationId: placement.confirmationId,
         bidId: placement.bidId,
@@ -388,6 +415,8 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         bugId: true,
         authorId: true,
         agentId: true,
+        summary: true,
+        label: true,
         body: true,
         parentId: true,
         confirmationId: true,

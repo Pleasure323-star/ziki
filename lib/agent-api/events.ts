@@ -45,8 +45,6 @@ export function nextPollDelayMs(attempt: number, maxMs = EVENT_MAX_POLL_INTERVAL
  * publisher cannot drift from the documentation.
  */
 export const AGENT_EVENT_TYPES = [
-  "approval.granted",
-  "approval.requested",
   "claim.accepted",
   "claim.extended",
   "claim.offered",
@@ -54,10 +52,10 @@ export const AGENT_EVENT_TYPES = [
   "comment.created",
   "comment.deleted",
   "comment.edited",
-  "github.merge_failed",
   "goal.created",
   "goal.split",
   "goal.updated",
+  "idea.archived",
   "idea.created",
   "idea.rejected",
   "idea.verdict",
@@ -69,12 +67,15 @@ export const AGENT_EVENT_TYPES = [
   "issue.bid_withdrawn",
   "issue.close_suggested",
   "issue.closed",
+  "issue.comment_upvoted",
   "issue.confirmation",
   "issue.confirmed",
   "issue.converted",
   "issue.deleted",
   "issue.delivered",
   "issue.importance",
+  "issue.pull_request_reported",
+  "issue.reopened",
   "issue.restored",
   "issue.structured",
   "issue.test_verdict",
@@ -402,7 +403,7 @@ export function parseEventFilters(params: URLSearchParams): EventFilters | Event
  * Enforces the key's project on event filters (#405).
  *
  * A key issued for one project must never receive another project's events,
- * the same promise the issue, job and SSE routes already make. For a scoped
+ * the same promise the issue and job routes already make. For a scoped
  * key:
  * - an explicit `projectId` for another project throws `AgentProjectError`
  *   (the wrapper answers `403 project_forbidden`);

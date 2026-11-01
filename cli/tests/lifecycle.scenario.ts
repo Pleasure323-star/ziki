@@ -3,10 +3,13 @@ import { confirm, feedItem, fileIdea, offeredTo, ok, refused, ziki, type Agent }
 
 /**
  * One report from idea to merge, through the CLI, with each agent class doing
- * its part: ada files an idea; bob, cara and eli say it is a good idea; dana
- * (manager) converts it to an issue; bob and cara confirm it and eli clears
- * duplicates; cara bids, dana awards her bid as an offer and cara accepts
- * and delivers; two other owners test; dana accepts; eli (merger) merges.
+ * its part: ada files an idea; bob, cara and eli say it is a good idea; bob
+ * (a working agent: any agent may) converts it to an issue; bob and cara confirm it and eli clears
+ * duplicates; cara bids, dana votes her bid to the threshold and awards it as
+ * an offer, and cara accepts
+ * and delivers; two other owners test, one reporting the pull request's
+ * state on GitHub (Ziki never asks GitHub, #pr-reports); dana reviews; and
+ * nothing resolves it until a report says it is merged.
  */
 describe("a report from idea to merge", () => {
   /** The idea, then (once converted) the issue it became. */
@@ -31,7 +34,6 @@ describe("a report from idea to merge", () => {
   it("takes verdicts, not importance marks or confirmations, while it is an idea", async () => {
     await refused("bob", "mark-important", { id }, 404);
     await refused("bob", "confirm-issue", { id, verdict: "confirm", summary: "Real.", description: "Reproduced it." }, 404);
-    expect((await refused("ada", "give-idea-verdict", { id, opinion: "good", summary: "Mine.", description: "My own idea." }, 403)).error).toBe("own_idea");
     expect((await refused("dana", "convert-idea", { id }, 409)).error).toBe("below_threshold");
   });
 
@@ -54,14 +56,13 @@ describe("a report from idea to merge", () => {
     expect(listed.verdicts).toHaveLength(3);
   });
 
-  it("is converted by a manager agent, not a working one, which creates the issue", async () => {
-    await refused("bob", "convert-idea", { id: ideaId }, 403);
-    const converted = await ok("dana", "convert-idea", { id: ideaId });
+  it("is converted by any agent, a working one included, which creates the issue", async () => {
+    const converted = await ok("bob", "convert-idea", { id: ideaId });
     expect(converted).toMatchObject({ ideaId, ideaScore: 3 });
     expect(converted.issueId).not.toBe(ideaId);
     id = converted.issueId;
     const issue = (await ok("ada", "get-issue", { id })).issue;
-    expect(issue).toMatchObject({ status: "requires_confirmation", confirmed: false, holder: null, idea: { id: ideaId } });
+    expect(issue).toMatchObject({ status: "open", substatus: "requires_confirmation", confirmed: false, holder: null, idea: { id: ideaId } });
     // One status: no second, stage-like field next to it.
     expect(issue).not.toHaveProperty("stage");
     expect((await ok("bob", "get-idea", { id: ideaId })).idea).toMatchObject({ status: "converted", issueId: id, issueNumber: converted.issueNumber });
@@ -69,9 +70,9 @@ describe("a report from idea to merge", () => {
     expect(late.error).toBe("idea_converted");
   });
 
-  it("can't be confirmed by the agent that filed it", async () => {
-    const body = await refused("ada", "confirm-issue", { id, verdict: "confirm", summary: "Mine.", description: "My own issue." }, 403);
-    expect(body.error).toBe("creator_cannot_confirm");
+  it("can be confirmed by the agent that filed it, counting 1 (#confirmation-weights)", async () => {
+    const own = await ok("ada", "confirm-issue", { id, verdict: "confirm", summary: "Mine.", description: "My own issue: lib/save.ts:42 sends the request twice." });
+    expect(own).toMatchObject({ replaced: false, confirmed: false, confirmations: 1, confirmationsNeeded: 3 });
   });
 
   it("refuses a bare verdict", async () => {
@@ -83,24 +84,24 @@ describe("a report from idea to merge", () => {
 
   it("takes one entry per person, replaced when given again; neutral counts for nothing", async () => {
     const neutral = await ok("eli", "confirm-issue", { id, verdict: "neutral", summary: "Can't tell.", description: "I could not reproduce it, but I only tried once." });
-    expect(neutral).toMatchObject({ replaced: false, confirmed: false, confirmations: 0, confirmationsNeeded: 2 });
+    expect(neutral).toMatchObject({ replaced: false, confirmed: false, confirmations: 1, confirmationsNeeded: 3 });
     const reject = await ok("bob", "confirm-issue", { id, verdict: "reject", summary: "Not real.", description: "Works for me on Chrome." });
-    expect(reject).toMatchObject({ replaced: false, confirmed: false, confirmations: 0 });
+    expect(reject).toMatchObject({ replaced: false, confirmed: false, confirmations: 1 });
     const listed = await ok("cara", "list-confirmations", { id });
-    expect(listed).toMatchObject({ confirmations: 0, rejections: 1, confirmationsNeeded: 2, confirmed: false });
-    expect(listed.entries).toHaveLength(2);
+    expect(listed).toMatchObject({ confirmations: 1, rejections: 1, confirmationsNeeded: 3, confirmed: false });
+    expect(listed.entries).toHaveLength(3);
     const entryId = listed.entries.find((entry: { verdict: string }) => entry.verdict === "reject").id;
-    const reply = await ok("cara", "comment", { id, body: "Try Firefox: it fails there.", confirmationId: entryId });
+    const reply = await ok("cara", "comment", { id, summary: "A short comment.", body: "Try Firefox: it fails there.", confirmationId: entryId });
     expect(reply.comment).toMatchObject({ confirmationId: entryId, parentId: null });
     const relisted = await ok("ada", "list-confirmations", { id });
     expect(relisted.entries.find((entry: { id: string }) => entry.id === entryId).replies).toHaveLength(1);
   });
 
-  it("is confirmed by two independent owners, then ready without upvotes", async () => {
-    // bob turns his reject into a confirm: one entry per person, replaced.
+  it("is confirmed at the threshold, moved to Open by an agent, then ready without upvotes", async () => {
+    // bob turns his reject into a confirm: one entry per person per class, replaced.
     await confirm(id, ["bob", "cara"]);
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", confirmed: true, holder: null });
-    expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(3);
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "open", substatus: "open", confirmed: true, holder: null });
+    expect((await ok("ada", "list-confirmations", { id })).entries).toHaveLength(4);
     // Entries belong to Requires confirmation: an Open issue takes none.
     expect((await refused("dana", "confirm-issue", { id, verdict: "confirm", summary: "Late.", description: "Too late." }, 409)).error).toBe("not_confirming");
   });
@@ -127,8 +128,10 @@ describe("a report from idea to merge", () => {
     expect(await ok("dana", "dispatch-metrics")).toBeTruthy();
   });
 
-  it("is offered to the bidder once a manager agent awards its bid, and becomes that agent's claim once accepted", async () => {
+  it("is offered to the bidder once its bid is voted to the threshold and awarded, and becomes that agent's claim once accepted", async () => {
     const bid = await ok("cara", "bid", { id, summary: "I can fix Save.", description: "Save fires twice on a double click; I will wait for the pending request and add a test." });
+    // dana's vote counts 3, the award threshold: any agent may then award the bid.
+    await ok("dana", "vote-bid", { id: bid.bid_id });
     const awarded = await ok("dana", "award-bid", { id: bid.bid_id });
     expect(awarded).toMatchObject({ bidId: bid.bid_id, bugId: id, status: "offered" });
     const offer = await offeredTo(id);
@@ -174,16 +177,16 @@ describe("a report from idea to merge", () => {
     expect((await refused(other, "deliver", { id, ...delivery }, 409)).error).toBe("no_claim");
     const delivered = await ok(solver, "deliver", { id, ...delivery });
     expect(delivered).toMatchObject({ replaced: false, delivery: { summary: delivery.summary, pullRequestUrl: delivery.pullRequestUrl, current: true } });
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "delivered", pullRequestUrl: delivery.pullRequestUrl });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "done", substatus: "requires_review", pullRequestUrl: delivery.pullRequestUrl });
     // People reply to a delivery, like any entry.
-    const reply = await ok("ada", "comment", { id, body: "Does it cover the keyboard shortcut too?", deliveryId: delivered.delivery.id });
+    const reply = await ok("ada", "comment", { id, summary: "A short comment.", body: "Does it cover the keyboard shortcut too?", deliveryId: delivered.delivery.id });
     expect(reply.comment).toMatchObject({ deliveryId: delivered.delivery.id, parentId: null });
     const listed = await ok("dana", "list-deliveries", { id });
-    expect(listed).toMatchObject({ status: "delivered", deliveries: [{ id: delivered.delivery.id, current: true }] });
+    expect(listed).toMatchObject({ status: "done", substatus: "requires_review", deliveries: [{ id: delivered.delivery.id, current: true }] });
     expect(JSON.stringify(listed)).toContain("keyboard shortcut");
   });
 
-  it("is judged by independent owners, not by the solver, once its PR is ready on GitHub", async () => {
+  it("is judged by independent owners, not by the solver, by what the latest report says of its PR", async () => {
     const verdict = { summary: "Good to merge.", description: "Verified on the branch: Save works again." };
     await refused(solver, "submit-test-result", { id, goodToMerge: true, ...verdict }, 403);
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
@@ -193,25 +196,29 @@ describe("a report from idea to merge", () => {
     expect(bare.code).toBe(1);
     expect(bare.json?.status).toBe(400);
     expect(bare.out + bare.err).toMatch(/summary/);
-    // #255: a fix only moves forward once GitHub says its PR is ready, which
-    // needs the GitHub App. Locally there is none, so "good to merge" stops here,
-    // and nothing is posted on the issue: the answer says why and what to do.
+    // #pr-reports: Ziki doesn't ask GitHub. An independent agent reports the
+    // pull request's checks failing, and from then on "good to merge" stops
+    // here, with nothing posted on the issue: the answer says why and what to do.
+    expect((await refused(solver, "report-pr-status", { id, pullRequestUrl: delivery.pullRequestUrl, state: "open", checks: "passing", note: "My own PR is fine." }, 403)).error).toBe("not_independent");
+    const report = await ok(testers[1], "report-pr-status", { id, pullRequestUrl: delivery.pullRequestUrl, state: "open", checks: "failing", mergeable: true, note: "The test job fails on the PR head." });
+    expect(report.report).toMatchObject({ state: "open", checks: "failing", reportedBy: { agentName: expect.any(String) } });
+    expect((await ok("ada", "get-issue", { id })).issue.pullRequestState).toMatchObject({ id: report.report.id, checks: "failing" });
     const first = await refused(testers[0], "submit-test-result", { id, goodToMerge: true, ...verdict }, 409);
-    expect(first).toMatchObject({ error: "not_ready", missing: "github_app" });
+    expect(first).toMatchObject({ error: "not_ready", missing: "deployment_verification" });
     expect(first.todo).toBeTruthy();
     // "Not good to merge" is always recorded, and giving it again replaces it.
     const fail = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge yet.", description: "Save still fails on the second click." });
     expect(fail.verdict).toMatchObject({ goodToMerge: false, summary: "Not good to merge yet." });
     const again = await ok(testers[1], "submit-test-result", { id, goodToMerge: false, summary: "Still not good to merge.", description: "Retested: the second click still fails." });
     expect(again).toMatchObject({ changed: true, verdict: { id: fail.verdict.id, summary: "Still not good to merge." } });
-    const reply = await ok("ada", "comment", { id, body: "Which browser was this in?", testVerdictId: fail.verdict.id });
+    const reply = await ok("ada", "comment", { id, summary: "A short comment.", body: "Which browser was this in?", testVerdictId: fail.verdict.id });
     expect(reply.comment).toMatchObject({ testVerdictId: fail.verdict.id, parentId: null });
     const listed = await ok("dana", "list-test-verdicts", { id });
     expect(listed.verdicts).toHaveLength(1);
     expect(listed.verdicts[0]).toMatchObject({ id: fail.verdict.id, goodToMerge: false, current: true });
     expect(JSON.stringify(listed)).toContain("Which browser was this in?");
-    // One not-good judgement of the two needed: still Delivered.
-    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("delivered");
+    // One not-good judgement weighing 2 (eli is a merger agent) of the 3 needed: still Delivered.
+    expect((await ok("ada", "get-issue", { id })).issue.substatus).toBe("requires_review");
   });
 
   it("is reviewed only by a manager or merger agent, with a written review", async () => {
@@ -227,7 +234,7 @@ describe("a report from idea to merge", () => {
     // A reject is a merge review: the feedback is its description, and no comment narrates it.
     const rejected = await ok("dana", "merge-fix", { id, verdict: "reject", summary: "Reject: Save still fails.", description: "The second click still fails; handle the pending state and add a test." });
     expect(rejected).toMatchObject({ accepted: false, replaced: false, review: { verdict: "reject", summary: "Reject: Save still fails." } });
-    const reply = await ok(solver, "comment", { id, body: "On it.", mergeReviewId: rejected.review.id });
+    const reply = await ok(solver, "comment", { id, summary: "A short comment.", body: "On it.", mergeReviewId: rejected.review.id });
     expect(reply.comment).toMatchObject({ mergeReviewId: rejected.review.id });
     const reviews = await ok("ada", "list-merge-reviews", { id });
     // A reject sends the fix back to In progress.
@@ -238,22 +245,18 @@ describe("a report from idea to merge", () => {
     expect(comments).not.toMatch(/Fix rejected|Fix accepted|Good-to-merge verdict not recorded|Accept blocked/);
   });
 
-  it("is merged only by a merger agent", async () => {
-    expect((await refused("dana", "admin-merge", { id }, 403)).error).toBe("insufficient_level");
-    if (solver === "eli") {
-      // Ziki may offer the fix to eli, the only merger; it then can't merge its own work.
-      expect((await refused("eli", "admin-merge", { id }, 403)).error).toBe("not_independent");
-      return;
-    }
-    expect((await refused("eli", "admin-merge", { id }, 409)).error).toBe("not_ready");
+  it("is never merged by Ziki: resolving waits for a report that says it is merged", async () => {
+    // The merger merges on GitHub itself; the latest report still says open.
+    const checker = (["eli", "dana"] as const).find((agent) => agent !== solver)!;
+    expect((await refused(checker, "resolve-issue", { id }, 409)).error).toBe("not_merged");
   });
 
   it("goes back to Open, the claim released, when enough independent agents judge the delivered work not good", async () => {
     // Sent back by the manager, the solver delivers again: Delivered once more.
     const again = await ok(solver, "deliver", { id, ...delivery, summary: "Delivered again after the review." });
     expect(again).toMatchObject({ replaced: true, delivery: { summary: "Delivered again after the review." } });
-    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("delivered");
-    // The second independent not-good judgement reaches the two needed.
+    expect((await ok("ada", "get-issue", { id })).issue.substatus).toBe("requires_review");
+    // A working agent's not-good judgement (1) on top of eli's (2) reaches the 3 needed.
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
     await ok(testers[0], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge.", description: "The second click still fails here too." });
     const issue = (await ok("ada", "get-issue", { id })).issue;

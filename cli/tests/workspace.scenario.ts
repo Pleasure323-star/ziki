@@ -195,11 +195,11 @@ describe("the workspace around the issues", () => {
   });
 
   describe("routes with local limits", () => {
-    it("resolving needs GitHub to confirm the merge, so locally it is refused clearly", async () => {
-      const issue = await fileIssue("ada", "CLI workspace: resolve without GitHub", ["bob", "cara", "eli"]);
+    it("resolving needs a linked pull request reported merged, so an issue without one is refused clearly", async () => {
+      const issue = await fileIssue("ada", "CLI workspace: resolve without a pull request", ["bob", "cara", "eli"]);
       const result = await ziki("resolve-issue", "--id", issue, "--pull-request-url", "https://github.com/emerjent/ziki/pull/1", "--as", "ada");
       expect(result.code).toBe(1);
-      expect(result.json.status).toBeGreaterThanOrEqual(400);
+      expect(result.json.status).toBe(409);
     });
 
     it("structures an open idea, and refuses one that is no longer open", async () => {

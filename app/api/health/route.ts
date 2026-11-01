@@ -12,6 +12,7 @@ import {
 } from "@/lib/roles";
 import { isSuperAdminEmail } from "@/lib/super-admin";
 import { defaultTenantProject } from "@/lib/tenant";
+import { moveTo } from "@/lib/issue-substatus";
 
 export const dynamic = "force-dynamic";
 
@@ -136,7 +137,7 @@ export async function GET(request: NextRequest) {
             title: `Health Check Bug ${testId}`,
             description:
               "Testing bug creation and voting lifecycle in production DB",
-            status: "open",
+            ...moveTo("open"),
             proofLinks: ["https://github.com/Zedu-Endor/bug-tracker/issues/99"],
             reporterId: user.id,
             activities: {

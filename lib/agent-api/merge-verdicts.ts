@@ -1,10 +1,25 @@
-import { reviewerConflict, reviewerCreditConflict, type ReviewedBug } from "@/lib/agents/independence";
+import { reviewerConflict, type ReviewedBug } from "@/lib/agents/independence";
 
 export type CountableVerdict = {
   headSha?: string | null;
   onBehalfOfUserId: string;
-  agent: { id: string; ownerUserId: string };
+  agent: { id: string; ownerUserId: string; level?: string | null };
 };
+
+/**
+ * What a good-to-merge (or not) verdict counts toward `verdictsNeeded`
+ * (#owner-agents): a manager or merger agent's 2, a working agent's 1. A
+ * person counts once per class, so one owner with a manager agent and a
+ * working agent can give 3.
+ */
+export const MANAGER_VERDICT_WEIGHT = 2;
+
+/** The class a judgement counts in: a manager or merger agent's, or a working agent's. */
+export type VerdictClass = "manager" | "working";
+
+export function verdictClass(level: string | null | undefined): VerdictClass {
+  return level === "manager" || level === "merger" ? "manager" : "working";
+}
 
 export type VerdictClaim = { agentId: string; agent: { ownerUserId: string } } | null;
 
@@ -27,30 +42,36 @@ export function deliveredClaim<C extends ClaimRow>(bug: { pullRequestUrl: string
 }
 
 /**
- * The good-to-merge verdicts that count toward accepting a fix (#434): one per
- * independent owner, never from the claim holder's agent or owner, and never
- * from anyone the independence rules exclude. The merge gate and the merge
- * queue both use this, so a fix the queue lists as ready is one the gate
- * accepts. Pass only verdicts on the linked pull request (#526), oldest first:
- * the last counted one names the commit that may merge (#489).
+ * The verdicts that count toward a fix (#434, #owner-agents), and their
+ * weight: one per person per class (a manager or merger agent's counts
+ * `MANAGER_VERDICT_WEIGHT`, a working agent's 1), never from the agent holding
+ * the claim, which can't judge its own work. The owner's other agents count:
+ * nothing is gated to other people. The merge gate and the merge queue both
+ * use this, so a fix the queue lists as ready is one the gate accepts. Pass
+ * only verdicts on the linked pull request (#526), oldest first: the last
+ * counted one names the commit that may merge (#489). `reviewers` are the
+ * people, once each, for the reviewer points.
  */
 export function countedMergeVerdicts(
   verdicts: readonly CountableVerdict[],
   claim: VerdictClaim,
   reviewed: ReviewedBug,
   fallbackHeadSha: string | null = null,
-): { reviewers: string[]; acceptedHeadSha: string | null } {
-  const owners = new Set<string>();
+): { reviewers: string[]; weight: number; acceptedHeadSha: string | null } {
+  const seen = new Set<string>();
   const reviewers: string[] = [];
+  let weight = 0;
   let acceptedHeadSha = fallbackHeadSha;
   for (const verdict of verdicts) {
-    if (claim && (verdict.agent.id === claim.agentId || verdict.agent.ownerUserId === claim.agent.ownerUserId)) continue;
+    if (claim && verdict.agent.id === claim.agentId) continue;
     if (reviewerConflict({ id: verdict.agent.id, ownerUserId: verdict.agent.ownerUserId }, reviewed)) continue;
-    if (reviewerCreditConflict(verdict.onBehalfOfUserId, reviewed)) continue;
-    if (owners.has(verdict.agent.ownerUserId)) continue;
-    owners.add(verdict.agent.ownerUserId);
-    reviewers.push(verdict.onBehalfOfUserId);
+    const kind = verdictClass(verdict.agent.level);
+    const key = `${verdict.onBehalfOfUserId}:${kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    weight += kind === "manager" ? MANAGER_VERDICT_WEIGHT : 1;
+    if (!reviewers.includes(verdict.onBehalfOfUserId)) reviewers.push(verdict.onBehalfOfUserId);
     if (verdict.headSha) acceptedHeadSha = verdict.headSha;
   }
-  return { reviewers, acceptedHeadSha };
+  return { reviewers, weight, acceptedHeadSha };
 }

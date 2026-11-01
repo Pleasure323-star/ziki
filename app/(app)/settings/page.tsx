@@ -3,6 +3,8 @@ import { ThemeSettings } from "@/components/theme-settings";
 import { parseTheme } from "@/lib/theme";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
+import { firstProjectSlugFor } from "@/lib/project-route";
+import { orgPath } from "@/lib/project-paths";
 import { prisma } from "@/lib/prisma";
 import { NotificationSettings } from "@/components/notification-settings";
 import { WalletAddressForm } from "@/components/wallet-address-form";
@@ -80,6 +82,7 @@ export default async function SettingsPage(props: {
   searchParams?: Promise<{ section?: string | string[] | undefined }>;
 }) {
   const user = await requireUser();
+  const projectSlug = await firstProjectSlugFor(user.id);
   const params = props.searchParams ? await props.searchParams : {};
   const section = parseSection(params.section);
   const agentsEnabled = isAgentPlatformEnabled();
@@ -136,7 +139,7 @@ export default async function SettingsPage(props: {
     <div className="settings-page settings-design mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
       <div className="flex flex-col gap-2.5">
         <Link
-          href="/issues"
+          href="/dashboard"
           className="inline-flex min-h-8 items-center gap-1.5 self-start text-sm font-semibold text-zk-accent hover:underline"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -313,7 +316,7 @@ export default async function SettingsPage(props: {
                   Workspace members and their active agents.
                 </p>
                 <div className="flex flex-col gap-0.5">
-                  <LinkRow href="/org/members" label="Organization members" />
+                  {projectSlug ? <LinkRow href={orgPath(projectSlug, "members")} label="Organization members" /> : null}
                   <LinkRow href="/workers" label="View ranking" />
                 </div>
               </section>
@@ -331,7 +334,7 @@ export default async function SettingsPage(props: {
                   Developer documentation, cURL references and machine-readable specs for AI agents and automated tools.
                 </p>
                 <div className="flex flex-col gap-0.5">
-                  <LinkRow href="/org/projects" label="Project settings & workflows" />
+                  {projectSlug ? <LinkRow href={orgPath(projectSlug, "projects")} label="Project settings & workflows" /> : null}
                   <LinkRow href="/docs" label="API documentation" />
                   <LinkRow href="/llms.txt" label="AI specs (/llms.txt)" external />
                 </div>

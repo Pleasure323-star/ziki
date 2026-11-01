@@ -2,6 +2,7 @@
 
 import { useId, useState, useTransition } from "react";
 import { addCommentAction } from "@/app/actions/issues";
+import { COMMENT_MAX_CHARS } from "@/lib/validations/issue";
 
 /**
  * A comment on the issue itself. Only an Open issue takes these
@@ -39,7 +40,7 @@ export function CommentComposer({ bugId }: { bugId: string }) {
         id={`${id}-comment`}
         name="body"
         rows={3}
-        maxLength={2000}
+        maxLength={COMMENT_MAX_CHARS}
         value={body}
         placeholder="Add a comment"
         onChange={(event) => setBody(event.target.value)}

@@ -7,11 +7,12 @@ import { truncateCommentBody, type CommentNode } from "@/lib/comments";
 import { canDeleteComment } from "@/lib/comment-permissions";
 import type { AppRole } from "@/lib/roles";
 import type { OrganizationRole } from "@/lib/organization-role";
-import { deleteCommentAction } from "@/app/actions/comments";
+import { deleteCommentAction, upvoteCommentAction } from "@/app/actions/comments";
 import { CommentBody } from "@/components/comment-body";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
-import { CopyLinkButton } from "@/components/copy-link-button";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
+import { Avatar } from "@/components/avatar";
+import { CommentLabel } from "@/components/comment-label";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 
@@ -24,8 +25,14 @@ type ViewerProps = {
   tenantAdmin?: boolean;
   /** A deleted issue: not even its author's own delete. */
   readOnly?: boolean;
-  /** Set while the issue is Open: top-level comments take replies. */
+  /** Set while the issue takes comments (not deleted): top-level comments take replies. */
   replyBugId?: string;
+  /**
+   * The people who marked the issue important (#729): an agent's comment says
+   * so when its owner is one of them. Issue votes are a plain importance
+   * toggle, so there is no downvote to show.
+   */
+  markedImportantBy?: readonly string[];
 };
 
 type UserOption = { id: string; name: string };
@@ -98,9 +105,79 @@ function CommentActionsMenu({ deleting, onDelete }: { deleting: boolean; onDelet
   );
 }
 
+/**
+ * A comment's upvotes (#comment-votes): a small button with the count. Each
+ * upvote from another person earns the comment's author 1 point. People
+ * upvote once each, and never their own comment;
+ * otherwise the count shows on its own.
+ */
+/** The outlined up arrow (filled once you have upvoted), as on a forum thread. */
+function UpArrow({ filled }: { filled: boolean }) {
+  return (
+    <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+      <path d="M12 3.5 4 12.5h4.5V20h7v-7.5H20z" />
+    </svg>
+  );
+}
+
+function CommentUpvote({
+  commentId,
+  voters,
+  currentUserId,
+  canVote,
+  own,
+}: {
+  commentId: string;
+  voters: string[];
+  currentUserId?: string;
+  canVote: boolean;
+  own: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [votes, setVotes] = useState(voters.length);
+  const [voted, setVoted] = useState(Boolean(currentUserId && voters.includes(currentUserId)));
+  const toast = useToast();
+  if (!canVote && votes === 0) return null;
+  const label = `${votes} ${votes === 1 ? "upvote" : "upvotes"}`;
+  if (!canVote || own) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[13px] tabular-nums text-zk-text2" title={own ? "Others upvote your comment; each upvote earns you 1 point." : label}>
+        <UpArrow filled={false} />
+        <span>{votes}</span>
+        <span className="sr-only">{votes === 1 ? " upvote" : " upvotes"}</span>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={pending || voted}
+      aria-pressed={voted}
+      aria-label={voted ? `You upvoted this comment, ${label}` : `Upvote this comment, ${label}`}
+      title={voted ? "You upvoted this comment" : "Upvote a helpful comment: its author earns 1 point"}
+      onClick={() => {
+        startTransition(async () => {
+          const result = await upvoteCommentAction(commentId);
+          if (result.error) {
+            toast(result.error, "error");
+            return;
+          }
+          setVoted(true);
+          if (typeof result.votes === "number") setVotes(result.votes);
+        });
+      }}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full px-1.5 text-[13px] font-semibold tabular-nums transition-colors disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong ${
+        voted ? "text-zk-accent" : "text-zk-text2 hover:bg-zk-chip hover:text-zk-text"
+      }`}
+    >
+      <UpArrow filled={voted} />
+      <span>{votes}</span>
+    </button>
+  );
+}
+
 function CommentItem({
   comment,
-  issueUrl,
   reporterId,
   users,
   currentUserId,
@@ -110,10 +187,9 @@ function CommentItem({
   organizationRoles = {},
   readOnly = false,
   replyBugId,
+  markedImportantBy = [],
 }: {
   comment: CommentNode;
-  /** Canonical issue URL, for each comment's permalink (#279). */
-  issueUrl: string;
   reporterId: string;
   users: UserOption[];
   attachmentsByComment?: AttachmentsByComment;
@@ -149,93 +225,173 @@ function CommentItem({
     });
   };
 
+  const [collapsed, setCollapsed] = useState(false);
+  const hiddenReplies = countReplies(comment);
+  const toggle = (
+    <button
+      type="button"
+      onClick={() => setCollapsed((value) => !value)}
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? `Show the comment by ${comment.author.name}` : `Hide the comment by ${comment.author.name} and its replies`}
+      title={collapsed ? "Show" : "Hide"}
+      className="relative z-[1] inline-flex h-5 w-5 items-center justify-center rounded-full bg-zk-surface text-zk-muted hover:text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong print:hidden"
+    >
+      <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="10" cy="10" r="8" />
+        <path d="M6 10h8" />
+        {collapsed ? <path d="M10 6v8" /> : null}
+      </svg>
+    </button>
+  );
+  /** The thread line down the left, under the avatar; clicking it hides the comment too. */
+  const rail = (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      onClick={() => setCollapsed(true)}
+      className="group/rail flex h-full w-full justify-center print:hidden"
+    >
+      <span className="w-px bg-zk-divider group-hover/rail:w-0.5 group-hover/rail:bg-zk-accent" />
+    </button>
+  );
+
   return (
     <li
       id={`comment-${comment.id}`}
       // :target is the comment a permalink points at (#279); the highlight
       // needs no script, so it works on first load and on hash changes.
       // break-inside keeps a comment whole across printed pages (#300).
-      className="group/comment scroll-mt-24 space-y-3 break-inside-avoid"
+      // No box around a comment: avatar and name, the body under the name, a
+      // line of actions, then the replies along the thread line, which hides
+      // the comment and its replies when clicked (or with the minus button).
+      className="group/comment grid scroll-mt-24 grid-cols-[32px_minmax(0,1fr)] gap-x-2.5 break-inside-avoid"
     >
-      <article className="flex flex-col gap-2.5 rounded-xl border border-zk-border bg-zk-surface px-4 py-3 group-target/comment:border-zk-accent group-target/comment:bg-zk-tint group-target/comment:ring-2 group-target/comment:ring-electric-blue/40 motion-safe:transition-colors">
+      <div className="flex justify-center pt-0.5">
+        {collapsed ? toggle : <Avatar name={comment.author.name} image={comment.author.image} size="md" />}
+      </div>
+      <div className="flex min-h-8 flex-wrap items-center gap-x-1.5 gap-y-1 rounded-md text-[13px] text-zk-muted group-target/comment:bg-zk-tint">
         {isDeleted ? (
-          <p className="text-sm italic text-zk-muted">This comment was deleted.</p>
+          <span className="italic">This comment was deleted.</span>
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-zk-muted">
-              <div className="flex flex-wrap items-center gap-2">
-                <UserNameWithBadges
-                  name={comment.author.name}
-                  role={comment.author.role}
-                  organizationRole={organizationRoles[comment.authorId]}
-                  image={comment.author.image}
-                  avatar="sm"
-                  userId={comment.authorId}
-                  showAuthor={comment.authorId === reporterId}
-                  agentName={comment.agent?.name}
-                  className="font-bold text-zk-text"
-                />
-              </div>
-              <span className="inline-flex items-center gap-1.5">
-                <a href={`#comment-${comment.id}`} className="hover:text-zk-text hover:underline">
-                  <LocalTime date={comment.createdAt} />
-                </a>
-                <CopyLinkButton url={`${issueUrl}#comment-${comment.id}`} label="comment" compact />
-                {comment.editedAt ? <span title="This comment was edited">· edited</span> : null}
-                {canDelete ? <CommentActionsMenu deleting={pending} onDelete={handleDelete} /> : null}
+            <UserNameWithBadges
+              name={comment.author.name}
+              role={comment.author.role}
+              organizationRole={organizationRoles[comment.authorId]}
+              userId={comment.authorId}
+              showAuthor={comment.authorId === reporterId}
+              agentName={comment.agent?.name}
+              className="font-bold text-zk-text"
+            />
+            <CommentLabel label={comment.label} />
+            {comment.agentId && markedImportantBy.includes(comment.authorId) ? (
+              <span
+                className="rounded-full bg-zk-ok-bg px-2 py-0.5 text-[11px] font-semibold text-zk-ok-fg"
+                title={`${comment.author.name} marked this issue important`}
+                data-testid="comment-author-marked-important"
+              >
+                Marked important
               </span>
-            </div>
-
-            {comment.parent ? (
-              <p className="mt-2 rounded-md bg-card/80 px-2.5 py-1.5 text-xs text-zk-muted break-words">
-                Replying to <span className="font-bold text-zk-text">{comment.parent.author.name}</span>
-                {": "}
-                <span className="italic text-zk-text2">
-                  {comment.parent.deletedAt ? "deleted comment" : truncateCommentBody(comment.parent.body)}
-                </span>
-              </p>
             ) : null}
-
-            <CommentBody body={comment.body} users={users} />
-            <AttachmentList attachments={attachmentsByComment[comment.id] ?? []} />
-            {replyBugId && !readOnly && !comment.parentId ? (
-              <EntryReplyForm bugId={replyBugId} target={{ parentId: comment.id }} label="Reply to this comment" />
-            ) : null}
+            <span aria-hidden="true">•</span>
+            <LocalTime date={comment.createdAt} />
+            {comment.editedAt ? <span title="This comment was edited">· edited</span> : null}
           </>
         )}
-        {error ? (
-          <p className="text-xs text-zk-bad-fg" role="alert">
-            {error}
-          </p>
+        {collapsed && hiddenReplies > 0 ? (
+          <span className="text-xs">({hiddenReplies} {hiddenReplies === 1 ? "reply" : "replies"} hidden)</span>
         ) : null}
-      </article>
+      </div>
 
-      {comment.children.length > 0 ? (
-        <ul className="ml-2.5 space-y-3 border-l border-zk-divider pl-2.5 sm:ml-6 sm:pl-4">
-          {comment.children.map((child) => (
-            <CommentItem
-              key={child.id}
-              comment={child}
-              issueUrl={issueUrl}
-              reporterId={reporterId}
-              users={users}
-              currentUserId={currentUserId}
-              currentUserRole={currentUserRole}
-              tenantAdmin={tenantAdmin}
-              attachmentsByComment={attachmentsByComment}
-              organizationRoles={organizationRoles}
-              readOnly={readOnly}
-              replyBugId={replyBugId}
-            />
-          ))}
-        </ul>
-      ) : null}
+      {collapsed ? null : (
+        <>
+          {/* The thread line and the minus only where there are replies to hide. */}
+          <div aria-hidden="true">{comment.children.length > 0 ? rail : null}</div>
+          <div className="min-w-0 pb-1">
+            {!isDeleted ? (
+              <>
+                {comment.parent ? (
+                  <p className="mt-1 text-xs text-zk-muted break-words">
+                    Replying to <span className="font-bold text-zk-text">{comment.parent.author.name}</span>
+                    {": "}
+                    <span className="italic text-zk-text2">
+                      {comment.parent.deletedAt ? "deleted comment" : truncateCommentBody(comment.parent.body)}
+                    </span>
+                  </p>
+                ) : null}
+                {/* #730: an agent's comment leads with its point, then the full body. */}
+                {comment.summary ? (
+                  <p className="mt-1 text-sm font-semibold leading-snug text-zk-text" data-testid="comment-summary">{comment.summary}</p>
+                ) : null}
+                <div className="mt-1">
+                  <CommentBody body={comment.body} users={users} />
+                </div>
+                <AttachmentList attachments={attachmentsByComment[comment.id] ?? []} />
+              </>
+            ) : null}
+            {error ? (
+              <p className="mt-1 text-xs text-zk-bad-fg" role="alert">
+                {error}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex items-start justify-center pt-1.5">{comment.children.length > 0 ? toggle : null}</div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-2 pt-1 text-xs font-semibold text-zk-muted">
+            {!isDeleted ? (
+              <>
+                <CommentUpvote
+                  commentId={comment.id}
+                  voters={(comment.votes ?? []).map((vote) => vote.onBehalfOfUserId)}
+                  currentUserId={currentUserId}
+                  canVote={Boolean(replyBugId) && !readOnly && Boolean(currentUserId)}
+                  own={comment.authorId === currentUserId}
+                />
+                {replyBugId && !readOnly && !comment.parentId ? (
+                  <EntryReplyForm bugId={replyBugId} target={{ parentId: comment.id }} label="Reply to this comment" variant="action" />
+                ) : null}
+                {/* The pencil is only on your own comments. */}
+                {canDelete && comment.authorId === currentUserId ? <CommentActionsMenu deleting={pending} onDelete={handleDelete} /> : null}
+              </>
+            ) : null}
+          </div>
+
+          {comment.children.length > 0 ? (
+            <>
+              <div aria-hidden="true">{rail}</div>
+              <ul className="min-w-0 space-y-1">
+                {comment.children.map((child) => (
+                  <CommentItem
+                    key={child.id}
+                    comment={child}
+                    reporterId={reporterId}
+                    users={users}
+                    currentUserId={currentUserId}
+                    currentUserRole={currentUserRole}
+                    tenantAdmin={tenantAdmin}
+                    attachmentsByComment={attachmentsByComment}
+                    organizationRoles={organizationRoles}
+                    readOnly={readOnly}
+                    replyBugId={replyBugId}
+                    markedImportantBy={markedImportantBy}
+                  />
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </>
+      )}
     </li>
   );
 }
 
+/** Every reply under a comment, at any depth: what hiding it hides. */
+function countReplies(comment: CommentNode): number {
+  return comment.children.reduce((total, child) => total + 1 + countReplies(child), 0);
+}
+
 type ThreadProps = {
-  issueUrl: string;
   reporterId: string;
   comments: CommentNode[];
   /** For rendering @mentions in comment bodies. */
@@ -253,7 +409,7 @@ type ThreadProps = {
 export function CommentThread({ comments, ...props }: ThreadProps) {
   if (comments.length === 0) return null;
   return (
-    <ul className="space-y-3">
+    <ul className="space-y-2">
       {comments.map((comment) => (
         <CommentItem key={comment.id} comment={comment} {...props} />
       ))}
@@ -262,7 +418,7 @@ export function CommentThread({ comments, ...props }: ThreadProps) {
 }
 
 /**
- * The issue's Comments section: the comment box while the issue is Open
+ * The issue's Comments section: the comment box (any stage, unless deleted)
  * (`composer`), then the comments, newest threads first as loaded.
  */
 export function IssueComments({

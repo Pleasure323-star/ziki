@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import { fileIssue, test } from "./fixtures";
+import { fileIssue, test, PROJECT } from "./fixtures";
 
 /**
  * #1070: at tablet widths the header's project, key, nav and account menu
@@ -41,7 +41,7 @@ test.describe("no sideways scroll", () => {
   for (const width of WIDTHS) {
     test(`the issue list and an issue page at ${width}px`, async ({ page, uniq }) => {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto("/issues");
+      await page.goto(`${PROJECT}/issues/open`);
       await expectNoSidewaysScroll(page);
 
       await fileIssue(page, uniq("Layout target"));
@@ -54,7 +54,7 @@ test.describe("no sideways scroll", () => {
 
   test("the top bar navigation stays on the page at phone and desktop widths", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 900 });
-    await page.goto("/issues");
+    await page.goto(`${PROJECT}/issues/open`);
     await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Open menu" })).toHaveCount(0);
 

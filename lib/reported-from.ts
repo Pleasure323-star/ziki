@@ -10,7 +10,7 @@ export function safeReportedFrom(value: unknown): string | null {
   if (!path.startsWith("/") || path.startsWith("//")) return null;
   if (path.length > 300) return null;
   if (/[\s\u0000-\u001f\u007f\\]/.test(path)) return null;
-  if (/^\/(issues|bugs)\/new(?:[/?#]|$)/.test(path)) return null;
+  if (/^\/[^/]+\/issues\/new(?:[/?#]|$)/.test(path)) return null;
   return path;
 }
 
@@ -19,8 +19,9 @@ export function reportedFromLine(path: string): string {
   return `Reported from: ${path}`;
 }
 
-/** The report-issue link for a page, carrying that page as `?from=`. */
-export function newIssueHref(from?: string | null): string {
+/** The report-issue link for a project's page, carrying that page as `?from=` (#project-urls). */
+export function newIssueHref(slug: string, from?: string | null): string {
   const safe = safeReportedFrom(from);
-  return safe ? `/issues/new?from=${encodeURIComponent(safe)}` : "/issues/new";
+  const path = `/${encodeURIComponent(slug)}/issues/new`;
+  return safe ? `${path}?from=${encodeURIComponent(safe)}` : path;
 }

@@ -215,6 +215,7 @@ async function main() {
         summary: SUMMARY,
         description: DESCRIPTION,
         status: "open",
+        substatus: "open",
         tenantId: tenant.id,
         projectId: project.id,
         reporterId: reporter,

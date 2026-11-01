@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import { newIssueHref } from "@/lib/reported-from";
+import { issuesPath } from "@/lib/project-paths";
 import {
   IDLE,
   SHOW_SHORTCUTS_EVENT,
@@ -38,6 +39,8 @@ export function KeyboardShortcuts({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  // The project the page belongs to (#project-urls): the shortcuts go to its lists.
+  const slug = useParams<{ project?: string }>()?.project;
   const [helpOpen, setHelpOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sequence = useRef<SequenceState>(IDLE);
@@ -89,8 +92,9 @@ export function KeyboardShortcuts({
         case "focus-search":
           event.preventDefault(); // or the "/" lands in the box
           if (!focusSearch()) {
+            if (!slug) break;
             searchAfterNavigation.current = true;
-            router.push("/issues");
+            router.push(issuesPath(slug, "all"));
           }
           break;
         case "next-row":
@@ -107,15 +111,15 @@ export function KeyboardShortcuts({
         }
         case "new-issue":
           event.preventDefault();
-          router.push(newIssueHref(pathname));
+          if (slug) router.push(newIssueHref(slug, pathname));
           break;
         case "go-issues":
           event.preventDefault();
-          router.push("/issues");
+          if (slug) router.push(issuesPath(slug, "all"));
           break;
         case "go-dashboard":
           event.preventDefault();
-          router.push("/org");
+          router.push(slug ? `/${encodeURIComponent(slug)}/dashboard` : "/dashboard");
           break;
         case "go-notifications":
           event.preventDefault();
@@ -129,7 +133,7 @@ export function KeyboardShortcuts({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [enabled, router, dashboard, pathname]);
+  }, [enabled, router, dashboard, pathname, slug]);
 
   return (
     // <dialog> dismisses on Escape natively, so this has keyboard support

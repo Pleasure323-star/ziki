@@ -49,7 +49,7 @@ export async function publishWebEvent(
   });
 }
 
-const REPORTED_FIELDS = ["status", "assigneeId", "typeId", "categoryId", "milestoneId", "title", "isBoosted"] as const;
+const REPORTED_FIELDS = ["status", "substatus", "assigneeId", "typeId", "categoryId", "milestoneId", "title", "isBoosted"] as const;
 
 /**
  * The fields an update changed, for an `issue.updated` payload: the names

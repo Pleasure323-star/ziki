@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { useParams } from "next/navigation";
 import {
   createMilestoneAction,
   deleteMilestoneAction,
@@ -31,6 +32,7 @@ type Draft = { title: string; description: string; dueDate: string };
 const EMPTY: Draft = { title: "", description: "", dueDate: "" };
 
 export function MilestoneManager({ milestones }: { milestones: ManagedMilestone[] }) {
+  const { project: slug } = useParams<{ project: string }>();
   const [editing, setEditing] = useState<ManagedMilestone | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [error, setError] = useState<string | null>(null);
@@ -175,7 +177,7 @@ export function MilestoneManager({ milestones }: { milestones: ManagedMilestone[
             <li key={m.id} className="grid gap-3 p-4 sm:grid-cols-[1fr_14rem_auto] sm:items-center">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link href={milestoneIssuesHref(m.id)} className="font-medium text-zk-text hover:underline">
+                  <Link href={milestoneIssuesHref(slug, m.id)} className="font-medium text-zk-text hover:underline">
                     {m.title}
                   </Link>
                   <MilestoneDue due={m.dueDate} isClosed={m.isClosed} />

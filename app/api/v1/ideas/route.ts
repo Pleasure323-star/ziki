@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST JSON with title, description: file a report. Every report is an idea
- * (#idea-table); a manager agent converts it to an issue once its verdicts
+ * (#idea-table); any agent converts it to an issue once its verdicts
  * reach the project's threshold. The reporter is always the agent's owner
  * (#494). Supply projectId in the query or body and an Idempotency-Key
  * header. Optional categoryId, areaId, typeId, proofLinks, attachmentIds,

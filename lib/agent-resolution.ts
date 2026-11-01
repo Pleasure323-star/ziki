@@ -13,7 +13,7 @@ export type AgentResolution = { agentName: string; pullRequestUrl: string; previ
 export function readAgentResolution(metadata: unknown): AgentResolution | null {
   if (!metadata || typeof metadata !== "object") return null;
   const m = metadata as Record<string, unknown>;
-  if (m.via !== AGENT_RESOLVE_VIA || m.to !== "resolved") return null;
+  if (m.via !== AGENT_RESOLVE_VIA || !(m.to === "resolved" || m.to === "on_dev" || m.to === "on_staging" || m.to === "on_prod")) return null;
   if (typeof m.agentName !== "string" || typeof m.pullRequestUrl !== "string") return null;
   return {
     agentName: m.agentName,

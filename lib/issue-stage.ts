@@ -1,5 +1,4 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { reviewerConflict, reviewerCreditConflict, type ReviewedBug } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 
@@ -28,11 +27,11 @@ export function parseIssueStageView(raw: string | null | undefined): IssueStageV
 }
 
 /** The stage of an open issue. Anything no longer open has no stage. */
-export function issueStage(input: { status: string }): IssueStage | null {
-  // #requires-confirmation: the stage follows the status. Requires
-  // confirmation is a status of its own; an Open issue was confirmed.
-  if (input.status === "requires_confirmation") return "confirming";
-  return input.status === "open" ? "ready" : null;
+export function issueStage(input: { substatus: string }): IssueStage | null {
+  // #substatus: the stage follows the substatus. Open · Requires confirmation
+  // is being confirmed; Open · Open was confirmed.
+  if (input.substatus === "requires_confirmation") return "confirming";
+  return input.substatus === "open" ? "ready" : null;
 }
 
 /** A confirmation entry, as the confirmed rule reads it (#issue-confirmations). */
@@ -48,44 +47,58 @@ export type ConfirmationEntry = {
   /** The agent's owner; null for a person. */
   agentOwnerUserId: string | null;
   onBehalfOfUserId: string;
+  /** "manager" (a manager or merger agent) or "working" (a worker agent or a person). */
+  weightClass?: string;
 };
 
-/** What the rule needs about the issue. */
-export type ConfirmationBug = ReviewedBug & { createdByAgentId: string | null };
+/** A counted entry with what it counts for (#confirmation-weights). */
+export type CountedConfirmation = ConfirmationEntry & { weight: number };
+
+/** Whether the entry's person reported the issue, is the one it is for, or owns the agent that filed it. */
+export function ownsIssue(
+  owner: string,
+  bug: { reporterId?: string | null; beneficiaryUserId?: string | null; createdByAgent?: { ownerUserId: string } | null },
+): boolean {
+  return owner === bug.reporterId || owner === bug.beneficiaryUserId || owner === bug.createdByAgent?.ownerUserId;
+}
 
 /**
- * The entries that count on an issue, oldest first: given after its latest
- * edit, not undone, not by the agent that filed it, and from someone
- * independent of it (lib/agents/independence.ts) — people too, so the reporter
- * or the person it is for cannot confirm their own issue. One per owner and
- * verdict: a second agent of the same person adds nothing.
+ * The entries that count on an issue, oldest first, each with its weight
+ * (#confirmation-weights): given after its latest edit and not undone. A
+ * person may give one entry of each class: a manager or merger agent's counts
+ * `managerVoteWeight`, a worker agent's or the person's own counts 1. Anyone
+ * may confirm their own issue, at the same weight (#owner-agents).
  */
 export function countedConfirmationEntries(
   entries: readonly ConfirmationEntry[],
-  bug: ConfirmationBug,
   revisedAt: Date | null,
-): ConfirmationEntry[] {
+  managerVoteWeight = DEFAULT_PROJECT_WORKFLOW.managerVoteWeight,
+): CountedConfirmation[] {
   const seen = new Set<string>();
-  const counted: ConfirmationEntry[] = [];
+  const counted: CountedConfirmation[] = [];
   const ordered = [...entries].sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || a.id.localeCompare(b.id));
   for (const entry of ordered) {
     if (entry.undoneAt) continue;
     if (revisedAt && entry.updatedAt <= revisedAt) continue;
-    if (entry.agentId && entry.agentId === bug.createdByAgentId) continue;
     const owner = entry.agentOwnerUserId ?? entry.onBehalfOfUserId;
-    if (reviewerConflict({ id: entry.agentId ?? "person", ownerUserId: owner }, bug)) continue;
-    if (reviewerCreditConflict(entry.onBehalfOfUserId, bug)) continue;
-    const key = `${entry.verdict}:${owner}`;
+    const weightClass = entry.weightClass ?? "working";
+    const key = `${entry.verdict}:${owner}:${weightClass}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    counted.push(entry);
+    const weight = weightClass === "manager" ? managerVoteWeight : 1;
+    counted.push({ ...entry, weight });
   }
   return counted;
 }
 
 /** The people credited for the confirms that count, oldest first. */
 export function confirmersOf(counted: readonly ConfirmationEntry[]): string[] {
-  return counted.filter((entry) => entry.verdict === "confirm").map((entry) => entry.onBehalfOfUserId);
+  return [...new Set(counted.filter((entry) => entry.verdict === "confirm").map((entry) => entry.onBehalfOfUserId))];
+}
+
+/** The weighted total of the counted entries with `verdict`. */
+export function weightedTotal(counted: readonly CountedConfirmation[], verdict: "confirm" | "reject"): number {
+  return counted.filter((entry) => entry.verdict === verdict).reduce((sum, entry) => sum + entry.weight, 0);
 }
 
 /** A counted reject naming another issue marks this one a duplicate. */
@@ -103,9 +116,9 @@ export function isConfirmedCount(
 /** Where an open issue stands on confirmation, from one bulk read (#714). */
 export type ConfirmationState = {
   stage: IssueStage;
-  /** Distinct independent people who confirmed it. */
+  /** The weighted confirms (a manager agent's count managerVoteWeight, others 1). */
   accepts: number;
-  /** Distinct independent people who rejected it. */
+  /** The weighted rejects. */
   rejects: number;
   /** The project's `confirmationsNeeded`. */
   needed: number;
@@ -115,13 +128,14 @@ export type ConfirmationState = {
 
 export type ReadConfirmation = Omit<ConfirmationState, "stage"> & {
   status: string;
+  substatus: string;
   confirmed: boolean;
   /** A counted reject marked it a duplicate of another issue. */
   duplicate: boolean;
   /** The people credited for the counted confirms, oldest first. */
   confirmers: string[];
-  /** The entries that count, oldest first. */
-  counted: ConfirmationEntry[];
+  /** The entries that count, oldest first, with their weights. */
+  counted: CountedConfirmation[];
 };
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -135,9 +149,9 @@ type OptionalDelegates = {
 /**
  * Confirmation state of every issue matching `where`, in a fixed number of
  * queries. This is the one place "confirmed" is decided — for `isConfirmed()`,
- * lists, the work feed and the merge queue: the project's
- * `confirmationsNeeded` distinct independent people confirmed it, each
- * counted only after the latest edit and unless undone (#issue-confirmations).
+ * lists, the work feed and the merge queue: the weighted confirms reach the
+ * project's `confirmationsNeeded`, each counted only after the latest edit and
+ * unless undone (#issue-confirmations, #confirmation-weights).
  * Confirming means real and not a duplicate, so there is no separate
  * duplicate clearance. Neutral counts for nothing.
  */
@@ -154,10 +168,7 @@ export async function readConfirmations(
       id: true,
       projectId: true,
       status: true,
-      beneficiaryUserId: true,
-      reporterId: true,
-      createdByAgentId: true,
-      createdByAgent: { select: { ownerUserId: true } },
+      substatus: true,
     },
   });
   if (!bugs?.length) return result;
@@ -181,6 +192,7 @@ export async function readConfirmations(
         updatedAt: true,
         agentId: true,
         onBehalfOfUserId: true,
+        weightClass: true,
         agent: { select: { ownerUserId: true } },
       },
     }),
@@ -202,29 +214,27 @@ export async function readConfirmations(
       agentId: row.agentId,
       agentOwnerUserId: row.agent?.ownerUserId ?? null,
       onBehalfOfUserId: row.onBehalfOfUserId,
+      weightClass: row.weightClass,
     });
     entriesByBug.set(row.bugId, list);
   }
 
   for (const bug of bugs) {
-    // A later assignee or claim must not undo an entry that was independent
-    // when it was given (#579): those are checked when it is given.
-    const reviewed: ConfirmationBug = {
-      beneficiaryUserId: bug.beneficiaryUserId,
-      reporterId: bug.reporterId,
-      assigneeId: null,
-      createdByAgent: bug.createdByAgent,
-      createdByAgentId: bug.createdByAgentId,
-      claims: [],
-    };
-    const counted = countedConfirmationEntries(entriesByBug.get(bug.id) ?? [], reviewed, revisedAt.get(bug.id) ?? null);
+    const workflow = workflows.get(bug.projectId);
+    const counted = countedConfirmationEntries(
+      entriesByBug.get(bug.id) ?? [],
+      revisedAt.get(bug.id) ?? null,
+      workflow?.managerVoteWeight ?? DEFAULT_PROJECT_WORKFLOW.managerVoteWeight,
+    );
     const confirmers = confirmersOf(counted);
-    const rejects = counted.filter((entry) => entry.verdict === "reject").length;
-    const needed = workflows.get(bug.projectId)?.confirmationsNeeded ?? DEFAULT_PROJECT_WORKFLOW.confirmationsNeeded;
+    const accepts = weightedTotal(counted, "confirm");
+    const rejects = weightedTotal(counted, "reject");
+    const needed = workflow?.confirmationsNeeded ?? DEFAULT_PROJECT_WORKFLOW.confirmationsNeeded;
     result.set(bug.id, {
       status: bug.status,
-      confirmed: isConfirmedCount(confirmers.length, needed),
-      accepts: confirmers.length,
+      substatus: bug.substatus,
+      confirmed: isConfirmedCount(accepts, needed),
+      accepts,
       rejects,
       needed,
       duplicate: markedDuplicate(counted),
@@ -243,10 +253,10 @@ export async function openIssueConfirmations(
   db: Db,
   where: Prisma.BugWhereInput,
 ): Promise<Map<string, ConfirmationState>> {
-  const read = await readConfirmations(db, { ...where, status: { in: ["requires_confirmation", "open"] }, isDeleted: false });
+  const read = await readConfirmations(db, { ...where, status: "open", isDeleted: false });
   const result = new Map<string, ConfirmationState>();
-  for (const [id, { status, accepts, rejects, needed, confirmed }] of read) {
-    const stage = issueStage({ status });
+  for (const [id, { substatus, accepts, rejects, needed, confirmed }] of read) {
+    const stage = issueStage({ substatus });
     if (stage) result.set(id, { stage, accepts, rejects, needed, confirmed });
   }
   return result;

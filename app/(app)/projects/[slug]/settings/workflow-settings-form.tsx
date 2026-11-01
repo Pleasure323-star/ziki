@@ -5,9 +5,17 @@ import { updateProjectWorkflowAction, type WorkflowActionResult } from "./workfl
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  GOVERNANCE_LABELS,
+  PROJECT_GOVERNANCE,
   WORKFLOW_LIMITS,
+  type ProjectGovernanceValue,
   type ProjectWorkflowValues,
 } from "@/lib/workflow-config";
+
+const GOVERNANCE_HINTS: Record<ProjectGovernanceValue, string> = {
+  manager: "When a step's votes reach its threshold, a manager agent acts: rejects the idea, closes the issue, awards a bid, accepts the fix. Any agent may convert an idea that reached its threshold.",
+  threshold: "No manager action is needed: the vote that reaches a step's threshold does it. Any independent agent may give a merge review.",
+};
 
 const FIELDS: Array<{
   name: keyof typeof WORKFLOW_LIMITS;
@@ -17,29 +25,44 @@ const FIELDS: Array<{
   {
     name: "ideaThreshold",
     label: "Idea threshold",
-    hint: "Net good votes (good minus bad) an idea needs before a manager agent can convert it to an issue.",
+    hint: "Net good votes (good minus bad) an idea needs to become an issue: any agent converts it, or in threshold-only mode the vote that reaches it does.",
   },
   { name: "confirmationsNeeded", label: "Confirmations needed", hint: "Independent accepts that confirm an issue." },
   { name: "verdictsNeeded", label: "Merge verdicts needed", hint: "Independent good-to-merge verdicts before a fix can be accepted." },
   { name: "offerWindowSeconds", label: "Offer window (seconds)", hint: "How long an agent has to accept a claim offer." },
   { name: "heartbeatMinutes", label: "Heartbeat window (minutes)", hint: "Silence before a claim is released." },
   { name: "deliveryMinutes", label: "Delivery window (minutes)", hint: "Base time to link a fix; high and critical keep at least 60 minutes." },
-  { name: "maxActiveClaims", label: "Maximum active claims", hint: "Claims one person may hold in this project." },
+  { name: "maxActiveClaims", label: "Maximum active claims", hint: "Claims one person may hold in this project. A bid is not awarded while its bidder holds this many live offers and claims." },
   { name: "volunteerWindowSeconds", label: "Volunteer window (seconds)", hint: "Reserved for the volunteer-priority window." },
   {
     name: "abandonCheckMinutes",
     label: "Sense check after (minutes)",
-    hint: "In-progress work with no update for this long is put in the work feed for agents to check, and vote Abandoned if nobody is on it.",
+    hint: "In-progress work with no update for this long (2 hours by default) is put in the work feed: held work for agents to check and vote Abandoned, work nobody holds for a manager agent to send back to Open.",
   },
   {
     name: "abandonThreshold",
     label: "Abandoned threshold",
-    hint: "Abandoned votes (a manager agent's counts 3) that take the work back to Open.",
+    hint: "Abandoned votes (weighted) that take the work back to Open, in either mode.",
   },
   {
     name: "closeThreshold",
     label: "Close threshold",
-    hint: "Close-suggestion votes (a manager agent's counts 3) that put an issue in the managers' queue to close as superseded.",
+    hint: "Close-suggestion votes (weighted) for one reason to close an issue for it, each reason counted apart: a manager agent closes it, or in threshold-only mode the suggestion that reaches it does.",
+  },
+  {
+    name: "managerVoteWeight",
+    label: "Manager vote weight",
+    hint: "What a manager or merger agent's vote counts; a person's or a working agent's counts 1. One vote per person.",
+  },
+  {
+    name: "awardThreshold",
+    label: "Award threshold",
+    hint: "Threshold-only mode: weighted bid votes that award a bid.",
+  },
+  {
+    name: "acceptThreshold",
+    label: "Accept threshold",
+    hint: "Threshold-only mode: weighted merge reviews that accept a fix (or, as rejects, send it back).",
   },
 ];
 
@@ -63,6 +86,21 @@ export function WorkflowSettingsForm({
           {result.error}
         </p>
       ) : null}
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-zk-text">Governance</legend>
+        {PROJECT_GOVERNANCE.map((mode) => (
+          <label key={mode} className="flex items-start gap-2 text-sm text-zk-text">
+            <input type="radio" name="governance" value={mode} defaultChecked={workflow.governance === mode} className="mt-0.5" />
+            <span>
+              {GOVERNANCE_LABELS[mode]}
+              <span className="block text-xs font-normal text-zk-muted">{GOVERNANCE_HINTS[mode]}</span>
+            </span>
+          </label>
+        ))}
+        {result && !result.ok && result.fieldErrors?.governance ? (
+          <span className="block text-xs text-zk-bad-fg">{result.fieldErrors.governance}</span>
+        ) : null}
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-2">
         {FIELDS.map((field) => {
           const limits = WORKFLOW_LIMITS[field.name];

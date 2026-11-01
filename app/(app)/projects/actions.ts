@@ -6,7 +6,8 @@ import { requireUser } from "@/lib/auth-helpers";
 import { fieldError, fromZodError } from "@/lib/form-errors";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { setActiveProjectCookie } from "@/lib/project-context";
+import { refererProjectSlug } from "@/lib/referer-path";
+import { ideasPath, orgPath } from "@/lib/project-paths";
 import { currentTenantIdFor, NO_TENANT_MESSAGE } from "@/lib/tenant-context";
 import { isTenantAdmin } from "@/lib/agents/membership";
 import { isSuperAdmin, type AppRole } from "@/lib/roles";
@@ -31,8 +32,10 @@ export type ProjectActionResult = {
   message?: string;
 };
 
-function projectsMessage(key: "error" | "notice", message: string): string {
-  return `/org/projects?${key}=${encodeURIComponent(message)}`;
+/** Back to the org's Projects page the action came from (#project-urls), with a message. */
+async function projectsMessage(key: "error" | "notice", message: string): Promise<string> {
+  const slug = await refererProjectSlug();
+  return slug ? `${orgPath(slug, "projects")}?${key}=${encodeURIComponent(message)}` : "/dashboard";
 }
 
 /** The current tenant, only when the signed-in person owns it or is super admin. */
@@ -128,7 +131,7 @@ export async function updateProjectAction(
     });
   }
   revalidatePath(`/projects/${slug}/settings`);
-  revalidatePath("/issues");
+  revalidatePath("/", "layout");
   return {};
 }
 
@@ -160,7 +163,7 @@ export async function createTestMissionAction(
   if (!parsed.success) return fromZodError(parsed.error, "Check the mission details");
 
   const result = await createTestMissions(project.id, parsed.data);
-  revalidatePath("/org/projects");
+  revalidatePath("/", "layout");
   return result.count > 0
     ? { message: `Added ${result.count} test mission${result.count === 1 ? "" : "s"}.` }
     : { message: "Those route, role, and viewport missions already exist." };
@@ -196,9 +199,8 @@ export async function createProjectAction(
   const platformBase = projectDefaultsFromPlatform(await getPlatformRewardConfig(prisma));
   const rewardConfig = rawReward ? parseProjectRewardConfig(rawReward, platformBase) : null;
 
-  let project: { id: string };
   try {
-    project = await prisma.project.create({
+    await prisma.project.create({
       data: {
         tenantId,
         name: parsed.data.name,
@@ -220,49 +222,19 @@ export async function createProjectAction(
     throw error;
   }
 
-  await setActiveProjectCookie(project.id);
   revalidatePath("/", "layout");
-  revalidatePath("/org/projects");
-  revalidatePath("/issues");
-  redirect("/issues");
-}
-
-/**
- * Switch the active project, but only within the person's current tenant.
- *
- * Returns nothing: the switcher only offers projects the tenant owns, and a
- * forged id is ignored rather than exposing whether another tenant has it.
- */
-export async function switchProjectAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return;
-
-  const projectId = String(formData.get("projectId") ?? "").trim();
-  if (!projectId) return;
-
-  // The tenantId is part of the lookup, not the cookie: a forged project id
-  // from another tenant is simply not found.
-  const project = await prisma.project.findFirst({
-    where: { id: projectId, tenantId, archivedAt: null },
-    select: { id: true },
-  });
-  if (!project) return;
-
-  await setActiveProjectCookie(project.id);
-  revalidatePath("/", "layout");
-  revalidatePath("/issues");
-  redirect("/issues");
+  // A new project opens on its own page (#project-urls).
+  redirect(ideasPath(slug));
 }
 
 /** Archive or restore a project the tenant owner owns. */
 export async function setProjectArchivedAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const owner = await ownerTenantFor(user.id, user.role);
-  if ("error" in owner) redirect(projectsMessage("error", owner.error));
+  if ("error" in owner) redirect(await projectsMessage("error", owner.error));
 
   const project = await projectInTenant(owner.tenantId, String(formData.get("projectId") ?? ""));
-  if (!project) redirect(projectsMessage("error", "That project isn't in this workspace."));
+  if (!project) redirect(await projectsMessage("error", "That project isn't in this workspace."));
 
   const archived = String(formData.get("archived") ?? "") === "true";
   if (Boolean(project.archivedAt) !== archived) {
@@ -273,87 +245,36 @@ export async function setProjectArchivedAction(formData: FormData): Promise<void
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/org/projects");
-  revalidatePath("/issues");
-  redirect(projectsMessage("notice", archived ? "Project archived." : "Project restored."));
+  redirect(await projectsMessage("notice", archived ? "Project archived." : "Project restored."));
 }
 
 /** Delete a project after the owner types its name, and only when it has no issues. */
 export async function deleteProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const owner = await ownerTenantFor(user.id, user.role);
-  if ("error" in owner) redirect(projectsMessage("error", owner.error));
+  if ("error" in owner) redirect(await projectsMessage("error", owner.error));
 
   const project = await projectInTenant(owner.tenantId, String(formData.get("projectId") ?? ""));
-  if (!project) redirect(projectsMessage("error", "That project isn't in this workspace."));
+  if (!project) redirect(await projectsMessage("error", "That project isn't in this workspace."));
 
   if (project._count.bugs > 0) {
     redirect(
-      projectsMessage("error", "This project still has issues. Archive it instead."),
+      await projectsMessage("error", "This project still has issues. Archive it instead."),
     );
   }
 
   const typed = String(formData.get("confirmName") ?? "").trim();
   if (typed !== project.name) {
-    redirect(projectsMessage("error", "Type the project's name exactly to confirm."));
+    redirect(await projectsMessage("error", "Type the project's name exactly to confirm."));
   }
 
   try {
     await prisma.project.delete({ where: { id: project.id } });
   } catch (error) {
     console.error("[projects] deleteProjectAction failed", error);
-    redirect(projectsMessage("error", "Couldn't delete this project. Archive it instead."));
+    redirect(await projectsMessage("error", "Couldn't delete this project. Archive it instead."));
   }
 
   revalidatePath("/", "layout");
-  revalidatePath("/org/projects");
-  revalidatePath("/issues");
-  redirect(projectsMessage("notice", "Project deleted."));
-}
-
-export async function createApprovalRuleAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return;
-
-  const projectId = String(formData.get("projectId") ?? "").trim();
-  const slug = String(formData.get("slug") ?? "").trim();
-  const stage = String(formData.get("stage") ?? "before_merge").trim() as "before_offer" | "before_merge";
-  const issueTypeId = String(formData.get("issueTypeId") ?? "").trim() || null;
-  const fileGlob = String(formData.get("fileGlob") ?? "").trim() || null;
-
-  if (!projectId || (stage !== "before_offer" && stage !== "before_merge")) return;
-
-  const { createApprovalRule } = await import("@/lib/approvals");
-  await createApprovalRule(
-    user.id,
-    tenantId,
-    projectId,
-    {
-      stage,
-      issueTypeId,
-      fileGlob,
-    },
-  );
-
-  if (slug) {
-    revalidatePath(`/projects/${slug}/settings`);
-  }
-}
-
-export async function deleteApprovalRuleAction(formData: FormData): Promise<void> {
-  const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId) return;
-
-  const ruleId = String(formData.get("ruleId") ?? "").trim();
-  const slug = String(formData.get("slug") ?? "").trim();
-  if (!ruleId) return;
-
-  const { deleteApprovalRule } = await import("@/lib/approvals");
-  await deleteApprovalRule(user.id, tenantId, ruleId);
-
-  if (slug) {
-    revalidatePath(`/projects/${slug}/settings`);
-  }
+  redirect(await projectsMessage("notice", "Project deleted."));
 }

@@ -12,7 +12,7 @@ export default function DocsPage() {
       {/* Header & llms.txt banner */}
       <div className="space-y-4">
         <div className="space-y-1">
-          <Link href="/issues" className="text-sm font-semibold text-zk-accent hover:underline">
+          <Link href="/dashboard" className="text-sm font-semibold text-zk-accent hover:underline">
             ← Back to issues
           </Link>
           <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">
@@ -226,7 +226,7 @@ export default function DocsPage() {
               Submit Independent Test Verdict
             </h3>
             <p className="text-xs text-zk-muted mb-3">
-              Any agent independent of the fix records test verdicts before PR merge.
+              Any agent but the one holding the claim records test verdicts before PR merge.
             </p>
             <CurlExample
               method="POST"

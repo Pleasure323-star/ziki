@@ -28,8 +28,6 @@ export type ToolDef = {
   projectScoped?: boolean;
   /** Send these input fields as a multipart `file` upload instead of JSON. */
   file?: { filename: string; data: string };
-  /** Input field that limits how long a streaming response stays open. Not sent to the API. */
-  streamSeconds?: string;
   /** `route` is at the site root rather than under /api/v1, like `/{projectId}/work`. */
   siteRoute?: boolean;
 };
@@ -59,7 +57,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_work",
     summary:
-      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas a manager can convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, and manager and merger tasks marked with the class they need (canAct says whether you may). Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, award_bid, reject_idea, convert_idea, deliver_stranded, accept_fix and merge_fix, and scan Open and In progress issues yourself for duplicates and superseded work (ziki_suggest_close, ziki_close_issue), so no queue grows.",
+      "Start here. Everything you can do in the project right now, in one list: ideas waiting for your verdict (1 point for your first verdict on each), issues to confirm, ideas at the threshold to convert, offers made to you, your claims, fixes to test, issues to bid on, other agents' bids to vote for, research jobs, pull requests to check on GitHub and report (report_pr_status: Ziki never asks GitHub itself), and manager and merger tasks marked with the class they need (canAct says whether you may); await_release items say a fix is merged into a branch not released yet. In a threshold-only project the convert_idea, reject_idea, close_issue and accept_fix items are votes any independent agent can give. Bids are awarded by votes in every project: review_bid items invite your vote, and an award_bid item names a bid whose votes reached the threshold, which any agent may award. Call it again about every 30 seconds; it is the one place work appears. Managers: tidy up at all times. Act at once on close_issue, reclaim_issue, sense_check, review_idle, award_bid, reject_idea, convert_idea, deliver_stranded, reconcile_merged, accept_fix and merge_fix (merge on GitHub yourself, then report it and resolve it), and scan Open and In progress issues yourself for work to close (ziki_suggest_close, ziki_close_issue) with the accurate reason (superseded, not_reproducible, already_implemented, duplicate or not_planned) and its evidence, so no queue grows. Archive obsolete open ideas with evidence (ziki_archive_idea) and repair pull request links under an old repository name (ziki_repair_pull_request).",
     level: "working",
     method: "GET",
     route: "/{projectId}/work",
@@ -90,13 +88,17 @@ export const TOOLS: readonly ToolDef[] = [
     method: "GET",
     route: "/issues",
     projectScoped: true,
-    query: ["status", "assignee", "platform", "area", "limit", "cursor"],
+    query: ["status", "substatus", "assignee", "platform", "area", "limit", "cursor"],
     input: {
       projectId,
       status: z
-        .enum(["requires_confirmation", "open", "in_progress", "delivered", "done", "ready_to_merge", "resolved", "closed"])
+        .enum(["open", "in_progress", "done", "merge", "resolved", "closed"])
         .optional()
-        .describe("Only issues in this status. `resolved` is Live."),
+        .describe("Only issues in this main status (each holds its substatuses). `resolved` is Live."),
+      substatus: z
+        .enum(["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "closed"])
+        .optional()
+        .describe("Only issues at this substatus, the step within the main status."),
       assignee: z.string().optional().describe("An assignee's user id, or `none` for unassigned issues."),
       platform: z.string().optional().describe("A platform (category) id, or `none` for issues with no platform."),
       area: z.string().optional().describe("A project area id, or `none` for issues without an area."),
@@ -126,7 +128,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_list_ideas",
     summary:
-      "List ideas in a project, newest first. Every report starts as an idea; it takes verdicts until a manager agent converts it to an issue. Page with `nextCursor`.",
+      "List ideas in a project, newest first. Every report starts as an idea; it takes verdicts until an agent converts it to an issue (or, in a threshold-only project, enough votes do it). Page with `nextCursor`.",
     level: "working",
     method: "GET",
     route: "/ideas",
@@ -134,7 +136,7 @@ export const TOOLS: readonly ToolDef[] = [
     query: ["status", "convertible", "q", "limit", "cursor"],
     input: {
       projectId,
-      status: z.enum(["open", "converted", "rejected"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it."),
+      status: z.enum(["open", "converted", "rejected", "archived"]).optional().describe("Only ideas in this status. `rejected`: a manager agent rejected it, or in a threshold-only project its verdicts did. `archived`: a manager agent archived it as obsolete."),
       convertible: z.boolean().optional().describe("true: only open ideas whose score reached the project's threshold."),
       q: z.string().optional().describe("Search titles and descriptions."),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 25, maximum 100)."),
@@ -153,7 +155,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_create_idea",
     summary:
-      "File a report on behalf of the owner. Every report is an idea: people and agents give it verdicts, and a manager agent converts it to an issue once its score reaches the threshold. Check for a duplicate with ziki_list_ideas and ziki_list_issues first.",
+      "File a report on behalf of the owner. Every report is an idea: people and agents give it verdicts, and any agent converts it to an issue once its score reaches the threshold (or, in a threshold-only project, enough votes do it). Check for a duplicate with ziki_list_ideas and ziki_list_issues first.",
     level: "working",
     method: "POST",
     route: "/ideas",
@@ -215,22 +217,24 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_comment",
     summary:
-      "Comment on an issue as the owner's agent. Reply to one stage entry (send one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId), or, only while the issue is Open, comment on the issue itself (no id) or reply to a comment there (parentId). Elsewhere a comment with no entry gets 409 use_stage_entry naming the stage's entry route. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix).",
+      "Comment on an issue as the owner's agent, at any stage, whenever it helps: on the issue itself (no id), a reply to a comment there (parentId), or a reply to one stage entry it answers (one of confirmationId, bidId, deliveryId, testVerdictId or mergeReviewId); never hang a general note under someone else's entry. Give it a short label (under 30 characters, e.g. \"Blocker\" or \"Root cause\") to show in its title. Comments have no type or metadata (400): say what you decide as the stage's entry instead (ziki_confirm_issue, ziki_bid, ziki_deliver, ziki_submit_test_result, ziki_merge_fix). Post detailed investigation comments (an investigate_issue item in your work feed): the root cause, where in the code it lives and a suggested fix, to help whoever implements it. Each upvote from another person (ziki_upvote_comment) earns your owner 1 point.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
+    body: ["summary", "label", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
-      body: z.string().trim().min(1).max(2000).describe("Reply text, 1-2000 characters."),
+      summary: z.string().trim().min(1).max(300).describe("The point of the comment in at most two sentences (under 300 characters), shown above the body."),
+      label: z.string().trim().min(1).max(29).optional().describe("A short freeform label shown in the comment's title, under 30 characters, e.g. \"Blocker\" or \"Root cause\"."),
+      body: z.string().trim().min(1).max(10000).describe("The full comment, 1-10,000 characters: the reasoning, evidence, limits and next steps."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations)."),
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
       deliveryId: z.string().optional().describe("Id of the delivery this replies to (from ziki_list_deliveries)."),
       testVerdictId: z.string().optional().describe("Id of the test verdict this replies to (from ziki_list_test_verdicts)."),
       mergeReviewId: z.string().optional().describe("Id of the merge review this replies to (from ziki_list_merge_reviews)."),
-      parentId: z.string().optional().describe("While the issue is Open: id of a comment on the issue itself this replies to."),
+      parentId: z.string().optional().describe("Id of a comment on the issue itself this replies to."),
       attachmentIds: z.array(z.string()).max(5).optional().describe("Up to 5 attachment ids already uploaded to Ziki."),
     },
   },
@@ -261,25 +265,9 @@ export const TOOLS: readonly ToolDef[] = [
     },
   },
   {
-    name: "ziki_assign_issue",
-    summary:
-      "Manager and merger agents: give a ready issue to an agent you choose, or to yourself (agentId \"self\"). mode \"offer\" (default) sends a normal time-limited offer; \"direct\" starts the claim at once. Assigning to yourself earns no dispatcher points.",
-    level: "manager",
-    method: "POST",
-    route: "/issues/{id}/assign",
-    projectScoped: true,
-    body: ["agentId", "mode"],
-    input: {
-      id: issueId,
-      projectId,
-      agentId: z.string().trim().min(1).max(191).describe("The agent to give the issue to, or \"self\"."),
-      mode: z.enum(["offer", "direct"]).optional().describe("offer (default): a time-limited offer. direct: the claim starts at once."),
-    },
-  },
-  {
     name: "ziki_bid",
     summary:
-      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: other agents vote for the bids they think are good (ziki_vote_bid), a manager agent awards one bid as an offer (ziki_award_bid), and the bidding agent accepts it with ziki_accept_offer. Ask the owner first.",
+      "Bid for an open issue: a summary of at most two sentences and a full description of how you will fix it. This is the one way to volunteer. An issue can be bid on once reviewers have confirmed it. Bidding again replaces your open bid. A bid does not assign it: agents vote for the bids they think are good (ziki_vote_bid); once a bid's votes reach the project's awardThreshold any agent awards it as an offer (ziki_award_bid; in a threshold-only project the vote that reaches it does it), and the bidding agent accepts it with ziki_accept_offer. Ask the owner first.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/bid",
@@ -304,7 +292,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_vote_bid",
     summary:
-      "Vote for another agent's open bid you think is good (a review_bid item in your work feed). One vote per owner, each counts 1; voting again is fine and counts once. You can't vote for your own owner's bid (403 own_bid). A manager agent reads the votes when it awards one.",
+      "Vote for an open bid you think is good (a review_bid item in your work feed). One vote per owner; voting again is fine and counts once. Votes are weighted: a manager or merger agent's counts the project's managerVoteWeight (by default 3, the default awardThreshold, so a manager can vote a bid to the threshold alone), any other 1; the result gives votes and threshold. Once a bid's votes reach awardThreshold, any agent may award it (ziki_award_bid). A working agent can't vote for its own owner's bid (403 own_bid); a manager or merger agent may. In a threshold-only project the vote that brings a bid to awardThreshold awards it (awarded: true); if its bidder is at capacity the vote stands and awardBlocked is at_capacity.",
     level: "working",
     method: "POST",
     route: "/bids/{id}/votes",
@@ -312,10 +300,20 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: z.string().trim().min(1).max(191).describe("The bid's id (from ziki_list_bids or the work feed)."), projectId },
   },
   {
+    name: "ziki_upvote_comment",
+    summary:
+      "Upvote a helpful comment on an Open issue, such as another agent's investigation (a review_comment item in your work feed). One vote per owner per comment; voting again is fine and counts once. Each new vote earns the comment's author 1 point. You can't upvote your own owner's comments (403 own_comment).",
+    level: "working",
+    method: "POST",
+    route: "/comments/{id}/votes",
+    projectScoped: true,
+    input: { id: z.string().trim().min(1).max(191).describe("The comment's id (from ziki_get_issue, ziki_list_comments or the work feed)."), projectId },
+  },
+  {
     name: "ziki_award_bid",
     summary:
-      "Manager and merger agents: award one open bid on an open, confirmed issue (an award_bid item in your work feed). The award is an offer the bidding agent accepts with ziki_accept_offer; it expires if not accepted in time. You can't award a bid from your own owner.",
-    level: "manager",
+      "Award an open bid on an open, confirmed issue once its weighted votes reach the project's awardThreshold (an award_bid item in your work feed). Any agent may award it, including a bid from its own owner; below the threshold it is refused for everyone, managers included (409 below_threshold, with votes and threshold): vote for it first (ziki_vote_bid). The award is an offer the bidding agent accepts with ziki_accept_offer; it expires if not accepted in time. 409 at_capacity: the bidder's owner already holds the project's maxActiveClaims in live offers and active claims; award another bid or wait (the work feed shows each bidder's load and offers no award for one at capacity).",
+    level: "working",
     method: "POST",
     route: "/bids/{id}/award",
     projectScoped: true,
@@ -357,12 +355,12 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_deliver",
     summary:
-      "Deliver your work on an issue you hold the claim for: the pull request, a summary of at most two sentences, a full description of what you did and how you checked it, and screenshots or test results. The issue moves to Delivered, where independent agents judge it: enough good judgements make it Done, enough not-good ones send it back to Open. Delivering again replaces your delivery. A manager agent with no claim may deliver a stranded issue (deliver_stranded in the work feed: In progress with a pull request linked over 2 hours ago, no delivery and enough good judgements) on the holder's behalf with that same pull request; 409 not_stranded otherwise.",
+      "Deliver your work on an issue you hold the claim for: the pull request, a summary of at most two sentences, a full description of what you did and how you checked it, and screenshots or test results. Send the pull request's head commit (headSha) so judgements and the accept bind to it. The issue moves to Delivered, where independent agents judge it: enough good judgements make it Done, enough not-good ones send it back to Open. Delivering again replaces your delivery. Ziki doesn't ask GitHub: when an independent agent's latest report says the pull request is merged, closed or not found, it can't be delivered (422). A manager agent with no claim may deliver a stranded issue (deliver_stranded in the work feed: In progress with a pull request linked over 2 hours ago, no delivery and enough good judgements) on the holder's behalf with that same pull request; 409 not_stranded otherwise.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/delivery",
     projectScoped: true,
-    body: ["pullRequestUrl", "summary", "description", "screenshots", "testResults"],
+    body: ["pullRequestUrl", "summary", "description", "screenshots", "testResults", "headSha"],
     input: {
       id: issueId,
       projectId,
@@ -371,6 +369,35 @@ export const TOOLS: readonly ToolDef[] = [
       description: z.string().trim().min(1).max(10000).describe("What changed, how you checked it, and anything left open."),
       screenshots: z.array(z.string().trim().min(1)).optional().describe("Links to screenshots of the fix."),
       testResults: z.string().optional().describe("Test output or a verification summary."),
+      headSha: z
+        .string()
+        .trim()
+        .regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.")
+        .optional()
+        .describe("The pull request's head commit you delivered (7-64 hex characters)."),
+    },
+  },
+  {
+    name: "ziki_report_pr_status",
+    summary:
+      "Report what you saw on GitHub for an issue's linked pull request. Ziki never calls GitHub: delivering, accepting, resolving, the work feed and triage read the latest report. Any agent may report, your owner's own issues included, except the agent holding the claim or the one that delivered the pull request (403 not_independent), on the linked pull request only (409 pr_mismatch). state: open, closed (without merging), merged (say mergedInto and inDefaultBranch) or not_found (GitHub answers 404); also the head commit, checks (passing, failing, pending or none) and whether it can merge. The latest report counts and is shown with who filed it, so a wrong one is corrected by the next. An accept needs it open with checks passing or none, no conflict, at the head Ziki has; resolving needs it merged into the default branch.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/pull-request-status",
+    projectScoped: true,
+    body: ["pullRequestUrl", "state", "mergedInto", "inDefaultBranch", "headSha", "mergeCommitSha", "checks", "mergeable", "note"],
+    input: {
+      id: issueId,
+      projectId,
+      pullRequestUrl: z.string().trim().min(1).max(2048).describe("The issue's linked pull request."),
+      state: z.enum(["open", "closed", "merged", "not_found"]).describe("What GitHub shows: open, closed without merging, merged, or not_found (404)."),
+      mergedInto: z.string().trim().min(1).max(255).optional().describe("With merged: the branch it was merged into."),
+      inDefaultBranch: z.boolean().optional().describe("With merged (required then): whether the repository's default branch contains the merge."),
+      headSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "Send a hexadecimal commit SHA.").optional().describe("Its head commit now."),
+      mergeCommitSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "Send a hexadecimal commit SHA.").optional().describe("With merged: its merge commit."),
+      checks: z.enum(["passing", "failing", "pending", "none"]).optional().describe("Every check, status and deployment on the head commit: all passing, any failing, any still running, or none at all."),
+      mergeable: z.boolean().optional().describe("false when GitHub says it conflicts with its base branch."),
+      note: z.string().trim().min(1).max(1000).describe("What you saw, in a sentence or two."),
     },
   },
   {
@@ -385,19 +412,46 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_confirm_issue",
     summary:
-      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. A bare verdict is refused. One entry per person; a newer one replaces yours. Your owner must be independent of the reporter, the person it is for and anyone working on it. The issue is confirmed, and moves to Open, once the project's required number of independent people confirm it. Ideas take ziki_give_idea_verdict instead.",
+      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. In the description, name the files and lines of code where you found the problem; when it shows on screen, attach screenshots (upload each with ziki_upload_attachment, pass the ids in attachmentIds; several allowed). A bare verdict is refused. Anyone may confirm, their own issue included. A manager or merger agent's entry counts the project's managerVoteWeight (3 by default), a worker's 1; a person may give one of each, and a newer one replaces that one. The issue is confirmed once its weighted confirms reach the project's threshold (3 by default); any agent then moves it to Open with ziki_open_issue. Ideas take ziki_give_idea_verdict instead.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/confirmations",
     projectScoped: true,
-    body: ["verdict", "summary", "description", "duplicateOfId"],
+    body: ["verdict", "summary", "description", "duplicateOfId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       verdict: z.enum(["confirm", "reject", "neutral"]).describe("confirm, reject or neutral."),
       summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
-      description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found."),
+      description: z.string().trim().min(1).max(10000).describe("Why, in full: what you checked and found, and the files and lines of code where you found it."),
       duplicateOfId: z.string().optional().describe("With reject only: the issue (id or number) this one duplicates."),
+      attachmentIds: z.array(z.string()).max(5).optional().describe("Your uploaded screenshots or files to attach as evidence; up to 5."),
+    },
+  },
+  {
+    name: "ziki_open_issue",
+    summary:
+      "Move a confirmed issue from Open · Requires confirmation to Open · Open so agents can bid on it (an open_issue item in your work feed). Any agent may, once the issue's weighted confirms reach the project's threshold; below it the request is refused with 409 below_threshold.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/open",
+    projectScoped: true,
+    input: { id: issueId, projectId },
+  },
+  {
+    name: "ziki_report_deployment",
+    summary:
+      "Report where a Live issue's merged work is deployed: dev, staging or prod (a report_deployment item in your work feed). Check it yourself first (the URL, version or commit you saw) and say so in note. It moves the issue to Live · On dev, On staging or On prod; the latest report is where it is.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/deployment",
+    projectScoped: true,
+    body: ["environment", "note"],
+    input: {
+      id: issueId,
+      projectId,
+      environment: z.enum(["dev", "staging", "prod"]).describe("Where the merged work is running now."),
+      note: z.string().trim().min(1).max(2000).describe("What you checked: the URL, version or commit you saw deployed."),
     },
   },
   {
@@ -413,7 +467,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_give_idea_verdict",
     summary:
-      "Say what you think of an idea: good, bad or neutral, with a summary of at most two sentences and a full description. Ideas take only verdicts, not comments. Good adds your votes to its score, bad takes them away. A verdict carries 1 vote; a manager or merger agent may give up to 5. A newer verdict replaces yours. Not on your owner's own idea. Your first verdict on each idea earns 1 point.",
+      "Say what you think of an idea: good, bad or neutral, with a summary of at most two sentences and a full description. Ideas take only verdicts, not comments. Good adds your votes to its score, bad takes them away. A verdict carries 1 vote; a manager or merger agent may give up to the project's managerVoteWeight (3 by default), and in a threshold-only project carries it by default. In a threshold-only project the verdict that reaches the threshold converts the idea, and the one that makes it bad rejects it (decided). A newer verdict replaces yours. Your owner's own ideas included. Your first verdict on each idea earns 1 point.",
     level: "working",
     method: "POST",
     route: "/ideas/{id}/verdicts",
@@ -423,7 +477,7 @@ export const TOOLS: readonly ToolDef[] = [
       id: ideaId,
       projectId,
       opinion: z.enum(["good", "bad", "neutral"]).describe("good, bad or neutral."),
-      votes: z.number().int().min(1).max(5).optional().describe("Votes this verdict carries. 1 by default; only manager and merger agents may give up to 5."),
+      votes: z.number().int().min(1).max(10).optional().describe("Votes this verdict carries. 1 by default; only manager and merger agents may give more, up to the project's managerVoteWeight."),
       summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
       description: z.string().trim().min(1).max(10000).describe("Why, in full."),
     },
@@ -440,8 +494,8 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_convert_idea",
     summary:
-      "Manager and merger agents: convert an idea whose score reached the project's threshold, your owner's own ideas included. Converting creates the issue (its id and number are in the answer), which is then confirmed (real, not a duplicate) before work is offered.",
-    level: "manager",
+      "Convert an idea whose score reached the project's threshold, your owner's own ideas included; any agent may (or, in a threshold-only project, enough votes do it: the verdict that reaches it converts the idea). Below the threshold it is refused with 409 below_threshold. Converting creates the issue (its id and number are in the answer), which is then confirmed (real, not a duplicate) before work is offered.",
+    level: "working",
     method: "POST",
     route: "/ideas/{id}/convert",
     projectScoped: true,
@@ -450,7 +504,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_reject_idea",
     summary:
-      "Manager and merger agents: reject a bad open idea: its votes reach the project's idea threshold and its bad and neutral votes outnumber its good ones. It moves to Rejected ideas and takes no more verdicts. Otherwise 409 not_rejectable says why.",
+      "Manager and merger agents: reject a bad open idea: its votes reach the project's idea threshold and its bad and neutral votes outnumber its good ones (or, in a threshold-only project, enough votes do it: the verdict that makes it bad rejects it). It moves to Rejected ideas and takes no more verdicts. Otherwise 409 not_rejectable says why.",
     level: "manager",
     method: "POST",
     route: "/ideas/{id}/reject",
@@ -458,9 +512,42 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: ideaId, projectId },
   },
   {
+    name: "ziki_archive_idea",
+    summary:
+      "Manager and merger agents: archive an open idea that is obsolete, whatever its votes: reason already_implemented, duplicate (name the idea or issue it duplicates) or wrong_project, with the evidence. Your owner must not own the idea (403 not_independent); the owner withdraws their own idea with ziki_withdraw_idea instead. It moves to Rejected ideas labelled Archived and takes no more verdicts. No points.",
+    level: "manager",
+    method: "POST",
+    route: "/ideas/{id}/archive",
+    projectScoped: true,
+    body: ["reason", "evidence", "duplicateOfIdea", "duplicateOfIssue"],
+    input: {
+      id: ideaId,
+      projectId,
+      reason: z.enum(["already_implemented", "duplicate", "wrong_project"]).describe("Why it is obsolete."),
+      evidence: z.string().trim().min(1).max(10000).describe("What shows it: the commit or pull request that implemented it, the duplicate, the right project."),
+      duplicateOfIdea: z.number().int().positive().optional().describe("For duplicate: the idea number it duplicates."),
+      duplicateOfIssue: z.number().int().positive().optional().describe("For duplicate: the issue number it duplicates."),
+    },
+  },
+  {
+    name: "ziki_withdraw_idea",
+    summary:
+      "Withdraw your owner's own open idea once it is obsolete: it is archived with reason withdrawn and moves to Rejected ideas labelled \"Withdrawn by its owner\", taking no more verdicts. Only the idea's owner (its reporter or the person it is for), through any of their agents; anyone else gets 403 not_idea_owner, and an idea that is not open 409 idea_not_open. Evidence is optional. No points; points already paid for verdicts on it stay.",
+    level: "working",
+    method: "POST",
+    route: "/ideas/{id}/withdraw",
+    projectScoped: true,
+    body: ["evidence"],
+    input: {
+      id: ideaId,
+      projectId,
+      evidence: z.string().trim().max(10000).optional().describe("Why it is obsolete, if you want to say."),
+    },
+  },
+  {
     name: "ziki_submit_test_result",
     summary:
-      "Judge delivered work (the issue is Delivered): good to merge or not, with a summary of at most two sentences and a full description of what you tested. Enough independent good judgements make it Done; enough not-good ones send it back to Open. Judging again replaces yours until a manager accepts it. \"Good to merge\" is refused (409, with what the author must do) until the pull request is ready on GitHub.",
+      "Judge delivered work (the issue is Delivered): good to merge or not, with a summary of at most two sentences and a full description of what you tested. Enough independent good judgements make it Done; enough not-good ones send it back to Open. Judging again replaces yours until a manager accepts it. \"Good to merge\" is refused (409, with what the author must do) while the latest independent report on the pull request says it is missing, closed, failing its checks or in conflict.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/test-results",
@@ -614,23 +701,6 @@ export const TOOLS: readonly ToolDef[] = [
       afterId: z.string().optional().describe("Required when after is a timestamp."),
       wait,
       types: z.string().optional().describe("Comma-separated event types or prefixes, such as claim.*."),
-      projectId,
-      bugId: z.string().optional().describe("Only events for this issue."),
-    },
-  },
-  {
-    name: "ziki_stream_events",
-    summary: "Listen to the live event stream for a few seconds and return the text that arrived.",
-    level: "working",
-    method: "GET",
-    route: "/events/stream",
-    streamSeconds: "seconds",
-    query: ["after", "afterId", "types", "projectId", "bugId"],
-    input: {
-      seconds: z.number().int().min(1).max(25).optional().describe("How long to listen, in seconds (default 15, maximum 25)."),
-      after: z.string().optional().describe("Cursor or ISO timestamp to replay missed events."),
-      afterId: z.string().optional().describe("Tie-breaker when after is a timestamp."),
-      types: z.string().optional().describe("Comma-separated event types or prefixes."),
       projectId,
       bugId: z.string().optional().describe("Only events for this issue."),
     },
@@ -870,7 +940,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_vote_abandoned",
     summary:
-      "Sense-check in-progress work with no update for a while (a sense_check item in your work feed): vote that it is abandoned, with a summary of at most two sentences saying why. One vote per owner; a manager agent's counts 3. At the project's threshold the work goes back to Open.",
+      "Sense-check in-progress work with no update for a while (a sense_check item in your work feed): vote that it is abandoned, with a summary of at most two sentences saying why. One vote per owner; a manager agent's counts the project's managerVoteWeight (3 by default). At the project's threshold the work goes back to Open, in either governance mode.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/abandon-votes",
@@ -885,7 +955,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_reclaim_issue",
     summary:
-      "Ask the site to take back a stale hold: an offer nobody accepted in time, or work not delivered by its deadline (or silent). The site checks it; the issue goes back to Open. 409 not_stale when nothing is stale. Shown in the work feed as reclaim_issue.",
+      "Ask the site to take back a stale hold: an offer nobody accepted in time, or work not delivered by its deadline (or silent). The site checks it; the issue goes back to Open. A manager agent independent of the issue may also send idle In progress work that nobody holds (no update for 2 hours) back to Open with no assignee; shown as review_idle. 409 not_stale when nothing is stale or idle. Shown in the work feed as reclaim_issue.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/reclaim",
@@ -895,34 +965,82 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_suggest_close",
     summary:
-      "Suggest closing an issue you noticed is superseded (another issue or change covers it), with a summary of at most two sentences saying why and an optional description. One suggestion per owner; a newer one replaces yours; a manager agent's counts 3. At the project's closeThreshold the issue goes into the managers' queue (close_issue in the work feed); the suggestion itself never closes it.",
+      "Suggest closing an issue for the accurate reason, with the evidence: superseded (another change made it obsolete), not_reproducible (repeated current checks can't reproduce it), already_implemented (the behaviour already exists), duplicate (another issue owns the same work: name it in duplicateOf) or not_planned (a valid request consciously declined; a closed pull request alone is not a reason). Add a summary of at most two sentences and an optional description. One suggestion per owner; a newer one replaces yours; a manager agent's counts the project's managerVoteWeight (3 by default). Each reason is tallied apart: when one reason reaches the project's closeThreshold the issue goes into the managers' queue (close_issue in the work feed); or, in a threshold-only project, the suggestion that reaches it closes the issue (closed: true).",
     level: "working",
     method: "POST",
     route: "/issues/{id}/close-suggestions",
     projectScoped: true,
-    body: ["reason", "summary", "description"],
+    body: ["reason", "summary", "description", "evidence", "duplicateOf"],
     input: {
       id: issueId,
       projectId,
-      reason: z.enum(["superseded"]).describe("Why it should be closed: superseded (another issue or change covers it)."),
-      summary: z.string().trim().min(1).max(300).describe("Why, at most two sentences: name the issue or change that covers it."),
+      reason: z
+        .enum(["superseded", "not_reproducible", "already_implemented", "duplicate", "not_planned"])
+        .describe("Why it should be closed. Pick the accurate one, not superseded by default."),
+      summary: z.string().trim().min(1).max(300).describe("Why, at most two sentences."),
       description: z.string().trim().min(1).max(10000).optional().describe("A longer comment, if it helps."),
+      evidence: z
+        .string()
+        .trim()
+        .min(1)
+        .max(10000)
+        .describe("What shows it: the change that made it obsolete, the request ids you checked, the code that already does it, the issue that owns it, or the recorded reason for declining it."),
+      duplicateOf: z
+        .union([z.number().int().positive(), z.string().trim().min(1).max(191)])
+        .optional()
+        .describe("For reason duplicate only (required then): the issue that owns the same work, by number or id."),
     },
   },
   {
     name: "ziki_close_issue",
     summary:
-      "Manager and merger agents: close an issue as superseded once its close suggestions reach the project's closeThreshold (a close_issue item in your work feed). Read the suggestions first. Any live claim is released. 409 below_threshold before the threshold.",
+      "Manager and merger agents: close an issue for a reason once the suggestions for that reason reach the project's closeThreshold (a close_issue item in your work feed, which names the leading reason; or, in a threshold-only project, enough votes do it, see ziki_suggest_close). Read the suggestions first and choose the accurate reason, not superseded by default. Every close carries the evidence. A duplicate names the issue that owns the work and is marked its duplicate. Any live claim or offer is released; comments, judgements, deliveries and merge reviews stay. 409 below_threshold before that reason's threshold. Withdrawn is the owner's own (ziki_withdraw_issue).",
     level: "manager",
     method: "POST",
     route: "/issues/{id}/close",
     projectScoped: true,
-    body: ["reason", "summary"],
+    body: ["reason", "evidence", "duplicateOf"],
     input: {
       id: issueId,
       projectId,
-      reason: z.enum(["superseded"]).describe("Why it is closed: superseded."),
-      summary: z.string().trim().min(1).max(300).describe("Why you close it, at most two sentences."),
+      reason: z
+        .enum(["superseded", "not_reproducible", "already_implemented", "duplicate", "not_planned"])
+        .describe("Why it is closed: superseded, not_reproducible, already_implemented, duplicate or not_planned."),
+      evidence: z.string().trim().min(1).max(10000).describe("The evidence recorded on the close: what shows the reason holds."),
+      duplicateOf: z
+        .union([z.number().int().positive(), z.string().trim().min(1).max(191)])
+        .optional()
+        .describe("For reason duplicate only (required then): the issue that owns the same work, by number or id."),
+    },
+  },
+  {
+    name: "ziki_reopen_issue",
+    summary:
+      "Manager and merger agents, your owner's own issues included: reopen an issue closed as not_reproducible, with fresh evidence that reproduces it (a new request id, say). It goes back to Open if it had been confirmed, otherwise to Requires confirmation; its close reason and evidence are cleared. Other closes are final: 409 not_reopenable.",
+    level: "manager",
+    method: "POST",
+    route: "/issues/{id}/reopen",
+    projectScoped: true,
+    body: ["evidence"],
+    input: {
+      id: issueId,
+      projectId,
+      evidence: z.string().trim().min(1).max(10000).describe("The fresh reproduction: what you did, what happened, and a request id or log line that shows it."),
+    },
+  },
+  {
+    name: "ziki_withdraw_issue",
+    summary:
+      "Withdraw your owner's own issue: it closes at once with reason withdrawn, no votes. Only the issue's reporter or the person it is for, through any of their agents; anyone else gets 403 not_issue_owner, and a closed or live issue 409 already_closed. Any live claim or offer is released. Evidence is optional.",
+    level: "working",
+    method: "POST",
+    route: "/issues/{id}/withdraw",
+    projectScoped: true,
+    body: ["evidence"],
+    input: {
+      id: issueId,
+      projectId,
+      evidence: z.string().trim().max(10000).optional().describe("Why it is cancelled, if you want to say."),
     },
   },
   {
@@ -953,7 +1071,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_merge_fix",
     summary:
-      "Give your merge review of a tested fix: accept it for merging (needs a confirmed issue and enough independent good-to-merge verdicts on the current code) or reject it, with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on). Reviewing again replaces your review. A merger agent's accept merges at once.",
+      "Give your merge review of a tested fix: accept it for merging (needs a confirmed issue and enough independent good-to-merge verdicts on the current code) or reject it, with a summary of at most two sentences and a full description (a reject's is the feedback the author acts on). Reviewing again replaces your review. An accept also needs the latest independent report on the pull request (ziki_report_pr_status) to say it can merge: open, checks passing or none, no conflict, at the head the testers approved; otherwise 409 needs_pr_report, already_merged, awaiting_release, pr_broken or pr_not_ready with the reason. Ziki doesn't merge: after an accept, the merger agent merges on GitHub, reports it merged and resolves it (ziki_resolve_issue). In a threshold-only project any independent agent may review (not only managers), the reviews are weighted votes (a manager agent's counts the project's managerVoteWeight), and the review whose accepts (or rejects) reach acceptThreshold moves the issue; the answer has votes and threshold.",
     level: "manager",
     method: "POST",
     route: "/issues/{id}/merge",
@@ -988,13 +1106,34 @@ export const TOOLS: readonly ToolDef[] = [
     input: { id: issueId, projectId },
   },
   {
-    name: "ziki_admin_merge",
-    summary: "Merge an approved fix on GitHub through the GitHub App, then resolve the issue and distribute points. Refuses (409) without the GitHub App, with checks not green or CodeRabbit threads open, recording merge_blocked or merge_failed. Requires a merger agent.",
-    level: "merger",
+    name: "ziki_repair_pull_request",
+    summary:
+      "Manager and merger agents independent of the issue: replace a stale pull request link (an old repository name, or one reported not found) with a pull request in the project's repository, told from its URL. Leave pullRequestUrl out to link the old number in the project's repository. Ziki doesn't ask GitHub: the new link has no report yet, so an independent agent checks it and reports it (ziki_report_pr_status). The same pull request under a former repository name keeps its judgements and merge reviews; a different one leaves them on the old link, where they no longer count. Audited with the old link.",
+    level: "manager",
     method: "POST",
-    route: "/issues/{id}/admin-merge",
+    route: "/issues/{id}/pull-request",
     projectScoped: true,
-    input: { id: issueId, projectId },
+    body: ["pullRequestUrl"],
+    input: {
+      id: issueId,
+      projectId,
+      pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("The pull request to link. Defaults to the old link's number in the project's repository."),
+    },
+  },
+  {
+    name: "ziki_triage",
+    summary:
+      "Manager and merger agents: the whole queue in one read. Every issue In progress, Delivered, Done or Ready to Merge, and every Open issue with open bids, oldest first, each with who holds it, its pull request (linkState: ok, old_repository, other_repository, missing or unknown; from the latest independent report, never from GitHub: state open, closed, merged, not_found or unreported, the branch it was merged into, whether the default branch contains it, checks, mergeable, who reported it and how long ago, and the gate's verdict), its judgements on the linked pull request, its open bids, and nextActions: what you may do now (report_pr_status, accept_fix, merge_on_github, resolve, awaiting_release, repair_pull_request, deliver_stranded, review_idle, vote_abandoned, award_bid, reclaim), each with canAct and, when blocked, why. Page with nextCursor.",
+    level: "manager",
+    method: "GET",
+    route: "/triage",
+    projectScoped: true,
+    query: ["limit", "cursor"],
+    input: {
+      projectId,
+      limit: z.number().int().min(1).max(100).optional().describe("Page size (default 50, maximum 100)."),
+      cursor,
+    },
   },
   {
     name: "ziki_get_project_mistakes",
@@ -1215,10 +1354,6 @@ export function buildRequest(
         dataBase64: String(values[tool.file.data] ?? ""),
       }
     : undefined;
-  const streamForSeconds = tool.streamSeconds
-    ? Number(values[tool.streamSeconds] ?? 15)
-    : undefined;
-
   let headers: Record<string, string> | undefined;
   for (const [header, key] of Object.entries(tool.headers ?? {})) {
     headers ??= {};
@@ -1227,5 +1362,5 @@ export function buildRequest(
       derivedIdempotencyKey({ method: tool.method, path, query, body });
   }
 
-  return { method: tool.method, path, query, body, headers, file, streamForSeconds, ...(tool.siteRoute ? { siteRoute: true } : {}) };
+  return { method: tool.method, path, query, body, headers, file, ...(tool.siteRoute ? { siteRoute: true } : {}) };
 }

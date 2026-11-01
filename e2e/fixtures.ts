@@ -27,9 +27,12 @@ export const test = base.extend<Fixtures & Options>({
 
 export { expect };
 
+/** The seeded project every spec works in (e2e/seed.ts); pages live under its slug (#project-urls). */
+export const PROJECT = "/zedu";
+
 /** Reports an issue through the form and returns its page URL. */
 export async function reportIssue(page: Page, title: string, description = "Steps: open the page, click Save. Expected it to save; it shows a blank page.") {
-  await page.goto("/issues/new");
+  await page.goto(`${PROJECT}/issues/new`);
   await page.getByLabel("Title").fill(title);
   // The description is the Markdown editor's textarea.
   await page.locator("#description").fill(description);
@@ -69,7 +72,7 @@ export async function fileIssue(page: Page, title: string) {
   } finally {
     await prisma.$disconnect();
   }
-  await page.goto(`/issues/${issueNumber}`);
+  await page.goto(`${PROJECT}/${issueNumber}`);
   await expect(page.getByRole("heading", { level: 1, name: new RegExp(escapeRe(title)) })).toBeVisible();
   return page.url();
 }

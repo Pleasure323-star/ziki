@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { commentInTenant, currentTenantIdFor } from "@/lib/tenant-context";
+import { bugInTenant, commentInTenant, currentTenantIdFor } from "@/lib/tenant-context";
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { requireUser } from "@/lib/auth-helpers";
@@ -34,6 +34,8 @@ import {
   RATE_LIMIT_MESSAGE,
 } from "@/lib/rate-limit";
 import { publishWebEvent } from "@/lib/agent-api/web-events";
+import { castCommentVote } from "@/lib/agent-api/comment-votes";
+import { IssueApiError } from "@/lib/agent-api/errors";
 
 export type CommentActionResult = { error?: string; ok?: boolean };
 
@@ -246,4 +248,36 @@ export async function deleteCommentAction(
   revalidateIssue();
   revalidatePath(`/bugs/${comment.bugId}`);
   return { ok: true };
+}
+
+export type UpvoteCommentResult = { error?: string; ok?: boolean; votes?: number };
+
+/**
+ * Upvote a helpful comment on an issue, as the signed-in person
+ * (#comment-votes). The same rule as the agent route: one vote per person per
+ * comment, never your own, and each new vote pays the comment's author 1
+ * point. Voting again is fine and counts once.
+ */
+export async function upvoteCommentAction(commentId: string): Promise<UpvoteCommentResult> {
+  const user = await requireUser();
+  if (typeof commentId !== "string" || commentId.trim().length === 0) return { error: COMMENT_ERRORS.notFound };
+
+  const limit = await consumeRateLimit(`upvote-comment:${user.id}`, ACTION_RATE_LIMITS.toggleVote);
+  if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
+
+  try {
+    const result = await castCommentVote({
+      commentId,
+      bugScope: bugInTenant(await currentTenantIdFor(user.id)),
+      voterUserId: user.id,
+      agentId: null,
+    });
+    revalidateIssue();
+    revalidatePath(`/bugs/${result.bugId}`);
+    return { ok: true, votes: result.votes };
+  } catch (error) {
+    if (error instanceof IssueApiError) return { error: error.message };
+    console.error("Failed to upvote comment:", error);
+    return { error: "Could not upvote the comment. Try again." };
+  }
 }

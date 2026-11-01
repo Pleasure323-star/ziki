@@ -8,19 +8,19 @@ import { absoluteUrl } from "@/lib/site-url";
  * block: no `User-agent` rules, no `Disallow`, and no `Content-Signal`
  * directives despite the preamble describing them at length.
  *
- * Note on `/bugs`: it is intentionally left crawlable. Link previews are a
- * supported feature (Slack / WhatsApp / Discord unfurls of shared issue
- * links), and those crawlers do fetch the URL. Everything that must not be
- * walked - admin, settings, the API and the auth pages - is disallowed here.
- * Read access to `/bugs/<id>` for link-preview clients is a separate,
- * deliberate concern tracked in the User-Agent spoofing report.
+ * Issue pages (`/<project-slug>/<number>`) are intentionally left crawlable.
+ * Link previews are a supported feature (Slack / WhatsApp / Discord unfurls
+ * of shared issue links), and those crawlers do fetch the URL. Everything that
+ * must not be walked - admin, settings, the API and the auth pages - is
+ * disallowed here. Read access to issue pages for link-preview clients is a
+ * separate, deliberate concern tracked in the User-Agent spoofing report.
  */
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
         userAgent: "*",
-        allow: ["/issues", "/bugs"],
+        allow: "/",
         disallow: [
           "/admin",
           "/settings",

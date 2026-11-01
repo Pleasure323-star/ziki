@@ -4,7 +4,8 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { MAX_PAGE_SIZE, pageSize } from "@/lib/agent-api/create-policy";
 import { stageEntryRoute, type StageEntryKind } from "@/lib/stage-entry-route";
-import { ideaPath, issuePath } from "@/lib/issue-ref";
+import { issuePath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 import { absoluteUrl } from "@/lib/site-url";
 
 /**
@@ -159,7 +160,7 @@ const ENTRY_CLI: Record<StageEntryKind, (issueId: string) => string> = {
  */
 export function issueEntryEdit(
   kind: StageEntryKind,
-  issue: { id: string; status: string; projectId: string },
+  issue: { id: string; substatus: string; projectId: string },
   entry: { agentId: string | null; bidState?: BidState },
   callerAgentId: string,
 ): HistoryEdit | null {
@@ -193,11 +194,11 @@ export function bidState(bid: { withdrawnAt: Date | null; awardedAt: Date | null
 // Items
 // ---------------------------------------------------------------------------
 
-type IssueRow = { id: string; number: number; title: string; status: string; projectId: string; project: { slug: string } };
-type IdeaRow = { id: string; number: number; title: string; status: string; projectId: string };
+type IssueRow = { id: string; number: number; title: string; status: string; substatus: string; projectId: string; project: { slug: string } };
+type IdeaRow = { id: string; number: number; title: string; status: string; projectId: string; project: { slug: string } };
 type AgentRow = { id: string; name: string } | null;
 
-export type HistoryIssueRef = { id: string; number: number; title: string; status: string; url: string };
+export type HistoryIssueRef = { id: string; number: number; title: string; status: string; substatus?: string; url: string };
 
 type ItemBase = {
   id: string;
@@ -219,12 +220,12 @@ export type HistoryItem =
   | (ItemBase & { kind: "comment"; body: string; parentId: string | null; editedAt: Date | null; issue: HistoryIssueRef });
 
 const issueRef = (issue: IssueRow): HistoryIssueRef => ({
-  id: issue.id, number: issue.number, title: issue.title, status: issue.status,
+  id: issue.id, number: issue.number, title: issue.title, status: issue.status, substatus: issue.substatus,
   url: absoluteUrl(issuePath(issue.project.slug, issue.number)),
 });
 
 const ideaRef = (idea: IdeaRow): HistoryIssueRef => ({
-  id: idea.id, number: idea.number, title: idea.title, status: idea.status, url: absoluteUrl(ideaPath(idea.number)),
+  id: idea.id, number: idea.number, title: idea.title, status: idea.status, url: absoluteUrl(ideaPath(idea.project.slug, idea.number)),
 });
 
 /** The JSON an item is sent as: dates as ISO strings. */
@@ -250,8 +251,8 @@ export type HistoryOptions = {
 };
 
 const agentSelect = { select: { id: true, name: true } } as const;
-const issueSelect = { select: { id: true, number: true, title: true, status: true, projectId: true, project: { select: { slug: true } } } } as const;
-const ideaSelect = { select: { id: true, number: true, title: true, status: true, projectId: true } } as const;
+const issueSelect = { select: { id: true, number: true, title: true, status: true, substatus: true, projectId: true, project: { select: { slug: true } } } } as const;
+const ideaSelect = { select: { id: true, number: true, title: true, status: true, projectId: true, project: { select: { slug: true } } } } as const;
 const newestFirst = [{ createdAt: "desc" as const }, { id: "desc" as const }];
 
 /** Parses the query a history request sends. The project is resolved by the route. */

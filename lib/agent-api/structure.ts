@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { issueIdFor } from "@/lib/issue-ref";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError, readAgentIssue } from "@/lib/agent-api/issues";
 import { findSimilarIssues } from "@/lib/agent-api/create-policy";
@@ -146,11 +147,14 @@ export type StructureResult = {
 export async function structureIssue(
   agent: AgentContext,
   projectId: string,
-  bugId: string,
+  issueRef: string,
   rawInput: unknown,
 ): Promise<StructureResult> {
   const input = structureInputSchema.parse(rawInput ?? {});
 
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
+  if (!bugId) throw new IssueApiError(404, "Issue not found in this project.");
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, tenantId: agent.tenantId, projectId, isDeleted: false },
     select: {
@@ -167,7 +171,7 @@ export async function structureIssue(
       beneficiaryUserId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      claims: { where: { status: "active", releasedAt: null }, select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      claims: { where: { status: "active", releasedAt: null }, select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
     },
   });
 

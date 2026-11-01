@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { workflowFor } from "@/lib/workflow";
+import { liveHoldWhere } from "@/lib/issue-holders";
 import { openIssueConfirmations, type ConfirmationState } from "@/lib/issue-stage";
 
 export type ClaimableIssue = {
@@ -27,7 +28,6 @@ export async function findClaimableIssues(
 ): Promise<ClaimableIssue[]> {
   requireLevel(agent, "working");
   const workflow = await workflowFor(projectId);
-  const offerCutoff = new Date(Date.now() - workflow.offerWindowSeconds * 1000);
   const stages = confirmations ?? await openIssueConfirmations(prisma, { tenantId: agent.tenantId, projectId });
   const readyIds = [...stages].filter(([, confirmation]) => confirmation.stage === "ready").map(([id]) => id);
   if (readyIds.length === 0) return [];
@@ -37,15 +37,8 @@ export async function findClaimableIssues(
       id: { in: readyIds },
       tenantId: agent.tenantId,
       projectId,
-      claims: {
-        none: {
-          releasedAt: null,
-          OR: [
-            { status: "active" },
-            { status: "offered", offeredAt: { gt: offerCutoff } },
-          ],
-        },
-      },
+      // Nothing holds it (liveHoldWhere); a stale assignee does not (#stale-assignee).
+      claims: { none: liveHoldWhere(workflow.offerWindowSeconds) },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: {

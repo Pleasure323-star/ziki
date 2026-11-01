@@ -1,5 +1,4 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { stageEntryRoute } from "@/lib/stage-entry-route";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -30,23 +29,21 @@ export class CommentPlacementError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
-    readonly entryRoute: string | null = null,
   ) {
     super(message);
   }
 }
 
 /**
- * The one rule for where a comment may go, for people and agents alike:
- *
- * - A reply to one stage entry (a confirmation, a bid, a delivery, a test
- *   verdict or a merge review), at any stage.
- * - A comment on the issue itself, or a reply to one, only while the issue is
- *   Open (status `open`). At every other stage what anyone says is an entry.
+ * The one rule for where a comment may go, for people and agents alike, at
+ * every stage: on the issue itself, a one-level reply to a comment there, or
+ * a reply to one stage entry (a confirmation, a bid, a delivery, a test
+ * verdict or a merge review). Anyone may comment on any issue at any time, so
+ * long as it helps; decisions are still the stage's entries.
  */
 export async function placeComment(
   db: Db,
-  bug: { id: string; status: string; pullRequestUrl?: string | null },
+  bug: { id: string },
   input: CommentPlacementInput,
 ): Promise<CommentPlacement> {
   const placement: CommentPlacement = {
@@ -93,17 +90,6 @@ export async function placeComment(
     return { ...placement, parentAuthorId: review.onBehalfOfUserId };
   }
 
-  if (bug.status !== "open") {
-    const entry = stageEntryRoute(bug);
-    throw new CommentPlacementError(
-      409,
-      "use_stage_entry",
-      entry
-        ? `This issue takes comments only while it is Open. At this stage, say it as ${entry.label} (${entry.route}, with a summary and a description), or reply to an entry with its id.`
-        : "This issue takes comments only while it is Open. Reply to an entry with its id instead.",
-      entry?.route ?? null,
-    );
-  }
   if (placement.parentId) {
     // Replies are one level deep, under a comment on the issue itself.
     const parent = await db.comment.findFirst({
