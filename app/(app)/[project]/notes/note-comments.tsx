@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { addNoteCommentAction, voteNoteCommentAction } from "./actions";
+import { addNoteCommentAction } from "./actions";
 
 /** The id the composer's text field has, for the Add note button to focus (#740). */
 export const NOTE_COMPOSER_FIELD_ID = "note-comment-body";
@@ -38,7 +38,7 @@ export function NoteCommentComposer({ projectId }: { projectId: string }) {
         onChange={(event) => { setBody(event.target.value); setPosted(false); }}
         rows={3}
         maxLength={10_000}
-        placeholder="A discovery, a correction or a suggestion for this project. It doesn't change the official notes."
+        placeholder="Something you learned about this project that would help others: a gotcha, a convention, where something lives. It doesn't change the official notes."
         className="mt-2 w-full rounded-lg border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
         aria-describedby={error ? "note-comment-error" : undefined}
       />
@@ -50,43 +50,6 @@ export function NoteCommentComposer({ projectId }: { projectId: string }) {
         {posted && !error ? <p role="status" className="text-sm text-zk-ok-fg">Posted.</p> : null}
       </div>
     </form>
-  );
-}
-
-/** Upvote a note comment, or take the upvote back (#732): one vote per person. */
-export function NoteUpvoteButton({ projectId, commentId, upvotes, upvoted }: { projectId: string; commentId: string; upvotes: number; upvoted: boolean }) {
-  const [state, setState] = useState({ upvotes, upvoted });
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-  const toggle = () => {
-    const next = !state.upvoted;
-    const before = state;
-    setState({ upvoted: next, upvotes: state.upvotes + (next ? 1 : -1) });
-    startTransition(async () => {
-      const result = await voteNoteCommentAction(projectId, commentId, next);
-      if (result.error) {
-        setState(before);
-        setError(result.error);
-        return;
-      }
-      setError(null);
-      setState({ upvoted: result.upvoted ?? next, upvotes: result.upvotes ?? before.upvotes });
-    });
-  };
-  return (
-    <span className="mt-3 inline-flex items-center gap-2">
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={pending}
-        aria-pressed={state.upvoted}
-        aria-label={`${state.upvoted ? "Remove your upvote" : "Upvote"}; ${state.upvotes} ${state.upvotes === 1 ? "upvote" : "upvotes"}`}
-        className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${state.upvoted ? "border-transparent bg-zk-ok-bg text-zk-ok-fg" : "border-zk-border text-zk-text2 hover:bg-zk-chip"}`}
-      >
-        ↑ {state.upvotes} {state.upvotes === 1 ? "upvote" : "upvotes"}
-      </button>
-      {error ? <span role="alert" className="text-xs text-zk-bad-fg">{error}</span> : null}
-    </span>
   );
 }
 
@@ -106,5 +69,62 @@ export function AddNoteButton() {
     <button type="button" onClick={focusComposer} className="rounded-lg bg-electric-blue-strong px-3 py-2 text-sm font-semibold text-white hover:brightness-110">
       Add note
     </button>
+  );
+}
+
+/**
+ * Reply to a note (#732): a correction or an adaptation of what it learned.
+ * A Reply button that opens a small form, with the cursor in it.
+ */
+export function NoteReplyForm({ projectId, parentId }: { projectId: string; parentId: string }) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-2 inline-flex h-7 items-center gap-1 rounded-full px-1.5 text-xs font-semibold text-zk-muted hover:bg-zk-chip hover:text-zk-text">
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+        </svg>
+        Reply
+      </button>
+    );
+  }
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!body.trim()) return setError("Write a reply first.");
+    startTransition(async () => {
+      const result = await addNoteCommentAction(projectId, body, parentId);
+      if (result.error) return setError(result.error);
+      setBody("");
+      setError(null);
+      setOpen(false);
+    });
+  };
+  return (
+    <form onSubmit={submit} aria-label="Reply to this note" className="mt-2 flex flex-col gap-1.5">
+      <textarea
+        // Opened by tapping Reply, so typing can start at once.
+        // eslint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus
+        aria-label="Reply"
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        rows={2}
+        maxLength={10_000}
+        placeholder="A correction or an adaptation of this learning."
+        className="w-full rounded-lg border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
+      />
+      {error ? <p role="alert" className="m-0 text-xs text-zk-bad-fg">{error}</p> : null}
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={pending} className="rounded-lg bg-electric-blue-strong px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
+          {pending ? "Sending…" : "Reply"}
+        </button>
+        <button type="button" onClick={() => { setOpen(false); setError(null); }} className="rounded-lg px-3 py-1.5 text-[13px] font-semibold text-zk-text2 hover:bg-zk-chip">
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

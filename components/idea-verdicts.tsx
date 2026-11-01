@@ -1,7 +1,7 @@
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
-import { AddVerdictDialog } from "@/components/add-verdict-dialog";
-import { CountBadge, CountBadgeCheck } from "@/components/count-badge";
+import { AddVerdictDialog } from "@/components/add-verdict-dialog";
+
 
 export type IdeaOpinionName = "good" | "bad" | "neutral";
 
@@ -164,31 +164,12 @@ export function IdeaVerdictsPanel({
                   · <LocalTime date={verdict.updatedAt} />
                 </span>
               </p>
-              <EntrySummary summary={verdict.summary} description={verdict.description} />
+              <EntrySummary summary={verdict.summary} description={verdict.description} />
+
             </li>
           ))}
         </ul>
       )}
     </section>
-  );
-}
-
-/**
- * In place of the upvote button on an idea's row: its net verdict score,
- * labelled "score". Ideas take verdicts, not upvotes.
- */
-export function IdeaScoreBadge({ score, threshold = null, bad = false }: { score: number; threshold?: number | null; bad?: boolean }) {
-  const passed = !bad && threshold !== null && score >= threshold;
-  const label = threshold === null
-    ? `Idea score ${score}`
-    : `Idea score ${score} of ${threshold}${bad ? ", reject advised" : passed ? ", idea accepted" : ""}`;
-  return (
-    <CountBadge
-      value={score}
-      label={label}
-      tone={bad ? "bad" : passed ? "ok" : "neutral"}
-      icon={passed ? <CountBadgeCheck /> : undefined}
-      testId="idea-score-badge"
-    />
   );
 }

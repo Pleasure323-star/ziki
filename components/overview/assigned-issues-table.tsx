@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Status } from "@prisma/client";
-import { OverviewVote } from "@/components/overview/overview-vote";
+import { IdeaScoreVoteBadge, ImportanceVoteBadge } from "@/components/vote-badge";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { formatTimeAgo } from "@/lib/format";
 import { issueStageLabels, type IssueStage } from "@/lib/issue-stage";
@@ -99,20 +99,9 @@ export function AssignedIssuesTable({ issues, allHref }: { issues: OverviewAssig
                   >
                     {typeof issue.ideaScore === "number" ? (
                       // Ideas take verdicts, not importance marks.
-                      <span
-                        className="inline-flex h-9 w-[52px] shrink-0 flex-col items-center justify-center rounded-full border border-dashed border-zk-border text-zk-text"
-                        aria-label={`Idea score ${issue.ideaScore}`}
-                        title={`Idea score ${issue.ideaScore}`}
-                      >
-                        <span className="text-[13px] font-bold leading-none tabular-nums">{issue.ideaScore}</span>
-                        <span className="text-[9.5px] leading-tight text-zk-muted">score</span>
-                      </span>
+                      <IdeaScoreVoteBadge score={issue.ideaScore} />
                     ) : (
-                      <OverviewVote
-                        bugId={issue.id}
-                        voteCount={issue.voteCount}
-                        voted={issue.userVoted}
-                      />
+                      <ImportanceVoteBadge bugId={issue.id} count={issue.voteCount} voted={issue.userVoted} votable />
                     )}
                     <Link
                       href={issue.path}

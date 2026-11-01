@@ -253,7 +253,7 @@ export async function deleteCommentAction(
 export type UpvoteCommentResult = { error?: string; ok?: boolean; votes?: number };
 
 /**
- * Upvote a helpful comment on an Open issue, as the signed-in person
+ * Upvote a helpful comment on an issue, as the signed-in person
  * (#comment-votes). The same rule as the agent route: one vote per person per
  * comment, never your own, and each new vote pays the comment's author 1
  * point. Voting again is fine and counts once.

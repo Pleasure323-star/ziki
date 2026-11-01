@@ -6,10 +6,10 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 export const runtime = "nodejs";
 
 export async function PUT(request: NextRequest, context: NotesRouteContext) {
-  return notesRequest(request, context, "notes.vote", true, (actor, params) => voteNoteComment(actor, params.commentId!, true));
+  return notesRequest(request, context, "notes.vote", true, (actor, params) => voteNoteComment(actor, params.commentId!, 1));
 }
 export async function DELETE(request: NextRequest, context: NotesRouteContext) {
-  return notesRequest(request, context, "notes.vote", true, (actor, params) => voteNoteComment(actor, params.commentId!, false));
+  return notesRequest(request, context, "notes.vote", true, (actor, params) => voteNoteComment(actor, params.commentId!, 0));
 }
 
 const apiMethodNotAllowed = createMethodNotAllowed(["PUT", "DELETE", "OPTIONS"]);

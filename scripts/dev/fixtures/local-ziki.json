@@ -10121,7 +10121,7 @@
    "summary": "Calling the notes page for an issue that was deleted answers 500 instead of 404.",
    "description": "## Summary\n\nCalling the notes page for an issue that was deleted answers 500 instead of 404.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open project notes.\n3. Repeat the action twice quickly.\n\n## Expected\n\n404 with the usual not_found body.\n\n## Actual\n\n500 Internal Server Error.\n\n## Where it is\n\n`app/(app)/notes/page.tsx:269` handles this. The query does not filter on it.\n\n## Acceptance criteria\n\n- [ ] 404 with the usual not_found body.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "merge",
-   "substatus": "merge_error",
+   "substatus": "error",
    "areaId": "fx-area-web",
    "reporterId": "fx-user-efe",
    "beneficiaryUserId": "fx-user-efe",
@@ -10139,7 +10139,7 @@
    "summary": "After an action on the work feed, focus jumps to the top of the page, so keyboard users lose their place.",
    "description": "## Summary\n\nAfter an action on the work feed, focus jumps to the top of the page, so keyboard users lose their place.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open large projects.\n3. Resize the window to 375 px.\n\n## Expected\n\nFocus returns to the control that was used, or the next sensible one.\n\n## Actual\n\nFocus moves to the document body.\n\n## Where it is\n\n`lib/agent-api/work.ts:379` handles this. The component has no branch for it.\n\n## Acceptance criteria\n\n- [ ] Focus returns to the control that was used, or the next sensible one.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "merge",
-   "substatus": "merge_error",
+   "substatus": "error",
    "areaId": "fx-area-api",
    "reporterId": "fx-user-dara",
    "beneficiaryUserId": "fx-user-dara",
@@ -10157,7 +10157,7 @@
    "summary": "An invalid limit on the notes page is replaced with the default, so a client that sent a wrong value never learns it was ignored.",
    "description": "## Summary\n\nAn invalid limit on the notes page is replaced with the default, so a client that sent a wrong value never learns it was ignored.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open project notes.\n3. Repeat the action twice quickly.\n\n## Expected\n\nA 4xx response naming the parameter and its allowed range.\n\n## Actual\n\n200 with the default page size; nothing says the value was ignored.\n\n## Where it is\n\n`app/(app)/notes/page.tsx:258` handles this. The query does not filter on it.\n\n## Acceptance criteria\n\n- [ ] A 4xx response naming the parameter and its allowed range.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "merge",
-   "substatus": "merge_error",
+   "substatus": "error",
    "areaId": "fx-area-web",
    "reporterId": "fx-user-amara",
    "beneficiaryUserId": "fx-user-amara",
@@ -10175,7 +10175,7 @@
    "summary": "Agents with area preferences have to page through everything in offer expiry to find their own area's work.",
    "description": "## Summary\n\nAgents with area preferences have to page through everything in offer expiry to find their own area's work.\n\n## Steps to reproduce\n\n1. Sign in to the demo workspace as a member.\n2. Open offered claims.\n3. Repeat the action twice quickly.\n\n## Expected\n\nAn area query parameter that narrows the results, with none for issues without an area.\n\n## Actual\n\nNo area filter is accepted.\n\n## Where it is\n\n`lib/agent-api/offer.ts:159` handles this. The query does not filter on it.\n\n## Acceptance criteria\n\n- [ ] An area query parameter that narrows the results, with none for issues without an area.\n- [ ] A test covers the case.\n- [ ] Docs mention the behaviour where agents rely on it.\n",
    "status": "merge",
-   "substatus": "merge_error",
+   "substatus": "error",
    "areaId": "fx-area-agents",
    "reporterId": "fx-user-dara",
    "beneficiaryUserId": "fx-user-dara",
@@ -46069,11 +46069,11 @@
    "bugId": "fx-bug-146",
    "actorId": "fx-user-dara",
    "type": "status_changed",
-   "summary": "Pull request can't merge: moved to Merge · Merge error",
+   "summary": "Pull request can't merge: moved to Merge · Error",
    "metadata": {
     "field": "status",
     "from": "ready_to_merge",
-    "to": "merge_error"
+    "to": "error"
    },
    "ago": 31242
   },
@@ -46156,11 +46156,11 @@
    "bugId": "fx-bug-147",
    "actorId": "fx-user-amara",
    "type": "status_changed",
-   "summary": "Pull request can't merge: moved to Merge · Merge error",
+   "summary": "Pull request can't merge: moved to Merge · Error",
    "metadata": {
     "field": "status",
     "from": "ready_to_merge",
-    "to": "merge_error"
+    "to": "error"
    },
    "ago": 4255
   },
@@ -46243,11 +46243,11 @@
    "bugId": "fx-bug-148",
    "actorId": "fx-user-amara",
    "type": "status_changed",
-   "summary": "Pull request can't merge: moved to Merge · Merge error",
+   "summary": "Pull request can't merge: moved to Merge · Error",
    "metadata": {
     "field": "status",
     "from": "ready_to_merge",
-    "to": "merge_error"
+    "to": "error"
    },
    "ago": 5
   },
@@ -46330,11 +46330,11 @@
    "bugId": "fx-bug-149",
    "actorId": "fx-user-demo",
    "type": "status_changed",
-   "summary": "Pull request can't merge: moved to Merge · Merge error",
+   "summary": "Pull request can't merge: moved to Merge · Error",
    "metadata": {
     "field": "status",
     "from": "ready_to_merge",
-    "to": "merge_error"
+    "to": "error"
    },
    "ago": 20269
   },

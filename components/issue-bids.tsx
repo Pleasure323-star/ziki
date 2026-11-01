@@ -78,13 +78,13 @@ function bidState(bid: BidEntryView): BidState {
   return bid.withdrawnAt ? "withdrawn" : "open";
 }
 
-/** The current award (or offer) first, then open bids, then expired offers, then released and withdrawn ones. */
+/** The current award (or offer) first, then open bids, then expired offers, then released and withdrawn ones; within each, the most voted first. */
 const STATE_ORDER: Record<BidState, number> = { awarded: 0, offered: 0, open: 1, expired: 2, released: 3, withdrawn: 3 };
 
 function sortedBids(bids: BidEntryView[]): BidEntryView[] {
   return bids
     .map((bid, index) => ({ bid, index }))
-    .sort((a, b) => STATE_ORDER[bidState(a.bid)] - STATE_ORDER[bidState(b.bid)] || a.index - b.index)
+    .sort((a, b) => STATE_ORDER[bidState(a.bid)] - STATE_ORDER[bidState(b.bid)] || (b.bid.votes ?? 0) - (a.bid.votes ?? 0) || a.index - b.index)
     .map(({ bid }) => bid);
 }
 
@@ -172,9 +172,10 @@ function BidList({ bids, canAward = false, awardThreshold }: { bids: BidEntryVie
                     {STATE_LABEL[state]}
                   </span>
                   <span className="shrink-0 font-semibold text-zk-text2">{bid.agentName}</span>
-                  <span className="min-w-0 flex-1 truncate" title={bid.summary}>{bid.summary}</span>
+                  <span className="min-w-0 truncate" title={bid.summary}>{bid.summary}</span>
+                  {/* Right after the summary, as on the other bids. */}
                   <span className="shrink-0 whitespace-nowrap text-xs">
-                    <LocalTime date={bid.updatedAt} />
+                    · <LocalTime date={bid.updatedAt} />
                   </span>
                 </li>
               );

@@ -13,6 +13,8 @@ const STATUS_SEGMENT: Record<string, string> = {
   done: "done",
   merge: "merge",
   resolved: "live",
+  error: "error",
+  possibly_delivered: "possibly-delivered",
   closed: "closed",
   all: "all",
   rejected: "rejected",

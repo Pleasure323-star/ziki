@@ -20,7 +20,8 @@ import { archiveReasonLabel, IDEA_WITHDRAWN_REASON } from "@/lib/idea-archive";
 import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
-import { withdrawIdeaAction } from "@/app/actions/idea-verdicts";
+import { approveIdeaAction, rejectIdeaAction, withdrawIdeaAction } from "@/app/actions/idea-verdicts";
+import { awardingAgentOf } from "@/lib/bid-award-permission";
 
 export const metadata: Metadata = { title: "Idea" };
 
@@ -52,8 +53,12 @@ const STATUS_CHIP: Record<string, { label: string; className: string }> = {
  * panel on the right with its status, score and people.
  */
 /** `/<slug>/ideas/<number>` (#project-urls): the slug picks the project and checks access; the idea must be in it. */
-export default async function IdeaPage({ params }: { params: Promise<{ project: string; number: string }> }) {
+export default async function IdeaPage({ params, searchParams }: {
+  params: Promise<{ project: string; number: string }>;
+  searchParams: Promise<{ error?: string | string[] }>;
+}) {
   const { project: slugParam, number: id } = await params;
+  const query = await searchParams;
   const { user, tenantId, project } = await requireProject(slugParam, `/${slugParam}/ideas/${id}`);
   const slug = project.slug;
   const ref = parseIssueRef(id);
@@ -117,6 +122,12 @@ export default async function IdeaPage({ params }: { params: Promise<{ project: 
     withdrawn: idea.status === "archived" && idea.archiveReason === IDEA_WITHDRAWN_REASON,
     governance: { thresholdOnly: isThresholdOnly(workflow), managerVoteWeight: workflow.managerVoteWeight },
   });
+  // What this person can do from the Actions box, through their highest-level agent.
+  const actingAgent = idea.status === "open" && (rejectable || verdicts.convertible) ? await awardingAgentOf(user.id, tenantId) : null;
+  const canApprove = idea.status === "open" && verdicts.convertible && Boolean(actingAgent);
+  const canReject = rejectable && (actingAgent?.level === "manager" || actingAgent?.level === "merger");
+  const canWithdraw = own && idea.status === "open";
+  const actionError = typeof query.error === "string" ? query.error : null;
   const earlier = legacyComments(idea.legacyComments);
   const authors = earlier.length
     ? new Map(
@@ -222,22 +233,61 @@ export default async function IdeaPage({ params }: { params: Promise<{ project: 
                 </>
               ) : null}
             </p>
-            {/* The owner withdraws their own open idea once it is obsolete (#idea-withdraw). */}
-            {own && idea.status === "open" ? (
-              <form action={withdrawIdeaAction} data-testid="idea-withdraw">
-                <input type="hidden" name="ideaId" value={idea.id} />
-                <ConfirmSubmitButton
-                  confirm={{
-                    title: `Withdraw idea #${idea.number}?`,
-                    body: "It is archived as withdrawn by its owner, moves to Rejected ideas and takes no more verdicts. Points already given for verdicts on it stay.",
-                    confirmLabel: "Withdraw idea",
-                  }}
-                >
-                  Withdraw idea
-                </ConfirmSubmitButton>
-              </form>
-            ) : null}
           </section>
+
+          {/* Actions (#idea-actions): approve once the score reached the threshold,
+              reject a bad idea (a manager agent's), withdraw your own. */}
+          {canApprove || canReject || canWithdraw ? (
+            <section aria-label="Actions" data-testid="idea-actions" className="flex flex-col gap-2.5 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
+              <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Actions</h2>
+              {actionError ? <p role="alert" className="m-0 text-xs text-zk-bad-fg">{actionError}</p> : null}
+              <div className="flex flex-wrap gap-2">
+                {canApprove ? (
+                  <form action={approveIdeaAction}>
+                    <input type="hidden" name="ideaId" value={idea.id} />
+                    <ConfirmSubmitButton
+                      variant="primary"
+                      confirm={{
+                        title: `Approve idea #${idea.number}?`,
+                        body: "It becomes an issue at Open · Awaiting confirmation, through your agent.",
+                        confirmLabel: "Approve idea",
+                      }}
+                    >
+                      Approve idea
+                    </ConfirmSubmitButton>
+                  </form>
+                ) : null}
+                {canReject ? (
+                  <form action={rejectIdeaAction}>
+                    <input type="hidden" name="ideaId" value={idea.id} />
+                    <ConfirmSubmitButton
+                      confirm={{
+                        title: `Reject idea #${idea.number}?`,
+                        body: "It moves to Rejected ideas and takes no more verdicts. Your manager agent rejects it.",
+                        confirmLabel: "Reject idea",
+                      }}
+                    >
+                      Reject idea
+                    </ConfirmSubmitButton>
+                  </form>
+                ) : null}
+                {canWithdraw ? (
+                  <form action={withdrawIdeaAction} data-testid="idea-withdraw">
+                    <input type="hidden" name="ideaId" value={idea.id} />
+                    <ConfirmSubmitButton
+                      confirm={{
+                        title: `Withdraw idea #${idea.number}?`,
+                        body: "It is archived as withdrawn by its owner, moves to Rejected ideas and takes no more verdicts. Points already given for verdicts on it stay.",
+                        confirmLabel: "Withdraw idea",
+                      }}
+                    >
+                      Withdraw idea
+                    </ConfirmSubmitButton>
+                  </form>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           <section aria-label="Score" className="flex flex-col gap-2 rounded-[20px] border border-zk-border bg-zk-surface px-4 py-3.5">
             <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-zk-muted">Score</h2>

@@ -105,11 +105,10 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
       select: { id: true, projectId: true, substatus: true, voteCount: true },
     });
     if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
-    if (bug.substatus !== "open") throw new IssueApiError(409, "Only open issues can take bids.");
-    // One rule for ready: confirmed under isConfirmed(), no second check (#714).
-    const isReady = await isConfirmed(bugId, tx);
-    if (!isReady) {
-      throw new IssueApiError(409, "This is not ready yet. Reviewers confirm an issue before it can be passed on.");
+    // An issue takes bids from the moment it exists, while it awaits
+    // confirmation too; only awarding waits until it is confirmed (awardBid).
+    if (bug.substatus !== "open" && bug.substatus !== "requires_confirmation") {
+      throw new IssueApiError(409, "Only open issues can take bids.");
     }
     await assertRedesignOpen(bugId, tx);
     await competingClaim(tx, bugId);

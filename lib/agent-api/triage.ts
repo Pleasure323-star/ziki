@@ -262,7 +262,7 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
       break;
     }
     case "ready_to_merge":
-    case "merge_error": {
+    case "error": {
       // Ziki doesn't merge: the merger merges on GitHub, reports it merged here, then resolves it.
       push("merge_on_github", route("pull-request-status"), "merger", gate("merger", [prGateNow.canAccept ? null : prGateNow.reason]),
         `Merge ${pr.url ?? "the pull request"} on GitHub yourself, then report it merged (state "merged", inDefaultBranch) and resolve it (POST ${route("resolve")}).`);

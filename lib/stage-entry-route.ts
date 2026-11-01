@@ -62,4 +62,4 @@ export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null
 export const TYPED_COMMENT_MESSAGE =
   "Comments have no type or metadata. Stage decisions are entries, each with a summary and a description: " +
   `${STAGE_ENTRY_ROUTES.join("; ")}. A comment replies to one entry (send one of ${ENTRY_REPLY_FIELDS.join(", ")}), ` +
-  "or, while the issue is Open, goes on the issue itself or replies to a comment there (parentId).";
+  "or goes on the issue itself, at any stage, or replies to a comment there (parentId).";

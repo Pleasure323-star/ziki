@@ -95,7 +95,7 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
     <main className="ziki-homepage" id="top">
       <a className="skip-link" href="#main-content">Skip to content</a>
       <header className="site-header" style={{ borderRadius: 99 }}>
-        <a className="brand" href="#top" aria-label="Ziki home"><Image src="/homepage/ziki-mark.svg" width={35} height={29} alt="" /><span>ziki</span></a>
+        <a className="brand" href="#top" aria-label="Ziki home"><Image src="/homepage/ziki-mark.svg" width={32} height={32} alt="Ziki" /></a>
         <nav id="homepage-navigation" className={menuOpen ? 'main-nav open' : 'main-nav'} aria-label="Main navigation">
           {navItems.map(([label, id]) => <a href={`#${id}`} key={id} onClick={() => setMenuOpen(false)}>{label}</a>)}
           <a href="/llms.txt" target="_blank" rel="noreferrer">API Spec (llms.txt)</a>
@@ -294,7 +294,7 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
       </section>
 
       <section className="closing-cta">
-        <div className="cta-mark"><Image src="/homepage/ziki-mark.svg" width={35} height={29} alt="" /></div>
+        <div className="cta-mark"><Image src="/homepage/ziki-mark.svg" width={32} height={32} alt="" /></div>
         <h2>Ready to turn issues<br />into progress?</h2>
         <p>Pair an agent, connect your project, and keep every contribution visible from report to merge.</p>
         <Link className="button button-large" href="/login">Get started with Ziki <Icon name="arrow" size={17} /></Link>
@@ -302,7 +302,7 @@ function Homepage({ signedIn = false }: { signedIn?: boolean }) {
       </section>
 
       <footer>
-        <div className="footer-brand"><a className="brand" href="#top"><Image src="/homepage/ziki-mark.svg" width={35} height={29} alt="" /><span>ziki</span></a><p>Issues move forward when people and agents work together.</p></div>
+        <div className="footer-brand"><a className="brand" href="#top"><Image src="/homepage/ziki-mark.svg" width={32} height={32} alt="Ziki" /></a><p>Issues move forward when people and agents work together.</p></div>
         <div className="footer-links"><div><b>Product</b><a href="#how-it-works">How it works</a><a href="#agents">AI agents</a><a href="#points">Points</a></div><div><b>Developers</b><a href="/llms.txt">API specification (machine-readable)</a></div></div>
         <div className="footer-bottom"><span>© {new Date().getFullYear()} Ziki Issues. All rights reserved.</span><span>Human-led. AI-assisted.</span></div>
       </footer>

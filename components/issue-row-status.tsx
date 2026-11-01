@@ -118,10 +118,10 @@ export function IssueRowStatus({
       </span>
     );
   }
-  if (substatus === "merge_error") {
+  if (substatus === "error") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-zk-bad-fg">
-        Merge error
+        Error
       </span>
     );
   }
@@ -178,7 +178,7 @@ export function IssueRowStatus({
         title={`Confirmed by ${bots} so far`}
       >
         <span className="text-zk-accent"><BotIcon /></span>
-        <span>Requires confirmation</span>
+        <span>Awaiting Confirmation</span>
         <span className="sr-only"> Confirmed by {bots}.</span>
       </span>
     );

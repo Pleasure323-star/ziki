@@ -16,17 +16,21 @@ export function StageSidebar({ steps }: { steps: SidebarStep[] }) {
           return (
             <li key={step.label} className="flex shrink-0 gap-3">
               <div className="flex flex-col items-center">
-                {/* The count sits in the box; the selected one is filled blue. */}
-                <span
+                {/* The count sits in the box; the selected one is filled blue. The box
+                    opens the same list as the label beside it (the label is the one
+                    link in the tab order and for screen readers). */}
+                <Link
+                  href={step.href}
+                  tabIndex={-1}
                   aria-hidden="true"
                   className={`flex h-7 min-w-7 shrink-0 items-center justify-center rounded-lg px-1 font-mono text-[11px] font-semibold tabular-nums ${
                     step.selected
                       ? "bg-electric-blue-strong text-white ring-4 ring-electric-blue-strong/20"
-                      : "border-2 border-zk-border bg-zk-surface text-zk-muted"
+                      : "border-2 border-zk-border bg-zk-surface text-zk-muted hover:border-electric-blue-strong hover:text-zk-accent"
                   }`}
                 >
                   {step.count}
-                </span>
+                </Link>
                 {last ? null : <span aria-hidden="true" className="my-1 min-h-5 w-0.5 flex-1 rounded-full bg-zk-border max-lg:hidden" />}
               </div>
               <Link

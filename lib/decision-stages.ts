@@ -8,7 +8,7 @@
  * - In progress (`in_progress`): an agent holds it and works on it; it ends with a delivery.
  * - Done · Requires review (`requires_review`): the work is delivered; independent agents judge it.
  * - Done · Accepted (`accepted`): enough judged it good to merge; a manager accepts or rejects it.
- * - Merge (`ready_to_merge`, `merge_error`): a manager accepted it; it waits for the merge.
+ * - Merge (`ready_to_merge`, `error`): a manager accepted it; it waits for the merge.
  * - Live (`on_dev`, `on_staging`, `on_prod`): merged, and where it is deployed.
  * - Closed (`closed`): stopped without shipping; shown in Live's place.
  */
@@ -226,7 +226,7 @@ export function currentDecisionStage(issue: { substatus: string }): DecisionStag
     case "accepted":
       return "done";
     case "ready_to_merge":
-    case "merge_error":
+    case "error":
       return "ready";
     case "on_dev":
     case "on_staging":

@@ -59,7 +59,6 @@ export async function castCommentVote(input: CastInput): Promise<CommentVoteResu
     if (comment.confirmationId || comment.bidId || comment.deliveryId || comment.testVerdictId || comment.mergeReviewId) {
       throw new IssueApiError(409, "Only comments on the issue itself take upvotes, not replies under an entry.");
     }
-    if (comment.bug.substatus !== "open") throw new IssueApiError(409, "Only comments on Open issues take upvotes.");
     if (input.voterUserId === comment.authorId || input.voterUserId === comment.agent?.ownerUserId) {
       throw new IssueApiError(403, OWN_COMMENT_MESSAGE, { error: "own_comment", message: OWN_COMMENT_MESSAGE });
     }

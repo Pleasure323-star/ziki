@@ -71,8 +71,8 @@ describe("pull request state, reported by agents", () => {
 
   it("can't be delivered or resolved once reported missing, until a newer report corrects it", async () => {
     await ok("bob", "report-pr-status", { id, pullRequestUrl, state: "not_found", note: "GitHub answers 404." });
-    // In Merge, a report that it can't merge is a Merge error (#substatus).
-    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "merge", substatus: "merge_error" });
+    // In Merge, a report that it can't merge is a Error (#substatus).
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "merge", substatus: "error" });
     expect((await refused("cara", "deliver", { id, ...delivery }, 422)).error).toBe("pull_request_not_found");
     expect((await refused("dana", "resolve-issue", { id }, 409)).error).toBe("pr_broken");
 
