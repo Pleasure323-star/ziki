@@ -403,7 +403,7 @@ export function parseEventFilters(params: URLSearchParams): EventFilters | Event
  * Enforces the key's project on event filters (#405).
  *
  * A key issued for one project must never receive another project's events,
- * the same promise the issue, job and SSE routes already make. For a scoped
+ * the same promise the issue and job routes already make. For a scoped
  * key:
  * - an explicit `projectId` for another project throws `AgentProjectError`
  *   (the wrapper answers `403 project_forbidden`);

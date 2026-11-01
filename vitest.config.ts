@@ -14,7 +14,7 @@ export default defineConfig({
     // suite and are never part of this one; nor are build output, generated
     // reports, Playwright specs (e2e, `pnpm e2e`), the standalone packages
     // (packages/*, their own install and tests in ci.yml) or the CLI scenarios
-    // (cli/tests, `pnpm test:cli`). scripts/verify/discovery.test.ts checks it.
+    // (cli/tests, `pnpm test:cli`). The unit suite itself lives in tests/.
     exclude: [
       ...configDefaults.exclude,
       "**/.claude/**",

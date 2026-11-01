@@ -50,7 +50,6 @@ describe("tool table matches the API", () => {
       ...(tool.body ?? []),
       ...Object.values(tool.headers ?? {}),
       ...(tool.file ? [tool.file.filename, tool.file.data] : []),
-      ...(tool.streamSeconds ? [tool.streamSeconds] : []),
     ]);
     if (tool.projectScoped) routed.add("projectId");
     const inputs = Object.keys(tool.input);

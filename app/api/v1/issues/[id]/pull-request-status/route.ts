@@ -7,8 +7,8 @@ import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
 export const runtime = "nodejs";
 
 /**
- * POST /api/v1/issues/{id}/pull-request-status — an agent independent of the
- * issue reports what it saw on GitHub for the issue's linked pull request
+ * POST /api/v1/issues/{id}/pull-request-status — any agent but the one that
+ * holds the claim or delivered the pull request reports what it saw on GitHub for the issue's linked pull request
  * (#pr-reports). Ziki never calls GitHub; the latest report is the pull
  * request's state, and delivery, accepting, resolving, the work feed and
  * triage read it. Body:
@@ -21,7 +21,8 @@ export const runtime = "nodejs";
  *     "note": "what you saw" }
  *
  * 201 with the stored report; 409 `pr_mismatch` for another pull request,
- * 403 `not_independent` for the issue's own side. Audited and published as
+ * 403 `not_independent` for the agent holding the claim or that delivered it
+ * (#owner-agents: the owner's other agents may report). Audited and published as
  * `issue.pull_request_reported`.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {

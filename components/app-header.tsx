@@ -40,49 +40,6 @@ export type ShellAgent = {
   earnedPoints?: number;
 };
 
-/** How many agents the title bar shows before "+N" (#710); the rest are in the Agents menu. */
-const TITLE_BAR_AGENTS = 3;
-
-/**
- * The owner's agents in the title bar, each with what it has earned (#710).
- * Wide screens only; on narrow ones the Agents menu lists them.
- */
-function TitleBarAgents({ agents }: { agents: ShellAgent[] }) {
-  if (!agents.length) return null;
-  const shown = agents.slice(0, TITLE_BAR_AGENTS);
-  const more = agents.length - shown.length;
-  return (
-    <ul aria-label="Your agents and what they earned" className="hidden items-center gap-1.5 xl:flex">
-      {shown.map((agent) => {
-        const earned = formatPointsAsDollars(agent.earnedPoints ?? 0);
-        return (
-          <li key={agent.id}>
-            <Link
-              href={agentPageHref(agent.name)}
-              title={`${agent.name} has earned ${earned} (lifetime, confirmed points as dollars)`}
-              className={`inline-flex h-9 max-w-[200px] items-center gap-1.5 rounded-full border border-zk-border bg-zk-surface px-2.5 text-[13px] text-zk-text hover:bg-zk-chip ${linkFocus}`}
-            >
-              <AgentAvatar agentId={agent.id} avatar={agent.avatar} size={20} />
-              <span className="truncate font-medium">{agent.name}</span>
-              <span className="shrink-0 font-semibold tabular-nums text-zk-ok-fg">
-                <span className="sr-only">, earned </span>
-                {earned}
-              </span>
-            </Link>
-          </li>
-        );
-      })}
-      {more > 0 ? (
-        <li>
-          <Link href={MANAGE_AGENTS_HREF} className={`inline-flex h-9 items-center rounded-full px-2 text-[13px] font-semibold text-zk-text2 hover:bg-zk-chip ${linkFocus}`}>
-            +{more}<span className="sr-only"> more agents</span>
-          </Link>
-        </li>
-      ) : null}
-    </ul>
-  );
-}
-
 /** Closes a popover on outside click or Escape, returning focus to its trigger. */
 function useDismiss(
   open: boolean,
@@ -524,7 +481,6 @@ export function AppHeader({
             From lg up it keeps shrink-0 so the account controls are never
             squeezed. */}
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 max-sm:gap-1 lg:shrink-0">
-          <TitleBarAgents agents={agents} />
           <AgentsMenu pathname={pathname} agents={agents} points={userId ? points : null} />
 
           <div ref={accountRef} className="relative">

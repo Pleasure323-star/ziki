@@ -171,7 +171,7 @@ export async function structureIssue(
       beneficiaryUserId: true,
       assigneeId: true,
       createdByAgent: { select: { ownerUserId: true } },
-      claims: { where: { status: "active", releasedAt: null }, select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+      claims: { where: { status: "active", releasedAt: null }, select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
     },
   });
 

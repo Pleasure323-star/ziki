@@ -86,7 +86,7 @@ const reviewedSelect = {
   reporterId: true,
   assigneeId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
+  claims: { select: { status: true, releasedAt: true, beneficiaryUserId: true, agentId: true, dispatcherUserId: true, agent: { select: { ownerUserId: true } } } },
 } satisfies Prisma.BugSelect;
 
 /** Every delivery on one issue, newest first, each with its replies. */
@@ -211,14 +211,9 @@ export async function deliverWork(
       }
       const reviewed = await prisma.bug.findUnique({ where: { id: bug.id }, select: reviewedSelect });
       const conflict = reviewed ? reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, reviewed) : null;
-      if (conflict || agent.ownerId === stranded.creditedUserId) {
-        return {
-          status: 403,
-          error: "not_independent",
-          message: conflict
-            ? new ReviewerNotIndependentError(conflict).message
-            : "This delivery would be credited to this agent's owner, so a manager agent of another owner files it.",
-        };
+      // #owner-agents: the credited person's own manager agent may file it too.
+      if (conflict) {
+        return { status: 403, error: "not_independent", message: new ReviewerNotIndependentError(conflict).message };
       }
       if (body.pullRequestUrl !== stranded.pullRequestUrl) {
         return {

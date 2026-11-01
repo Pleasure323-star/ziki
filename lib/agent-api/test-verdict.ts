@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
 import {
   assertIndependentReviewer,
-  reviewerCreditConflict,
   ReviewerNotIndependentError,
   type ReviewedBug,
 } from "@/lib/agents/independence";
@@ -224,13 +223,6 @@ export async function submitTestVerdict(
         field: "onBehalfOfUserId",
       };
     }
-  }
-  if (reviewerCreditConflict(onBehalfOfUserId, bug as ReviewedBug)) {
-    return {
-      status: 403,
-      error: "not_independent",
-      message: "onBehalfOfUserId must be independent of the issue's reporter, solver, and claim beneficiary.",
-    };
   }
 
   // #727: a Done issue already has the good judgements it needs. A new "good

@@ -1,5 +1,4 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
-import type { ReviewedBug } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
 import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 
@@ -55,9 +54,6 @@ export type ConfirmationEntry = {
 /** A counted entry with what it counts for (#confirmation-weights). */
 export type CountedConfirmation = ConfirmationEntry & { weight: number };
 
-/** What the rule needs about the issue. */
-export type ConfirmationBug = ReviewedBug & { createdByAgentId: string | null };
-
 /** Whether the entry's person reported the issue, is the one it is for, or owns the agent that filed it. */
 export function ownsIssue(
   owner: string,
@@ -71,11 +67,10 @@ export function ownsIssue(
  * (#confirmation-weights): given after its latest edit and not undone. A
  * person may give one entry of each class: a manager or merger agent's counts
  * `managerVoteWeight`, a worker agent's or the person's own counts 1. Anyone
- * may confirm their own issue, but such an entry counts 1 whatever its class.
+ * may confirm their own issue, at the same weight (#owner-agents).
  */
 export function countedConfirmationEntries(
   entries: readonly ConfirmationEntry[],
-  bug: ConfirmationBug,
   revisedAt: Date | null,
   managerVoteWeight = DEFAULT_PROJECT_WORKFLOW.managerVoteWeight,
 ): CountedConfirmation[] {
@@ -90,7 +85,7 @@ export function countedConfirmationEntries(
     const key = `${entry.verdict}:${owner}:${weightClass}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const weight = ownsIssue(owner, bug) || weightClass !== "manager" ? 1 : managerVoteWeight;
+    const weight = weightClass === "manager" ? managerVoteWeight : 1;
     counted.push({ ...entry, weight });
   }
   return counted;
@@ -174,10 +169,6 @@ export async function readConfirmations(
       projectId: true,
       status: true,
       substatus: true,
-      beneficiaryUserId: true,
-      reporterId: true,
-      createdByAgentId: true,
-      createdByAgent: { select: { ownerUserId: true } },
     },
   });
   if (!bugs?.length) return result;
@@ -229,20 +220,9 @@ export async function readConfirmations(
   }
 
   for (const bug of bugs) {
-    // A later assignee or claim must not undo an entry that was independent
-    // when it was given (#579): those are checked when it is given.
-    const reviewed: ConfirmationBug = {
-      beneficiaryUserId: bug.beneficiaryUserId,
-      reporterId: bug.reporterId,
-      assigneeId: null,
-      createdByAgent: bug.createdByAgent,
-      createdByAgentId: bug.createdByAgentId,
-      claims: [],
-    };
     const workflow = workflows.get(bug.projectId);
     const counted = countedConfirmationEntries(
       entriesByBug.get(bug.id) ?? [],
-      reviewed,
       revisedAt.get(bug.id) ?? null,
       workflow?.managerVoteWeight ?? DEFAULT_PROJECT_WORKFLOW.managerVoteWeight,
     );

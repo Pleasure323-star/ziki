@@ -228,9 +228,8 @@ export function nextActions(caller: TriageCaller, facts: TriageFacts): TriageAct
   switch (bug.substatus) {
     case "in_progress": {
       if (facts.stranded) {
-        const credited = facts.stranded.creditedUserId === caller.ownerId ? "Your owner is credited on this issue." : null;
         const broken = prGateNow.broken ? `${prGateNow.reason} Nothing to deliver; reclaim it if it is idle.` : null;
-        push("deliver_stranded", route("delivery"), "manager", gate("manager", [broken, credited]),
+        push("deliver_stranded", route("delivery"), "manager", gate("manager", [broken]),
           `${facts.stranded.goodVerdicts} of ${facts.stranded.needed} good-to-merge judgements are on the linked pull request.`);
       }
       // A stranded delivery is asked once, as deliver_stranded, not also as idle work (as in the work feed),

@@ -8,7 +8,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
-import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verdicts";
+import { countedMergeVerdicts, deliveredClaim, MANAGER_VERDICT_WEIGHT } from "@/lib/agent-api/merge-verdicts";
 import { award, awardDispatcher } from "@/lib/points/award";
 import { pointSourceKey, reviewerPointsAt } from "@/lib/points/rules";
 import {
@@ -345,15 +345,15 @@ async function reviewFix(
     };
   }
 
-  const { reviewers, acceptedHeadSha } = await countedReviewers(bug, claim, credited);
+  const { reviewers, weight, acceptedHeadSha } = await countedReviewers(bug, claim, credited);
 
   const { verdictsNeeded } = workflow;
-  if (reviewers.length < verdictsNeeded) {
+  if (weight < verdictsNeeded) {
     return {
       status: 409 as const,
       error: "not_ready" as const,
       missing: "verdicts" as const,
-      message: `This needs ${verdictsNeeded} reviewers saying it is good to merge; ${reviewers.length} count so far.`,
+      message: `This needs good-to-merge judgements weighing ${verdictsNeeded} (a manager's counts ${MANAGER_VERDICT_WEIGHT}, a working agent's 1); ${weight} so far.`,
     };
   }
 
@@ -516,13 +516,13 @@ export async function countedReviewers(
   bug: ReviewedBug & { id: string; pullRequestUrl: string | null; pullRequestHeadSha: string | null },
   claim: MergeClaim,
   credited: readonly string[],
-): Promise<{ reviewers: string[]; acceptedHeadSha: string | null }> {
+): Promise<{ reviewers: string[]; weight: number; acceptedHeadSha: string | null }> {
   const verdicts = await prisma.testVerdict.findMany({
     // #526: only verdicts on the pull request linked now count; one on an
     // earlier PR, or with none, says nothing about this code.
     where: { bugId: bug.id, goodToMerge: true, pullRequestUrl: bug.pullRequestUrl ?? "" },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, headSha: true, onBehalfOfUserId: true, agent: { select: { id: true, ownerUserId: true } } },
+    select: { id: true, headSha: true, onBehalfOfUserId: true, agent: { select: { id: true, ownerUserId: true, level: true } } },
   });
 
   // Checked again now, not only when submitted: a claim taken since, or a

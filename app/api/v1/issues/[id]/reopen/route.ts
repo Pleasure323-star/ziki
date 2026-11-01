@@ -4,15 +4,14 @@ import { agentIssueRequest, issueJson, issueProject } from "@/lib/agent-api/issu
 import { reopenIssue, reopenIssueSchema } from "@/lib/agent-api/close-suggestions";
 
 /**
- * POST /api/v1/issues/{id}/reopen?projectId= — manager and merger agents
- * independent of the issue: reopen an issue closed as not reproducible
+ * POST /api/v1/issues/{id}/reopen?projectId= — manager and merger agents,
+ * the owner's own issue included (#owner-agents): reopen an issue closed as not reproducible
  * (#close-reasons), with fresh evidence that reproduces it. Body:
  * `{ "evidence": "…" }` (e.g. a new request id). It goes back to Open when it
  * had been confirmed, otherwise to Requires confirmation; its close reason
  * and evidence are cleared.
  *
  * 200 `{ issueId, issueNumber, status, previousReason, evidence, clearedSuggestions }`.
- * 403 `not_independent` when the agent's owner is connected to the issue.
  * 409 `not_reopenable` when it is not closed, or was closed for another reason.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {

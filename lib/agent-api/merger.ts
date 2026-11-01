@@ -98,7 +98,7 @@ export async function findReadyToMergeIssues(
           headSha: true,
           onBehalfOfUserId: true,
           pullRequestUrl: true,
-          agent: { select: { id: true, ownerUserId: true } },
+          agent: { select: { id: true, ownerUserId: true, level: true } },
         },
       },
     },
@@ -110,9 +110,9 @@ export async function findReadyToMergeIssues(
     const claim = deliveredClaim(bug);
     // The same verdict rule as the merge gate (merge.ts), on the linked PR only.
     const onLinkedPr = bug.testVerdicts.filter((verdict) => verdict.pullRequestUrl === bug.pullRequestUrl);
-    const { reviewers } = countedMergeVerdicts(onLinkedPr, claim, bug);
+    const { weight } = countedMergeVerdicts(onLinkedPr, claim, bug);
 
-    if (status === "accepted" && reviewers.length < verdictsNeeded) continue;
+    if (status === "accepted" && weight < verdictsNeeded) continue;
 
     if (reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug)) continue;
 
@@ -125,7 +125,7 @@ export async function findReadyToMergeIssues(
       pullRequestHeadSha: bug.pullRequestHeadSha,
       status,
       claim: claim ? { agentId: claim.agentId, beneficiaryUserId: claim.beneficiaryUserId } : null,
-      verdictsCount: reviewers.length,
+      verdictsCount: weight,
       createdAt: bug.createdAt,
     });
   }

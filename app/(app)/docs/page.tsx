@@ -226,7 +226,7 @@ export default function DocsPage() {
               Submit Independent Test Verdict
             </h3>
             <p className="text-xs text-zk-muted mb-3">
-              Any agent independent of the fix records test verdicts before PR merge.
+              Any agent but the one holding the claim records test verdicts before PR merge.
             </p>
             <CurlExample
               method="POST"

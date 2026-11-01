@@ -1,11 +1,13 @@
 /**
- * Reviewer independence (#442).
+ * Reviewer independence (#442, #owner-agents).
  *
- * Two agents owned by the same person must not confirm each other's tickets
- * or mark a fix good to merge. The check is on the owner, not
- * only on the agent id, so a person can't review their own work through a
- * second agent. #433 (validation) and #434 (test verdict) call
- * `assertIndependentReviewer`; they must not reimplement it.
+ * An owner's agents may confirm, judge, review, report on and resolve the
+ * owner's own tickets: nothing is gated to other people. The one rule left is
+ * that the agent holding the claim can't review its own work; another agent,
+ * the same owner's included, can. How much an owner's entries count is the
+ * counting rules' business (lib/issue-stage.ts, lib/agent-api/merge-verdicts.ts).
+ * #433 (validation) and #434 (test verdict) call `assertIndependentReviewer`;
+ * they must not reimplement it.
  */
 
 /** The agent doing the review. */
@@ -27,27 +29,18 @@ export type ReviewedBug = {
   claims?: ReadonlyArray<{
     status: string;
     releasedAt?: Date | null;
+    /** The agent holding the claim. */
+    agentId?: string | null;
     beneficiaryUserId?: string | null;
     dispatcherUserId?: string | null;
     agent?: AgentOwner;
   }>;
 };
 
-export type ReviewerConflict =
-  | "created-by-own-agent"
-  | "own-ticket"
-  | "claimed-by-own-agent"
-  | "assigned-solver"
-  | "claim-beneficiary"
-  | "claim-dispatcher";
+export type ReviewerConflict = "own-claim";
 
 const MESSAGES: Record<ReviewerConflict, string> = {
-  "created-by-own-agent": "An agent of the same owner filed this ticket, so this agent can't review it.",
-  "own-ticket": "This ticket is for the agent's owner, so this agent can't review it.",
-  "claimed-by-own-agent": "An agent of the same owner is working on this ticket, so this agent can't review it.",
-  "assigned-solver": "The person assigned to solve this ticket can't review it.",
-  "claim-beneficiary": "The beneficiary of the active claim can't review this ticket.",
-  "claim-dispatcher": "The dispatcher rewarded for the active claim can't review this ticket.",
+  "own-claim": "This agent holds the claim on this ticket, so it can't review its own work. Another agent can, your owner's other agents included.",
 };
 
 export class ReviewerNotIndependentError extends Error {
@@ -60,37 +53,17 @@ export class ReviewerNotIndependentError extends Error {
   }
 }
 
-function activeClaimOwner(bug: ReviewedBug): string | null {
-  const claim = bug.claims?.find((c) => c.status === "active" && !c.releasedAt);
-  return claim?.agent?.ownerUserId ?? null;
-}
-
 function activeClaim(bug: ReviewedBug) {
   return bug.claims?.find((c) => c.status === "active" && !c.releasedAt);
 }
 
 /**
- * Why `actor` may not review `bug`, or null when it may. Rejects when the
- * actor's owner owns the agent that created the ticket, is the ticket's
- * beneficiary, or owns the agent holding the active claim.
+ * Why `actor` may not review `bug`, or null when it may: only when `actor` is
+ * the agent holding the active claim, reviewing its own work.
  */
 export function reviewerConflict(actor: ReviewingAgent, bug: ReviewedBug): ReviewerConflict | null {
-  const owner = actor.ownerUserId;
-  if (bug.createdByAgent?.ownerUserId === owner) return "created-by-own-agent";
-  // The beneficiary earns the points; the reporter filed the ticket. A human
-  // reporter's own agent reviewing that report is the same conflict even
-  // though a web-filed bug has no beneficiary set (#620).
-  if (bug.beneficiaryUserId === owner || bug.reporterId === owner) return "own-ticket";
-  if (activeClaimOwner(bug) === owner) return "claimed-by-own-agent";
-  if (bug.assigneeId === owner) return "assigned-solver";
-  if (activeClaim(bug)?.beneficiaryUserId === owner) return "claim-beneficiary";
-  if (activeClaim(bug)?.dispatcherUserId === owner) return "claim-dispatcher";
-  return null;
-}
-
-/** Independence checks for the person credited on a review, in addition to the reviewing agent's owner. */
-export function reviewerCreditConflict(userId: string, bug: ReviewedBug): ReviewerConflict | null {
-  return reviewerConflict({ id: "credited-user", ownerUserId: userId }, bug);
+  const claim = activeClaim(bug);
+  return claim?.agentId && claim.agentId === actor.id ? "own-claim" : null;
 }
 
 /** Throws `ReviewerNotIndependentError` unless `actor` is independent of `bug`. */

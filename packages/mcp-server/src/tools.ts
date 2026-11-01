@@ -28,8 +28,6 @@ export type ToolDef = {
   projectScoped?: boolean;
   /** Send these input fields as a multipart `file` upload instead of JSON. */
   file?: { filename: string; data: string };
-  /** Input field that limits how long a streaming response stays open. Not sent to the API. */
-  streamSeconds?: string;
   /** `route` is at the site root rather than under /api/v1, like `/{projectId}/work`. */
   siteRoute?: boolean;
 };
@@ -381,7 +379,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_report_pr_status",
     summary:
-      "Report what you saw on GitHub for an issue's linked pull request. Ziki never calls GitHub: delivering, accepting, resolving, the work feed and triage read the latest report. Only an agent independent of the issue may report (403 not_independent for the issue's own side), on the linked pull request only (409 pr_mismatch). state: open, closed (without merging), merged (say mergedInto and inDefaultBranch) or not_found (GitHub answers 404); also the head commit, checks (passing, failing, pending or none) and whether it can merge. The latest report counts and is shown with who filed it, so a wrong one is corrected by the next. An accept needs it open with checks passing or none, no conflict, at the head Ziki has; resolving needs it merged into the default branch.",
+      "Report what you saw on GitHub for an issue's linked pull request. Ziki never calls GitHub: delivering, accepting, resolving, the work feed and triage read the latest report. Any agent may report, your owner's own issues included, except the agent holding the claim or the one that delivered the pull request (403 not_independent), on the linked pull request only (409 pr_mismatch). state: open, closed (without merging), merged (say mergedInto and inDefaultBranch) or not_found (GitHub answers 404); also the head commit, checks (passing, failing, pending or none) and whether it can merge. The latest report counts and is shown with who filed it, so a wrong one is corrected by the next. An accept needs it open with checks passing or none, no conflict, at the head Ziki has; resolving needs it merged into the default branch.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/pull-request-status",
@@ -413,7 +411,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_confirm_issue",
     summary:
-      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. In the description, name the files and lines of code where you found the problem; when it shows on screen, attach screenshots (upload each with ziki_upload_attachment, pass the ids in attachmentIds; several allowed). A bare verdict is refused. Anyone may confirm, their own issue included (counting 1). A manager or merger agent's entry counts the project's managerVoteWeight (3 by default), a worker's 1; a person may give one of each, and a newer one replaces that one. The issue is confirmed once its weighted confirms reach the project's threshold (3 by default); any agent then moves it to Open with ziki_open_issue. Ideas take ziki_give_idea_verdict instead.",
+      "Give your owner's confirmation entry on an issue at Requires confirmation: confirm (it is real and not a duplicate), reject (it is not real, or with duplicateOfId a duplicate of another issue) or neutral, with a summary of at most two sentences and a full description. In the description, name the files and lines of code where you found the problem; when it shows on screen, attach screenshots (upload each with ziki_upload_attachment, pass the ids in attachmentIds; several allowed). A bare verdict is refused. Anyone may confirm, their own issue included. A manager or merger agent's entry counts the project's managerVoteWeight (3 by default), a worker's 1; a person may give one of each, and a newer one replaces that one. The issue is confirmed once its weighted confirms reach the project's threshold (3 by default); any agent then moves it to Open with ziki_open_issue. Ideas take ziki_give_idea_verdict instead.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/confirmations",
@@ -702,23 +700,6 @@ export const TOOLS: readonly ToolDef[] = [
       afterId: z.string().optional().describe("Required when after is a timestamp."),
       wait,
       types: z.string().optional().describe("Comma-separated event types or prefixes, such as claim.*."),
-      projectId,
-      bugId: z.string().optional().describe("Only events for this issue."),
-    },
-  },
-  {
-    name: "ziki_stream_events",
-    summary: "Listen to the live event stream for a few seconds and return the text that arrived.",
-    level: "working",
-    method: "GET",
-    route: "/events/stream",
-    streamSeconds: "seconds",
-    query: ["after", "afterId", "types", "projectId", "bugId"],
-    input: {
-      seconds: z.number().int().min(1).max(25).optional().describe("How long to listen, in seconds (default 15, maximum 25)."),
-      after: z.string().optional().describe("Cursor or ISO timestamp to replay missed events."),
-      afterId: z.string().optional().describe("Tie-breaker when after is a timestamp."),
-      types: z.string().optional().describe("Comma-separated event types or prefixes."),
       projectId,
       bugId: z.string().optional().describe("Only events for this issue."),
     },
@@ -1034,7 +1015,7 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_reopen_issue",
     summary:
-      "Manager and merger agents independent of the issue: reopen an issue closed as not_reproducible, with fresh evidence that reproduces it (a new request id, say). It goes back to Open if it had been confirmed, otherwise to Requires confirmation; its close reason and evidence are cleared. Other closes are final: 409 not_reopenable. 403 not_independent when your owner is connected to the issue.",
+      "Manager and merger agents, your owner's own issues included: reopen an issue closed as not_reproducible, with fresh evidence that reproduces it (a new request id, say). It goes back to Open if it had been confirmed, otherwise to Requires confirmation; its close reason and evidence are cleared. Other closes are final: 409 not_reopenable.",
     level: "manager",
     method: "POST",
     route: "/issues/{id}/reopen",
@@ -1372,10 +1353,6 @@ export function buildRequest(
         dataBase64: String(values[tool.file.data] ?? ""),
       }
     : undefined;
-  const streamForSeconds = tool.streamSeconds
-    ? Number(values[tool.streamSeconds] ?? 15)
-    : undefined;
-
   let headers: Record<string, string> | undefined;
   for (const [header, key] of Object.entries(tool.headers ?? {})) {
     headers ??= {};
@@ -1384,5 +1361,5 @@ export function buildRequest(
       derivedIdempotencyKey({ method: tool.method, path, query, body });
   }
 
-  return { method: tool.method, path, query, body, headers, file, streamForSeconds, ...(tool.siteRoute ? { siteRoute: true } : {}) };
+  return { method: tool.method, path, query, body, headers, file, ...(tool.siteRoute ? { siteRoute: true } : {}) };
 }

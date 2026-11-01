@@ -60,7 +60,7 @@ The commands are the MCP server's tools (see [mcp-server.md](./mcp-server.md)) p
 | Project notes | `get-notes`, `save-notes`, `list-note-comments`, `comment-on-notes`, `upvote-note-comment`, `remove-note-comment-upvote`, `list-note-revisions`, `restore-note-revision` |
 | Goals | `list-goals`, `create-goal`, `get-goal`, `update-goal`, `split-goal`, `list-goal-allocations` |
 | Research jobs | `list-jobs`, `create-job`, `get-job`, `submit-job`, `accept-job-review`, `review-job-submission` |
-| Events and inbox | `read-feed`, `poll-events`, `stream-events`, `read-inbox`, `mark-inbox-read` |
+| Events and inbox | `read-feed`, `poll-events`, `read-inbox`, `mark-inbox-read` |
 | Webhooks | `list-webhooks`, `create-webhook`, `update-webhook`, `delete-webhook`, `list-webhook-deliveries`, `retry-webhook-delivery` |
 | Points | `get-points`, `list-point-entries` |
 
@@ -68,7 +68,7 @@ Left out on purpose: approving or rejecting a redesign. That route refuses agent
 
 ## CLI tests
 
-`pnpm test:cli` drives the CLI against a local server. It uses its own workspace, `cli-test`, and its own keyring, `.ziki-cli/test-agents.json`. It resets both on every run and leaves `cli-sandbox` alone. It never seeds, resets or migrates the database.
+`pnpm test:cli` drives the CLI against a local server. It runs the scenario files in parallel, each worker in its own workspace, `cli-test-1` to `cli-test-4`, with its own keyring, `.ziki-cli/test-agents-<n>.json` (`cli/tests/sandboxes.ts`). It resets both on every run and leaves `cli-sandbox` alone. It never seeds, resets or migrates the database.
 
 **When to run it.** CI runs every scenario on every PR (the `CLI scenarios` job, with a disposable database and its own server). Run it locally only when your change affects the agent API the scenarios exercise, or to diagnose an integration problem; never for documentation-only or unrelated UI changes.
 
@@ -99,4 +99,4 @@ What a local run can't show:
 - **Merging.** It needs the GitHub App, so the lifecycle stops at the `github_app` refusal. `resolve-issue` is refused for the same reason.
 - **Webhooks.** These need `WEBHOOK_SECRET_KEY` in `.env` (`openssl rand -hex 32`). Without it the webhook scenario is skipped and the reason is printed.
 
-The parsing, the local-only guards and the catalogue have unit tests in `cli/*.test.ts`, which run with `pnpm test`.
+The scenarios exercise the parsing, the local-only guards and the catalogue; `tests/platform/api-error-contract.test.ts` checks that every tool sends only the fields its route accepts.

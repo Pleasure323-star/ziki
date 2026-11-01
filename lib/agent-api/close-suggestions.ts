@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
-import { reviewerConflict } from "@/lib/agents/independence";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
@@ -41,7 +40,7 @@ import { moveTo } from "@/lib/issue-substatus";
  * (#vote-governance).
  *
  * Two more ways, both without votes: the issue's owner withdraws it (reason
- * `withdrawn`), and a manager agent independent of the issue reopens one
+ * `withdrawn`), and a manager agent reopens one
  * closed as not reproducible, with fresh evidence.
  *
  * Closing releases any live claim or offer and keeps everything else:
@@ -379,8 +378,8 @@ export async function closeIssue(agent: AgentContext, projectId: string, issueRe
 }
 
 /**
- * `POST /api/v1/issues/{id}/reopen` (#close-reasons), manager level and
- * independent of the issue: reopen an issue closed as not reproducible, with
+ * `POST /api/v1/issues/{id}/reopen` (#close-reasons), manager level, the
+ * owner's own issue included (#owner-agents): reopen an issue closed as not reproducible, with
  * fresh evidence that reproduces it (a new request id, say). Any other close
  * is final (409 not_reopenable). It goes back to Open when it had been
  * confirmed, otherwise to Requires confirmation; its close reason and
@@ -399,11 +398,6 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
         ? `Only an issue closed as not reproducible can be reopened; this one was closed${fresh.closeReason ? ` as ${closeReasonLabel(fresh.closeReason) ?? fresh.closeReason}` : ""}.`
         : "Only a closed issue can be reopened.";
       throw new IssueApiError(409, message, { error: "not_reopenable", message, status: fresh.status, closeReason: fresh.closeReason });
-    }
-    const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, fresh);
-    if (conflict) {
-      const message = "Your owner is connected to this issue, so this agent can't reopen it. A manager agent independent of it can.";
-      throw new IssueApiError(403, message, { error: "not_independent", message });
     }
     const to: Substatus = (await isConfirmed(bug.id, tx)) ? "open" : "requires_confirmation";
     const previousReason = fresh.closeReason;

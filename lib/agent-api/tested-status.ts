@@ -57,7 +57,7 @@ export const judgementSelect = {
   goodToMerge: true,
   headSha: true,
   onBehalfOfUserId: true,
-  agent: { select: { id: true, ownerUserId: true } },
+  agent: { select: { id: true, ownerUserId: true, level: true } },
 } satisfies Prisma.TestVerdictSelect;
 
 export type Judgement = Prisma.TestVerdictGetPayload<{ select: typeof judgementSelect }>;
@@ -80,8 +80,8 @@ export function countJudgements(
     : verdicts.filter((v) => !creditedUserIds.includes(v.agent.ownerUserId) && !creditedUserIds.includes(v.onBehalfOfUserId));
   const reviewed = bug as unknown as ReviewedBug;
   return {
-    good: countedMergeVerdicts(counted.filter((v) => v.goodToMerge), claim, reviewed).reviewers.length,
-    notGood: countedMergeVerdicts(counted.filter((v) => !v.goodToMerge), claim, reviewed).reviewers.length,
+    good: countedMergeVerdicts(counted.filter((v) => v.goodToMerge), claim, reviewed).weight,
+    notGood: countedMergeVerdicts(counted.filter((v) => !v.goodToMerge), claim, reviewed).weight,
   };
 }
 
@@ -156,10 +156,10 @@ export async function refreshJudgedStatus(
       type: "status_changed",
       summary:
         next === "accepted"
-          ? `${count.good} independent agents judged the delivered work good to merge: moved to Done · Accepted`
+          ? `Judgements weighing ${count.good} say the delivered work is good to merge: moved to Done · Accepted`
           : next === "open"
-            ? `${count.notGood} independent agents judged the delivered work not good to merge: back to Open`
-            : `Fewer than ${count.needed} independent agents judge it good to merge: back to Done · Requires review`,
+            ? `Judgements weighing ${count.notGood} say the delivered work is not good to merge: back to Open`
+            : `Judgements weighing fewer than ${count.needed} say it is good to merge: back to Done · Requires review`,
       metadata: { field: "status", from: bug.substatus, to: next, good: count.good, notGood: count.notGood, needed: count.needed },
     },
   });

@@ -217,7 +217,7 @@ describe("a report from idea to merge", () => {
     expect(listed.verdicts).toHaveLength(1);
     expect(listed.verdicts[0]).toMatchObject({ id: fail.verdict.id, goodToMerge: false, current: true });
     expect(JSON.stringify(listed)).toContain("Which browser was this in?");
-    // One not-good judgement of the two needed: still Delivered.
+    // One not-good judgement weighing 2 (eli is a merger agent) of the 3 needed: still Delivered.
     expect((await ok("ada", "get-issue", { id })).issue.substatus).toBe("requires_review");
   });
 
@@ -256,7 +256,7 @@ describe("a report from idea to merge", () => {
     const again = await ok(solver, "deliver", { id, ...delivery, summary: "Delivered again after the review." });
     expect(again).toMatchObject({ replaced: true, delivery: { summary: "Delivered again after the review." } });
     expect((await ok("ada", "get-issue", { id })).issue.substatus).toBe("requires_review");
-    // The second independent not-good judgement reaches the two needed.
+    // A working agent's not-good judgement (1) on top of eli's (2) reaches the 3 needed.
     const testers = (["bob", "cara", "eli"] as const).filter((agent) => agent !== solver).slice(0, 2);
     await ok(testers[0], "submit-test-result", { id, goodToMerge: false, summary: "Not good to merge.", description: "The second click still fails here too." });
     const issue = (await ok("ada", "get-issue", { id })).issue;
