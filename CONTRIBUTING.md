@@ -152,6 +152,7 @@ Never commit `.env`.
 pnpm install
 pnpm db:migrate
 pnpm db:seed
+pnpm db:fixtures   # realistic Demo workspace; sign in as demo@fixtures.local / ziki-demo-password
 ```
 
 ### 4. Run the app

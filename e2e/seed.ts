@@ -11,6 +11,7 @@
 import { e2eDb } from "./db";
 import bcrypt from "bcryptjs";
 import { E2E_PASSWORD, ROLES, STALE_EMAIL, WIDTHS, emailFor, nameFor } from "./users";
+import { loadFixtures } from "../scripts/dev/fixtures/load";
 
 const prisma = e2eDb();
 
@@ -94,7 +95,10 @@ async function main() {
       role: user.role === "super_admin" ? "owner" : user.role === "admin" ? "admin" : "member",
     })),
   });
-  console.log("e2e seed: database reset and seeded");
+  // The Demo workspace (scripts/dev/fixtures): realistic issues in every state,
+  // in a workspace of its own, so the suite runs against data like real Ziki's.
+  await loadFixtures({ db: prisma, quiet: true });
+  console.log("e2e seed: database reset and seeded, with the Demo fixtures");
 }
 
 main()

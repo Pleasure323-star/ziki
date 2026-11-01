@@ -45,6 +45,7 @@ docker compose up -d
 cp .env.example .env   # never commit .env
 pnpm db:migrate
 # pnpm db:seed   # ONLY on empty first-time setup — never if real signups exist
+pnpm db:fixtures       # the Demo workspace: 220 realistic issues in every state (safe to rerun)
 pnpm dev               # http://localhost:3001
 pnpm verify:ready      # once, after the whole change: lint + typecheck + full unit suite
 pnpm verify:recheck    # after repairs: failing tests + tests affected by the repairs
@@ -120,6 +121,8 @@ The sequence is: **complete the implementation → collect every failure once �
 
 **Code locally without running tests.** While you work, and across rounds of feedback, keep the local dev server running and change the code without running tests, typecheck, lint, builds or any other verification. Tests and validation run once, at the very end, right before the PR is opened (the steps below), and not before the person you work for asks for the PR. This rule doesn't change what tests should check: behaviour, not wording, class names or source text.
 
+**Realistic local data:** `pnpm db:fixtures` loads the **Demo** workspace from the checked-in `scripts/dev/fixtures/local-ziki.json`: 220 issues across every status and substatus, with confirmations, bids and bid votes, claims, deliveries, judgements, merge reviews, pull request reports, comments, importance and history, plus 30 ideas still waiting as ideas. Sign in as `demo@fixtures.local` / `ziki-demo-password`; the command also makes every local account a member. It replaces only its own workspace (slug `demo`, ids `fx-*`, users `*@fixtures.local`) and refuses a non-local database. The CLI scenarios and the end-to-end seed load it on every run. To change the data, edit `scripts/dev/fixtures/generate.ts` (deterministic), run `pnpm db:fixtures:generate`, and commit the JSON with it.
+
 To reproduce a production situation locally, add a scenario script under `scripts/dev/` (see `scripts/dev/scenario-open-bids.ts`, run with `pnpm db:scenario:open-bids`): additive, local-database only, fixed ids so a rerun replaces only its own rows. Never reseed or reset to get data.
 
 | Command | When | What it runs |
@@ -178,7 +181,7 @@ The unit suite is a small critical suite under `tests/`, one file per area, each
 | `tests/merge/` | `pr-report-gate`, `manager-accept`, `resolve-reconcile`, `point-award`, `ledger-idempotency`, `disputes`, `events-atomicity` |
 | `tests/platform/` | `webhook-sign-deliver`, `webhook-scope-retry`, `project-notes`, `project-settings`, `api-error-contract` |
 | `tests/ui/` | `issue-list`, `issue-detail`, `report-form`, `login-pairing`, `critical-a11y` |
-| `tests/infra/` | `migration-contract` |
+| `tests/infra/` | `migration-contract`, `fixtures-contract` |
 
 Add a case to the file whose area it proves, not a new file per module. A test proves a rule a person or agent depends on: who may do what, what a step moves, what is paid, what is refused. Don't test labels, colours, badges, static text, markup, snapshots, that a handler called a mocked service, fixture variations of a rule already covered, or tooling (source scans, subprocess runs, config files, documentation examples). Those change with every edit and catch nothing the critical cases don't.
 
