@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { unstable_rethrow } from "next/navigation";
+import { newIssuePath } from "@/lib/project-paths";
 import { createBugAction, type ActionResult } from "@/app/actions/issues";
 import { submitFailureMessage } from "@/lib/submit-error";
 import { ErrorSummary, FieldError, useFieldErrors } from "@/components/ui/field-errors";
@@ -50,6 +51,7 @@ export function CreateIssueForm({
   types = [],
   currentUserId,
   projectId,
+  projectSlug,
   variant = "page",
   reportedFrom = null,
   onCancel,
@@ -62,6 +64,8 @@ export function CreateIssueForm({
   isAdmin: boolean;
   currentUserId?: string;
   projectId?: string | null;
+  /** The project the form was opened in, for the full report page link. */
+  projectSlug: string;
   /**
    * "page": the full report page (detailed by default, with a link to a
    * quick report). "modal": the quick report opened over the current page.
@@ -166,6 +170,8 @@ export function CreateIssueForm({
         );
         formData.set("attachmentIds", attachmentIds.join(","));
         formData.set("isReport", mode === "report" ? "true" : "false");
+        // The project the form was opened in (#project-urls); the action checks it is in the workspace.
+        if (projectId) formData.set("projectId", projectId);
         if (mode === "detailed") {
           formData.set("typeId", values.typeId);
           formData.set("categoryId", values.categoryId);
@@ -415,9 +421,8 @@ export function CreateIssueForm({
               intercepted again and keep the modal open. The draft is saved
               first (it normally saves after a pause), so the full form opens
               with what was typed. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a
-            href="/issues/new"
+            href={newIssuePath(projectSlug)}
             className="create-mode-link create-more-detail"
             onClick={() => saveDraftToStorage(draftKey, values)}
           >

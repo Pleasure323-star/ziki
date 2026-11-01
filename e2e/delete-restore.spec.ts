@@ -1,4 +1,4 @@
-import { test, expect, fileIssue, expectNoHorizontalScroll } from "./fixtures";
+import { test, expect, fileIssue, expectNoHorizontalScroll, PROJECT } from "./fixtures";
 
 test.use({ as: "admin" });
 
@@ -14,10 +14,10 @@ test("deletes an issue, finds it among deleted ones, and restores it", async ({ 
   await confirm.getByRole("button", { name: "Delete issue" }).click();
   await expect(page.getByText(/This issue was deleted|deleted/i).first()).toBeVisible();
 
-  await page.goto(`/issues?q=${encodeURIComponent(title)}`);
+  await page.goto(`${PROJECT}/issues/all?q=${encodeURIComponent(title)}`);
   await expect(page.getByRole("link", { name: new RegExp(title) })).toHaveCount(0);
 
-  await page.goto(`/issues?deleted=true&q=${encodeURIComponent(title)}`);
+  await page.goto(`${PROJECT}/issues/all?deleted=true&q=${encodeURIComponent(title)}`);
   const deletedIssue = page.getByRole("link", { name: new RegExp(title) });
   await expect(deletedIssue).toHaveAttribute("href", new URL(url).pathname);
   await expectNoHorizontalScroll(page);
@@ -27,7 +27,7 @@ test("deletes an issue, finds it among deleted ones, and restores it", async ({ 
   await page.getByRole("dialog").getByRole("button", { name: "Restore issue" }).click();
   await expect(page.getByRole("button", { name: /^Restore/ })).toHaveCount(0);
 
-  await page.goto(`/issues?q=${encodeURIComponent(title)}`);
+  await page.goto(`${PROJECT}/issues/all?q=${encodeURIComponent(title)}`);
   await expect(page.getByRole("link", { name: new RegExp(title) })).toBeVisible();
 });
 

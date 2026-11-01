@@ -114,6 +114,21 @@ body:has([data-app-shell]) {
   }
 }
 
+/* A vote on the issue list's confirmation badge: the count pops, and a +1 or −1
+   floats up and fades (components/confirmation-vote-badge.tsx). Used with
+   motion-safe:, so reduced motion shows the new count without the movement. */
+@keyframes zk-vote-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.45); }
+  70% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+@keyframes zk-vote-float {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.8); }
+  20% { opacity: 1; transform: translate(-50%, -6px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -22px) scale(1); }
+}
+
 /* Connect agent: on success a little robot dances. It pops in, bounces and
    sways on the beat, waves its arms, kicks its feet, blinks, its antenna and
    chest glow, and music notes float up. Reduced motion shows it standing still. */

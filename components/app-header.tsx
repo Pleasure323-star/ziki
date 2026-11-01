@@ -2,13 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { ideasPath, orgPath } from "@/lib/project-paths";
 import type { AgentLevel } from "@prisma/client";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
 import {
   MANAGE_AGENTS_HREF,
-  ORGANIZATION_HREF,
   SITE_ADMIN_HREF,
   agentPageHref,
   isNavItemActive,
@@ -36,6 +36,8 @@ export type ShellAgent = {
   /** The owner's avatar pick; null wears the automatic robot. */
   avatar?: string | null;
   level: string;
+  /** Lifetime points this agent's work earned (#710); shown as dollars. */
+  earnedPoints?: number;
 };
 
 /** Closes a popover on outside click or Escape, returning focus to its trigger. */
@@ -117,19 +119,32 @@ function TopNavLink({
   label: string;
   children: React.ReactNode;
 }) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      // Below lg this is a tab in the bottom strip: icon over a short label.
-      className={`relative inline-flex shrink-0 items-center whitespace-nowrap font-medium ${linkFocus} max-lg:min-w-16 max-lg:flex-1 max-lg:flex-col max-lg:gap-0.5 max-lg:rounded-xl max-lg:py-1.5 max-lg:text-[11px] lg:h-9 lg:gap-2 lg:rounded-full lg:px-2.5 lg:text-[13px] ${
-        active ? "text-zk-accent lg:bg-zk-tint" : "text-zk-text2 hover:text-zk-text lg:hover:bg-zk-chip"
-      }`}
-    >
+  // Below lg this is a tab in the bottom strip: icon over a short label.
+  const className = `relative inline-flex shrink-0 items-center whitespace-nowrap font-medium ${linkFocus} max-lg:min-w-16 max-lg:flex-1 max-lg:flex-col max-lg:gap-0.5 max-lg:rounded-xl max-lg:py-1.5 max-lg:text-[11px] lg:h-9 lg:gap-2 lg:rounded-full lg:px-2.5 lg:text-[13px] ${
+    active ? "text-zk-accent lg:bg-zk-tint" : "text-zk-text2 hover:text-zk-text lg:hover:bg-zk-chip"
+  }`;
+  const inner = (
+    <>
       <span className={`relative flex items-center justify-center max-lg:h-7 max-lg:w-12 max-lg:rounded-full ${active ? "max-lg:bg-zk-tint" : ""}`}>
         {children}
       </span>
       {label}
+    </>
+  );
+  if (href.startsWith("http")) {
+    return (
+      <a href={href} className={className}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={className}
+    >
+      {inner}
     </Link>
   );
 }
@@ -138,7 +153,9 @@ function TopNavLink({
  * The workspace areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the Dashboard; the points pill opens Ranking.
  */
-function TopNav({ pathname }: { pathname: string | null }) {
+function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: string | null }) {
+  // Product opens the project the page is in, or the first one (#project-urls).
+  const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
   return (
     <nav
       aria-label="Workspace"
@@ -146,13 +163,13 @@ function TopNav({ pathname }: { pathname: string | null }) {
       // clear of the home indicator. From lg it sits inline in the top bar.
       className="flex items-center max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:justify-around max-lg:border-t max-lg:border-zk-border max-lg:bg-zk-surface max-lg:px-2 max-lg:pt-1.5 max-lg:pb-[max(0.375rem,env(safe-area-inset-bottom))] max-lg:shadow-[0_-1px_3px_rgba(0,0,0,0.04)] lg:gap-1"
     >
-      <TopNavLink href="/issues" active={isNavItemActive(pathname, "/issues")} label="Product">
+      <TopNavLink href={productHref} active={Boolean(projectSlug && pathname?.startsWith(`/${projectSlug}`))} label="Product">
         <NavIcon>
           <circle cx="12" cy="12" r="9" />
           <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
         </NavIcon>
       </TopNavLink>
-      <TopNavLink href="/marketing" active={isNavItemActive(pathname, "/marketing")} label="Marketing">
+      <TopNavLink href="https://amp.ziki.dev" active={isNavItemActive(pathname, "/marketing")} label="Marketing">
         <NavIcon>
           <path d="M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1Z" />
           <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
@@ -359,7 +376,9 @@ function AgentsMenu({
               <AgentAvatar agentId={agent.id} avatar={agent.avatar} size={30} />
               <Link href={agentPageHref(agent.name)} onClick={() => setOpen(false)} className="flex min-w-0 flex-1 flex-col">
                 <span className="truncate font-semibold">{agent.name}</span>
-                <span className="truncate text-xs text-zk-muted">{levelLabel(agent.level)}</span>
+                <span className="truncate text-xs text-zk-muted">
+                  {levelLabel(agent.level)} · earned {formatPointsAsDollars(agent.earnedPoints ?? 0)}
+                </span>
               </Link>
               <Link
                 href={agentPageHref(agent.name)}
@@ -404,7 +423,10 @@ export function AppHeader({
   agents = [],
   reportFormUrl,
   organizationAdmin = false,
+  defaultProjectSlug = null,
 }: {
+  /** The first project in the current workspace, for pages whose URL names none yet. */
+  defaultProjectSlug?: string | null;
   userName?: string | null;
   userImage?: string | null;
   role?: AppRole | null;
@@ -425,6 +447,7 @@ export function AppHeader({
   organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const projectSlug = useParams<{ project?: string }>()?.project ?? defaultProjectSlug;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -445,19 +468,17 @@ export function AppHeader({
     <header className="relative z-40 border-b border-zk-border bg-zk-surface shadow-[0_1px_3px_rgba(0,0,0,0.04)] lg:sticky lg:top-0">
       <div className={`${PAGE_CONTAINER_CLASS} flex flex-wrap items-center gap-x-3 gap-y-2 py-3 max-sm:py-2 sm:px-6`}>
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
-            The logo is the way to the Dashboard; phones show just its mark. */}
+            The logo (the mark alone) is the way to the Dashboard. */}
         <div className="flex min-w-0 items-center gap-2">
-          <Link href="/dashboard" aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
-            <ZikiMark className="h-7 w-auto text-electric-blue-strong max-sm:h-6" />
-            <span aria-hidden="true" className="pr-1 text-[15px] font-semibold tracking-[-0.02em] text-zk-text max-sm:hidden">
-              ziki
-            </span>
+          <Link href={projectSlug ? `/${encodeURIComponent(projectSlug)}/dashboard` : "/dashboard"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
+            {/* The mark alone; the link's name says Ziki. */}
+            <ZikiMark className="h-8 w-auto text-zk-text max-sm:h-7" />
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} tone="bar" className="min-w-0 max-sm:max-w-44" />
+          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className="min-w-0 max-sm:max-w-44" />
         </div>
 
-        <TopNav pathname={pathname} />
+        <TopNav pathname={pathname} projectSlug={projectSlug} />
 
         {/* Phones and tablets: min-w-0 lets the group narrow so its flex-wrap
             breaks the chips onto rows (no sideways scroll at 360px or 768px).
@@ -503,11 +524,12 @@ export function AppHeader({
                 <AccountThemeSelector />
                 <div className="mx-2 h-px bg-zk-divider" />
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
-                  Activity &amp; Approvals
+                  Activity
                 </MenuLink>
-                {organizationAdmin ? (
-                  <MenuLink href={ORGANIZATION_HREF} active={isNavItemActive(pathname, ORGANIZATION_HREF)}>
-                    Organization
+                {/* Every member can open the organization area; only owners and admins see its controls. */}
+                {projectSlug ? (
+                  <MenuLink href={orgPath(projectSlug)} active={Boolean(pathname?.startsWith(orgPath(projectSlug)))}>
+                    Organization settings
                   </MenuLink>
                 ) : null}
                 {isSuperAdmin(role) ? (

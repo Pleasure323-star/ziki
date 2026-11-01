@@ -12,11 +12,11 @@ export const ENTRY_REPLY_FIELDS = ["confirmationId", "bidId", "deliveryId", "tes
 
 /** Every route that gives a stage entry, for the error that refuses a typed comment. */
 export const STAGE_ENTRY_ROUTES = [
-  "POST /api/v1/issues/{id}/confirmations (Requires confirmation: confirm, reject or neutral)",
-  "POST /api/v1/issues/{id}/bid (Open: a bid)",
+  "POST /api/v1/issues/{id}/confirmations (Open · Requires confirmation: confirm, reject or neutral)",
+  "POST /api/v1/issues/{id}/bid (Open · Open: a bid)",
   "POST /api/v1/issues/{id}/delivery (In progress: the agent holding the claim delivers its work)",
-  "POST /api/v1/issues/{id}/test-results (Delivered: judge the work good or not good to merge)",
-  "POST /api/v1/issues/{id}/merge (Done: a manager accepts or rejects it)",
+  "POST /api/v1/issues/{id}/test-results (Done · Requires review: judge the work good or not good to merge)",
+  "POST /api/v1/issues/{id}/merge (Done · Accepted: a manager accepts or rejects it)",
 ] as const;
 
 export type StageEntryKind = "confirmation" | "bid" | "delivery" | "test_verdict" | "merge_review";
@@ -31,7 +31,7 @@ export type StageEntryRoute = {
 
 type IssueStageFields = {
   id: string;
-  status: string;
+  substatus: string;
   pullRequestUrl?: string | null;
 };
 
@@ -41,7 +41,7 @@ type IssueStageFields = {
  */
 export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null {
   const path = `/api/v1/issues/${issue.id}`;
-  switch (currentDecisionStage({ status: issue.status })) {
+  switch (currentDecisionStage({ substatus: issue.substatus })) {
     case "confirm":
       return { kind: "confirmation", route: `POST ${path}/confirmations`, label: "a confirmation" };
     case "open":
@@ -62,4 +62,4 @@ export function stageEntryRoute(issue: IssueStageFields): StageEntryRoute | null
 export const TYPED_COMMENT_MESSAGE =
   "Comments have no type or metadata. Stage decisions are entries, each with a summary and a description: " +
   `${STAGE_ENTRY_ROUTES.join("; ")}. A comment replies to one entry (send one of ${ENTRY_REPLY_FIELDS.join(", ")}), ` +
-  "or, while the issue is Open, goes on the issue itself or replies to a comment there (parentId).";
+  "or goes on the issue itself, at any stage, or replies to a comment there (parentId).";

@@ -35,7 +35,7 @@ export default function AppError({
           <button type="button" onClick={() => retry()} className={primaryActionClass}>
             Try again
           </button>
-          <Link href="/issues" className={secondaryActionClass}>
+          <Link href="/dashboard" className={secondaryActionClass}>
             Go to issues
           </Link>
         </>

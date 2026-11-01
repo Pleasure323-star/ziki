@@ -145,28 +145,28 @@ export async function requireUser(): Promise<SessionAppUser> {
   };
 }
 
-/** Require one of the given roles. Redirects unauthorized users to /issues. */
+/** Require one of the given roles. Redirects unauthorized users to /dashboard. */
 export async function requireRole(
   roles: Role | Role[],
 ): Promise<SessionAppUser> {
   const user = await requireUser();
   const allowed = Array.isArray(roles) ? roles : [roles];
   if (!allowed.includes(user.role)) {
-    redirect("/issues");
+    redirect("/dashboard");
   }
   return user;
 }
 
-/** Admin or super_admin. Redirects non-admins to /issues. */
+/** Admin or super_admin. Redirects non-admins to /dashboard. */
 export async function requireAdmin(): Promise<SessionAppUser> {
   const user = await requireUser();
   if (!isAdmin(user.role)) {
-    redirect("/issues");
+    redirect("/dashboard");
   }
   return user;
 }
 
-/** Super admin only. Redirects everyone else to /issues. */
+/** Super admin only. Redirects everyone else to /dashboard. */
 export async function requireSuperAdmin(): Promise<SessionAppUser> {
   return requireRole("super_admin");
 }

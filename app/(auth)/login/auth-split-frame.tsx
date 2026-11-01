@@ -1,14 +1,9 @@
 import type { ReactNode } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { BASE_PATH } from "@/lib/base-path";
+import { ZikiMark } from "@/components/ziki-mark";
 import { REPORT_FORM_URL } from "@/lib/report-form";
 import "./auth-split-frame.css";
-
-function brandAsset(file: string) {
-  return BASE_PATH ? `${BASE_PATH}/brand/${file}` : `/brand/${file}`;
-}
 
 function CheckIcon() {
   return (
@@ -53,15 +48,7 @@ function BrandPanel() {
       />
 
       <div className="relative flex items-center justify-between gap-4">
-        <Image
-          src={brandAsset("ziki-logo-dark.png")}
-          alt="Ziki"
-          width={120}
-          height={40}
-          className="h-10 w-[120px] object-contain"
-          unoptimized
-          priority
-        />
+        <ZikiMark title="Ziki" className="h-10 w-10 text-white" />
         <Link
           href="/"
           className="inline-flex min-h-10 items-center gap-1.5 text-sm font-semibold text-[#C9D6EF] hover:underline"
@@ -188,15 +175,7 @@ function BrandPanel() {
 function AuthCardMark() {
   return (
     <span className="flex size-[52px] items-center justify-center overflow-hidden rounded-2xl bg-deep-ocean">
-      <Image
-        src={brandAsset("ziki-mark.png")}
-        alt=""
-        width={30}
-        height={26}
-        className="h-[26px] w-[30px] object-contain"
-        unoptimized
-        priority
-      />
+      <ZikiMark className="h-[30px] w-[30px] text-white" />
     </span>
   );
 }

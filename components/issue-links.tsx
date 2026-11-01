@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { formatProofLinkLabel } from "@/lib/proof-links";
-import { ideaPath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 
 export type IssueLinksProps = {
   links: string[];
   /** The issue's attached pull request, shown here even when it is not in the link list. */
   linkedPullRequestUrl?: string | null;
   /** The idea the issue was converted from. */
-  idea?: { number: number } | null;
+  idea?: { number: number; slug: string } | null;
+  /** Repaired old links (#pr-link-repair): the verified canonical PR or commit, or that the old repository can't be read. */
+  repairs?: { originalUrl: string; canonicalUrl: string | null; inaccessible: boolean; agentName: string }[];
 };
 
 function ExternalLinkIcon({ className }: { className: string }) {
@@ -26,7 +28,8 @@ function ExternalLinkIcon({ className }: { className: string }) {
  * The issue's Links, in the side rail: its GitHub pull request links and the
  * idea it came from. The agent delivering the work links its pull request.
  */
-export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, idea = null }: IssueLinksProps) {
+export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, idea = null, repairs = [] }: IssueLinksProps) {
+  const repairFor = new Map(repairs.map((repair) => [repair.originalUrl, repair]));
   const links = linkedPullRequestUrl && !proofLinks.includes(linkedPullRequestUrl)
     ? [linkedPullRequestUrl, ...proofLinks]
     : proofLinks;
@@ -54,6 +57,22 @@ export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, idea = nul
                       <ExternalLinkIcon className="h-3.5 w-3.5 shrink-0 text-zk-muted" />
                       <span>{formatProofLinkLabel(url)}</span>
                     </a>
+                    {repairFor.get(url) ? (
+                      <span data-testid="pr-link-repair" className="mt-0.5 flex flex-col gap-0.5 pl-5 text-[11px] leading-4 text-zk-muted">
+                        {repairFor.get(url)!.inaccessible ? (
+                          <span className="font-semibold text-zk-warn-fg">Old repository can&apos;t be read</span>
+                        ) : null}
+                        {repairFor.get(url)!.canonicalUrl ? (
+                          <span>
+                            Now{" "}
+                            <a href={repairFor.get(url)!.canonicalUrl!} target="_blank" rel="noopener noreferrer" className="font-medium text-zk-accent hover:underline">
+                              {formatProofLinkLabel(repairFor.get(url)!.canonicalUrl!)}
+                            </a>
+                          </span>
+                        ) : null}
+                        <span>Verified by {repairFor.get(url)!.agentName}</span>
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -64,7 +83,7 @@ export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, idea = nul
           <div className="flex min-w-0 items-baseline gap-3">
             <dt className="w-16 shrink-0 whitespace-nowrap text-xs leading-5 text-zk-muted">Idea</dt>
             <dd className="m-0 min-w-0">
-              <Link href={ideaPath(idea.number)} data-testid="source-idea-link" className="text-xs font-medium leading-5 text-zk-accent hover:underline">
+              <Link href={ideaPath(idea.slug, idea.number)} data-testid="source-idea-link" className="text-xs font-medium leading-5 text-zk-accent hover:underline">
                 Idea #{idea.number}
               </Link>
             </dd>

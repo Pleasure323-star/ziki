@@ -1,4 +1,4 @@
-import { test, expect, reportIssue, expectNoHorizontalScroll } from "./fixtures";
+import { test, expect, reportIssue, expectNoHorizontalScroll, PROJECT } from "./fixtures";
 
 test("reports an idea and finds it on the Ideas tab", async ({ page, uniq, me }) => {
   const title = uniq("Save button shows a blank page");
@@ -6,14 +6,14 @@ test("reports an idea and finds it on the Ideas tab", async ({ page, uniq, me })
   await expect(page.getByText(me).filter({ visible: true }).first()).toBeVisible();
   await expectNoHorizontalScroll(page);
 
-  await page.goto(`/issues?status=ideas&q=${encodeURIComponent(title)}`);
+  await page.goto(`${PROJECT}/ideas?q=${encodeURIComponent(title)}`);
   const row = page.getByRole("link", { name: new RegExp(title) });
   await expect(row).toBeVisible();
   await expectNoHorizontalScroll(page);
 });
 
 test("says what's missing instead of submitting a bad report", async ({ page }) => {
-  await page.goto("/issues/new");
+  await page.goto(`${PROJECT}/issues/new`);
   await page.getByLabel("Title").fill("ab");
   await page.locator("#description").fill("short");
   await page.getByRole("button", { name: "Create issue" }).click();

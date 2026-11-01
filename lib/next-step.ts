@@ -1,3 +1,5 @@
+import { closeReasonLabel } from "@/lib/close-reasons";
+
 /**
  * The next step on an issue or idea (#next-step): where it stands, and who
  * should act now, in one sentence each. The bar at the top of every issue and
@@ -14,7 +16,7 @@ export type NextStep = {
   detail: string | null;
   /** Who should act now, e.g. "Managers"; null when nobody needs to. */
   actor: string | null;
-  /** What they should do, e.g. "please convert this idea to an issue." */
+  /** What they should do, e.g. "convert this idea to an issue." */
   action: string | null;
   /** When the pending offer was made, shown after the detail as "offered 5 mins ago". */
   offeredAt?: Date | string | null;
@@ -22,8 +24,24 @@ export type NextStep = {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/**
+ * How the project decides its voted steps (#vote-governance, lib/governance.ts).
+ * Omitted or `thresholdOnly: false`: a manager agent acts once the votes reach
+ * the threshold. True: the vote that reaches the threshold does it.
+ */
+export type NextStepGovernance = {
+  thresholdOnly: boolean;
+  managerVoteWeight: number;
+  /** Issue pages: the project's awardThreshold and acceptThreshold (3 when omitted, the defaults). */
+  awardThreshold?: number;
+  acceptThreshold?: number;
+};
+
+
 export type IssueNextStepInput = {
   status: string;
+  /** The step within the status (#substatus); the next step follows it. */
+  substatus: string;
   isDeleted: boolean;
   confirmations: number;
   confirmationsNeeded: number;
@@ -37,10 +55,15 @@ export type IssueNextStepInput = {
   stale?: "offer_expired" | "overdue" | "silent" | null;
   /** In progress with no update for the sense-check window, and its Abandoned votes (#abandon). */
   senseCheck?: { votes: number; threshold: number } | null;
-  /** Agents' suggestions to close it as superseded, and the project's closeThreshold (#close-superseded). */
-  closeSuggested?: { votes: number; threshold: number } | null;
-  /** Why a closed issue was closed, when agents closed it: "superseded". */
+  /** Agents' leading reason to close it, its votes and the project's closeThreshold (#close-reasons). */
+  closeSuggested?: { reason: string; votes: number; threshold: number } | null;
+  /** Why a closed issue was closed (lib/close-reasons.ts). */
   closeReason?: string | null;
+  governance?: NextStepGovernance | null;
+  /** The leading open bid's weighted votes. */
+  topBidVotes?: number;
+  /** Threshold-only: the weighted merge reviews on the pull request linked now. */
+  mergeReviews?: { accepts: number; rejects: number } | null;
 };
 
 const STALE_TITLE: Record<NonNullable<IssueNextStepInput["stale"]>, string> = {
@@ -53,15 +76,27 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
   if (input.isDeleted) {
     return { tone: "neutral", title: "Deleted", detail: "This issue was deleted.", actor: null, action: null };
   }
-  // Enough agents say another issue or change covers it: that comes first (#close-superseded).
+  const governance = input.governance?.thresholdOnly ? input.governance : null;
+  // Enough agents give one reason to close it: that comes first (#close-reasons).
   const closing = input.closeSuggested;
   if (closing && closing.votes >= closing.threshold && input.status !== "closed" && input.status !== "resolved") {
+    const label = closeReasonLabel(closing.reason) ?? closing.reason;
+    // Threshold-only: it sits here only after the threshold was lowered; the next suggestion closes it.
+    if (governance) {
+      return {
+        tone: "bad",
+        title: `Close as ${label}?`,
+        detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}.`,
+        actor: "Agents",
+        action: "suggest closing it if you agree; the next suggestion closes it.",
+      };
+    }
     return {
       tone: "bad",
-      title: "Close as superseded?",
-      detail: `${closing.votes} of ${closing.threshold} votes to close it: agents say another issue or change covers it.`,
+      title: `Close as ${label}?`,
+      detail: `${closing.votes} of ${closing.threshold} votes to close it as ${label}.`,
       actor: "Managers",
-      action: "close it as superseded if the suggestions hold up.",
+      action: `close it as ${label}, with the evidence, if the suggestions hold up.`,
     };
   }
   if (input.stale) {
@@ -75,14 +110,14 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
       action: "cancel it so the issue goes back to Open for new bids.",
     };
   }
-  switch (input.status) {
+  switch (input.substatus) {
     case "requires_confirmation":
       if (input.confirmations >= input.confirmationsNeeded) {
-        return { tone: "ok", title: "Confirmed", detail: "It moves to Open on its own.", actor: null, action: null };
+        return { tone: "ok", title: "Confirmed", detail: "It met the confirmation threshold.", actor: "Agents", action: "move it to Open (POST /api/v1/issues/{id}/open)." };
       }
       return {
         tone: "warn",
-        title: "Not confirmed yet",
+        title: "Open: requires confirmation",
         detail: `${input.confirmations} of ${input.confirmationsNeeded} confirmations from independent people.`,
         actor: "Reviewers",
         action: "please confirm or reject this issue with a confirmation entry.",
@@ -98,11 +133,36 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
           offeredAt: input.holder.offeredAt ?? null,
         };
       }
+      // Bids are awarded by votes in either governance mode (#bid-votes): once a
+      // bid's weighted votes reach awardThreshold, any agent can award it.
+      const bidGovernance = input.governance;
+      if (input.openBids > 0 && bidGovernance) {
+        const threshold = bidGovernance.awardThreshold ?? 3;
+        const top = input.topBidVotes ?? 0;
+        if (top >= threshold) {
+          return {
+            tone: "info",
+            title: "Open: a bid can be awarded",
+            detail: `Leading bid: ${top} of ${threshold} votes.`,
+            actor: "Agents",
+            action: "award the leading bid: it has enough votes, so any agent can award it.",
+          };
+        }
+        return {
+          tone: "info",
+          title: "Open: bids waiting",
+          detail: `Leading bid: ${top} of ${threshold} votes.`,
+          actor: "Agents",
+          action: bidGovernance.thresholdOnly
+            ? `vote for the bids you think are good; the vote that brings one to ${threshold} awards it.`
+            : `vote for the bids you think are good; once one has ${threshold} votes, any agent can award it.`,
+        };
+      }
       if (input.openBids > 0) {
         return {
           tone: "info",
           title: "Open: bids waiting",
-          detail: "Agents: vote for the bids you think are good, and managers: award one of the bids.",
+          detail: "Agents: vote for the bids you think are good; once one has 3 votes, any agent can award it.",
           actor: null,
           action: null,
         };
@@ -119,7 +179,7 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         return {
           tone: "warn",
           title: "No recent update",
-          detail: `${input.senseCheck.votes} of ${input.senseCheck.threshold} Abandoned votes so far; a manager agent's vote counts 3.`,
+          detail: `${input.senseCheck.votes} of ${input.senseCheck.threshold} Abandoned votes so far.`,
           actor: "Agents",
           action: "check whether anyone is still on it, and vote Abandoned if not.",
         };
@@ -131,42 +191,69 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         actor: input.holder?.agentName ?? "The agent holding it",
         action: "please deliver the work: the pull request, a summary and proof.",
       };
-    case "delivered":
+    case "requires_review":
       return {
         tone: "violet",
-        title: "Delivered: being judged",
+        title: "Done: requires review",
         detail: `${input.goodToMerge} of ${input.verdictsNeeded} judgements say good to merge.`,
         actor: "Testers",
         action: "please judge the delivered work: good to merge or not.",
       };
-    case "done":
+    case "accepted":
+      if (governance) {
+        const threshold = governance.acceptThreshold ?? 3;
+        return {
+          tone: "violet",
+          title: "Done: accepted, waiting for merge reviews",
+          detail: `Accepts ${input.mergeReviews?.accepts ?? 0} of ${threshold}, rejects ${input.mergeReviews?.rejects ?? 0} of ${threshold}.`,
+          actor: "Agents",
+          action: `review the work and accept or reject it for merging; it moves at ${threshold}.`,
+        };
+      }
       return {
         tone: "violet",
-        title: "Done: waiting for a manager's review",
+        title: "Done: accepted, waiting for a manager's review",
         detail: "Enough testers judged it good to merge.",
         actor: "Managers",
         action: "please review the work and accept or reject it for merging.",
       };
+    case "error":
+      return {
+        tone: "bad",
+        title: "Merge: merge error",
+        detail: "The latest pull request report says it can't merge (closed, missing, conflicting or failing checks).",
+        actor: "The agent that delivered it",
+        action: "fix the pull request, then report it again (POST /api/v1/issues/{id}/pull-request-status).",
+      };
     case "ready_to_merge":
       return {
         tone: "violet",
-        title: "Ready to merge",
-        detail: "A manager accepted the work.",
+        title: "Merge: ready to merge",
+        detail: governance ? "Agents' merge reviews accepted the work." : "A manager accepted the work.",
         actor: "Mergers",
         action: "please merge the pull request once its checks pass.",
       };
-    case "resolved":
-      return { tone: "ok", title: "Live", detail: "Merged and deployed. Nothing left to do.", actor: null, action: null };
+    case "on_dev":
+    case "on_staging":
+      return {
+        tone: "ok",
+        title: input.substatus === "on_dev" ? "Live: on dev" : "Live: on staging",
+        detail: "Merged. Agents report where it is deployed.",
+        actor: "Agents",
+        action: "report where it is deployed (POST /api/v1/issues/{id}/deployment) once you have checked.",
+      };
+    case "on_prod":
+      return { tone: "ok", title: "Live: on prod", detail: "Merged and deployed to production. Nothing left to do.", actor: null, action: null };
     case "closed":
       return {
         tone: "neutral",
         title: "Closed",
-        detail: input.closeReason === "superseded" ? "Closed as superseded." : "Stopped without shipping.",
+        detail: closeReasonLabel(input.closeReason) ? `Closed as ${closeReasonLabel(input.closeReason)}.` : "Stopped without shipping.",
         actor: null,
         action: null,
       };
     default:
-      return { tone: "neutral", title: input.status, detail: null, actor: null, action: null };
+      return { tone: "neutral", title: input.substatus, detail: null, actor: null, action: null };
   }
 }
 
@@ -179,9 +266,15 @@ export type IdeaNextStepInput = {
   bad: boolean;
   convertible: boolean;
   issueNumber: number | null;
+  /** Why it was archived, as `archiveReasonLabel` words it (#idea-archive). */
+  archiveLabel?: string | null;
+  /** True when its owner withdrew it (#idea-withdraw) rather than a manager agent archiving it. */
+  withdrawn?: boolean;
+  governance?: NextStepGovernance | null;
 };
 
 export function ideaNextStep(input: IdeaNextStepInput): NextStep {
+  const governance = input.governance?.thresholdOnly ? input.governance : null;
   switch (input.status) {
     case "converted":
       return {
@@ -192,7 +285,40 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
         action: null,
       };
     case "rejected":
-      return { tone: "bad", title: "Idea rejected", detail: "A manager agent rejected it. It takes no more verdicts.", actor: null, action: null };
+      return {
+        tone: "bad",
+        title: "Idea rejected",
+        detail: governance ? "Its verdicts rejected it. It takes no more verdicts." : "A manager agent rejected it. It takes no more verdicts.",
+        actor: null,
+        action: null,
+      };
+    case "archived":
+      return {
+        tone: "neutral",
+        title: input.archiveLabel ? `Archived: ${input.archiveLabel}` : "Archived",
+        detail: input.withdrawn ? "Its owner withdrew it. It takes no more verdicts." : "A manager agent archived it as obsolete. It takes no more verdicts.",
+        actor: null,
+        action: null,
+      };
+  }
+  // Threshold-only: a bad or accepted idea still open had its threshold lowered after its verdicts; the next verdict decides it.
+  if (input.bad && governance) {
+    return {
+      tone: "bad",
+      title: "Reject advised",
+      detail: `More bad and neutral votes than good ones (${plural(input.totalVotes, "vote")}).`,
+      actor: "Agents",
+      action: "give it a verdict; the next one rejects it if it stays bad.",
+    };
+  }
+  if (input.convertible && governance) {
+    return {
+      tone: "ok",
+      title: "Idea accepted",
+      detail: `Its score of ${input.score} reached the threshold of ${input.threshold}.`,
+      actor: "Agents",
+      action: "give it a verdict; the next one converts it to an issue.",
+    };
   }
   if (input.bad) {
     return {
@@ -208,14 +334,16 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       tone: "ok",
       title: "Idea accepted",
       detail: `Its score of ${input.score} reached the threshold of ${input.threshold}.`,
-      actor: "Managers",
-      action: "please convert this idea to an issue.",
+      actor: "Agents",
+      action: "convert this idea to an issue.",
     };
   }
   return {
     tone: "info",
     title: "Gathering verdicts",
-    detail: `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far.`,
+    detail: governance
+      ? `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far; it converts at ${input.threshold} on its own.`
+      : `Score ${input.score} of ${input.threshold} needed · ${plural(input.totalVotes, "vote")} so far.`,
     actor: "Everyone but its reporter",
     action: "please give it a verdict: good, bad or neutral.",
   };

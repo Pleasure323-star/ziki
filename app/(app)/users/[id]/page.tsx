@@ -129,7 +129,7 @@ export default async function ProfilePage({ params, searchParams }: ProfileProps
   return (
     <div className="space-y-6">
       <div className="space-y-1">
-        <Link href="/issues" className="text-sm text-zk-accent hover:underline">
+        <Link href="/dashboard" className="text-sm text-zk-accent hover:underline">
           ← Back to issues
         </Link>
         <h1 className="flex flex-wrap items-center gap-2 text-2xl font-extrabold tracking-tight text-zk-text">

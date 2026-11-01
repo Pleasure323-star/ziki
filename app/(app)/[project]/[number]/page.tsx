@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { issuesPath } from "@/lib/project-paths";
 import Image from "next/image";
 import { Suspense } from "react";
 import type { Metadata } from "next";
@@ -15,7 +16,7 @@ import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicat
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { buildCommentTree } from "@/lib/comments";
+import { buildCommentTree, byImportance } from "@/lib/comments";
 import {
   COMMENT_PARAM,
   COMMENT_THREADS_PER_PAGE,
@@ -41,7 +42,8 @@ import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
-import { currentHold, type IssueHold } from "@/lib/issue-holders";
+import { currentHold, shownAssignee, type IssueHold } from "@/lib/issue-holders";
+import { isOpenBid } from "@/lib/open-bids";
 import {
   claimDecisionKind,
   currentDecisionStage,
@@ -51,8 +53,9 @@ import {
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
 import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
-import { managerAgentOf } from "@/lib/bid-award-permission";
+import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
+import { markAtCapacity } from "@/lib/agent-api/capacity";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { deliveryEntries } from "@/lib/agent-api/delivery";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
@@ -64,7 +67,6 @@ import { CONFIRMATION_SUMMARY_MAX_CHARS, listConfirmations } from "@/lib/agent-a
 import { DisputeAwardDialog, type DisputeRole } from "@/components/dispute-award-dialog";
 import { AttachmentList, type AttachmentView } from "@/components/attachment-list";
 import { ChooseRedesignButton } from "@/components/choose-redesign-button";
-import { IssueApprovalBanner } from "@/components/issue-approval-banner";
 import { isTenantAdminRole } from "@/lib/agents/membership";
 import type { OrganizationRole } from "@/lib/organization-role";
 import { UserNameWithBadges } from "@/components/user-name-with-badges";
@@ -95,7 +97,12 @@ import { staleHold, type StaleHold } from "@/lib/agent-api/stale-hold";
 import { senseCheck } from "@/lib/agent-api/abandon";
 import { closeSuggestionsFor, type CloseSuggestionsData } from "@/lib/agent-api/close-suggestions";
 import { CloseSuggestionsPanel } from "@/components/close-suggestions";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
+import { withdrawIssueAction } from "@/app/actions/withdraw-issue";
+import { closedLabel, closeReasonLabel, ownsIssue } from "@/lib/close-reasons";
 import { workflowFor } from "@/lib/workflow";
+import { isThresholdOnly } from "@/lib/governance";
+import { mergeReviewVotes } from "@/lib/agent-api/merge-review-tally";
 import { issueTenantHintFor } from "@/lib/issue-tenant-hint";
 import { IssueTenantSwitch } from "@/components/issue-tenant-hint";
 import { tenantMemberWhere } from "@/lib/tenant-mentions";
@@ -108,6 +115,7 @@ import {
   issueStatusChipClass,
 } from "./issue-ui";
 import "./issue-detail.css";
+import { stateLabel } from "@/lib/labels";
 
 type BugPageProps = {
   params: Promise<{ project: string; number: string }>;
@@ -121,7 +129,7 @@ const NO_COMMENTS: CommentWindow = {
   visibleCount: 0,
 };
 
-/** The flags agents raised, listed under the status chip in the side rail (#close-superseded). */
+/** The flags listed under the status chip in the side rail (#close-reasons). */
 type StatusFlagTone = "bad" | "warn" | "info";
 
 const STALE_FLAG: Record<StaleHold["kind"], string> = {
@@ -252,6 +260,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       select: {
         title: true,
         status: true,
+        substatus: true,
         isDeleted: true,
       },
     });
@@ -262,8 +271,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         <p className="text-sm text-zk-muted">Ziki Issues</p>
         <h1 className="text-2xl font-extrabold text-zk-text">{bug.title}</h1>
         <div className="flex flex-wrap gap-2">
-          <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.status]}`}>
-            {statusLabels[bug.status]}
+          <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.substatus]}`}>
+            {stateLabel(bug.substatus)}
           </Badge>
         </div>
         <Link
@@ -406,15 +415,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const canChooseRedesign = isTenantAdminRole(membership?.role, user.role);
   // Once an issue is past Requires confirmation, the Conversation opens on who
   // has it (its claims), then every bid it took (#issue-bids).
-  const pastConfirmation = bug.status !== "requires_confirmation";
-  const [hold, bidList] = pastConfirmation
-    ? await Promise.all([
-        loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)),
-        loadOptional<BidEntryView[]>("bids", [], () => bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null })),
-      ])
-    : [null as IssueHold | null, [] as BidEntryView[]];
+  const pastConfirmation = bug.substatus !== "requires_confirmation";
+  // Bids come in from the start, while it awaits confirmation too.
+  const [hold, bidList] = await Promise.all([
+    pastConfirmation ? loadOptional<IssueHold | null>("holder", null, () => currentHold(bug.id)) : Promise.resolve(null as IssueHold | null),
+    // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
+    loadOptional<BidEntryView[]>("bids", [], async () => {
+      const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
+      return bug.status === "open" ? markAtCapacity({ tenantId: bug.tenantId, projectId: bug.projectId }, entries) : entries;
+    }),
+  ]);
 
-  const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations, pendingApproval] =
+  const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
       canTriage
         ? loadOptional("users", [], () =>
@@ -645,20 +657,11 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       loadOptional<TicketEscalation[]>("escalations", [], () =>
         tenantId ? listBugEscalations(id, tenantId) : Promise.resolve([]),
       ),
-      loadOptional("pendingApproval", null, () =>
-        (typeof (prisma as { issueApproval?: unknown }).issueApproval !== "undefined"
-          ? prisma.issueApproval.findFirst({
-              where: { bugId: id, status: "pending" },
-              include: { rule: { include: { issueType: { select: { name: true } } } } },
-              orderBy: { createdAt: "desc" },
-            })
-          : Promise.resolve(null)),
-      ),
     ]);
-  // Owners of a manager agent can award an open issue's bids from here (#award-bids).
+  // Anyone who owns an agent in the organisation can award, through it, an open bid whose votes reached the threshold (#award-bids).
   const canAwardBids =
-    bug.status === "open" && !bug.isDeleted
-      ? await loadOptional("award permission", false, async () => Boolean(await managerAgentOf(user.id, bug.tenantId)))
+    bug.substatus === "open" && !bug.isDeleted
+      ? await loadOptional("award permission", false, async () => Boolean(await awardingAgentOf(user.id, bug.tenantId)))
       : false;
   // #603: the tenant's active agents, offered in the comment @mention list
   // as "Mark's Claude · Mark Essien" alongside people.
@@ -689,13 +692,18 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const sourceIdea = bug.idea;
   // #issue-confirmations: at Requires confirmation the issue takes confirmation
   // entries; afterwards they stay, read-only, under the comments.
-  const confirming = !bug.isDeleted && bug.status === "requires_confirmation";
+  const confirming = !bug.isDeleted && bug.substatus === "requires_confirmation";
   const confirmationsData: ConfirmationsData | null = await loadOptional<ConfirmationsData | null>("confirmations", null, () =>
     listConfirmations({ tenantId: bug.tenantId, projectId: bug.projectId }, bug.id),
   );
-  const confirmationBlock: ConfirmationBlock =
-    bug.reporterId === user.id || bug.beneficiaryUserId === user.id ? "own" : null;
+  // Anyone may confirm their own issue (#confirmation-weights): it counts 1.
+  const confirmationBlock: ConfirmationBlock = null;
+  // #close-reasons: the issue's owner may withdraw it while it is not closed or live.
+  const canWithdraw = !bug.isDeleted && bug.status !== "closed" && bug.status !== "resolved" && ownsIssue(bug, user.id);
   const isAssignee = !!userId && bug.assigneeId === userId;
+  // An Open issue that nothing holds (no active claim, no live offer; `hold`
+  // is currentHold) has no assignee to show: that one is stale (#stale-assignee).
+  const assignee = shownAssignee(bug.status, bug.assignee, Boolean(hold));
   const canUpdateStatus = canTriage || isAssignee;
   const canEdit =
     canEditTicket({
@@ -717,9 +725,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     Array.isArray(bug.votes) && bug.votes.length > 0
       ? voteDirection(bug.votes[0].value ?? 1)
       : 0;
-  const commentTree = buildCommentTree(comments.comments);
+  // Repaired old pull request links (#pr-link-repair), shown beside the links.
+  const linkRepairs = await loadOptional("link repairs", [] as { originalUrl: string; canonicalUrl: string | null; inaccessible: boolean; agentName: string }[], () =>
+    prisma.pullRequestLinkRepair.findMany({
+      where: { bugId: bug.id },
+      select: { originalUrl: true, canonicalUrl: true, inaccessible: true, agentName: true },
+    }),
+  );
+  // Most important (most upvoted) threads first.
+  const commentTree = byImportance(buildCommentTree(comments.comments));
+  // #729: who marked the issue important, so an agent's comment can say its owner did.
+  const importanceMarkers = await loadOptional<string[]>("importance marks", [], async () =>
+    (await prisma.vote.findMany({ where: { bugId: bug.id, value: { gt: 0 } }, select: { userId: true } })).map((vote) => vote.userId),
+  );
   // #1446: the stage the page opens on, and what each stage holds.
-  const currentStage = currentDecisionStage({ status: bug.status });
+  const currentStage = currentDecisionStage({ substatus: bug.substatus });
   // Sent back: the latest manager decision on the fix was a reject.
   const latestMergeDecision = agentDecisions
     .filter((d) => d.kind === "accepted" || d.kind === "merge_rejected")
@@ -743,8 +763,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         loadOptional<MergeReviewView[]>("merge reviews", [], () => mergeReviewEntries(reviewBug)),
       ])
     : [[] as DeliveryView[], [] as TestVerdictView[], [] as MergeReviewView[]];
-  // Comments on the issue itself: taken only while it is Open (lib/comment-placement.ts).
-  const takesComments = !bug.isDeleted && bug.status === "open";
+  // Comments on the issue itself, at every stage (lib/comment-placement.ts).
+  const takesComments = !bug.isDeleted;
   const commentCount = comments.shownThreads + comments.hiddenThreads;
   // #489: the Admin label follows each person's role in this issue's
   // organization, not their account-wide role, the same rule as admin powers.
@@ -804,35 +824,56 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const keptCounts = deletionCounts(comments.visibleCount, voterSummary);
 
   // The next step, always shown under the progress report (#next-step).
-  const { verdictsNeeded } = await workflowFor(bug.projectId);
+  const workflow = await workflowFor(bug.projectId);
+  const { verdictsNeeded } = workflow;
+  // Threshold-only (#vote-governance): the bar says which vote decides the step, and how far it has got.
+  const thresholdOnly = isThresholdOnly(workflow);
+  // The open bids' weighted votes (bidHistoryEntries weighs them): the next step names the most voted.
+  const topBidVotes = !bug.isDeleted && bug.substatus === "open"
+    ? Math.max(0, ...bidList.filter(isOpenBid).map((bid) => bid.votes ?? 0))
+    : 0;
+  const mergeReviewVotesNow = thresholdOnly && !bug.isDeleted && bug.substatus === "accepted"
+    ? await loadOptional("merge review votes", null, () => mergeReviewVotes(prisma, reviewBug, workflow.managerVoteWeight))
+    : null;
   const stale = bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null;
   const abandonCheck = bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id));
   const closeSuggestions = await loadOptional<CloseSuggestionsData | null>("close suggestions", null, () => closeSuggestionsFor(bug.id));
   const nextStep = issueNextStep({
     status: bug.status,
+    substatus: bug.substatus,
     isDeleted: bug.isDeleted,
     confirmations: confirmationsData?.confirmations ?? 0,
     confirmationsNeeded: confirmationsData?.confirmationsNeeded ?? 0,
     holder: hold ? { agentName: hold.agentName, personName: hold.personName, status: hold.status, offeredAt: hold.offeredAt } : null,
-    openBids: bidList.filter((bid) => !bid.awardedAt && !bid.withdrawnAt).length,
+    openBids: bidList.filter(isOpenBid).length,
     goodToMerge: testVerdictList.filter((verdict) => verdict.goodToMerge).length,
     verdictsNeeded,
     stale,
     senseCheck: abandonCheck,
-    closeSuggested: closeSuggestions && closeSuggestions.entries.length > 0
-      ? { votes: closeSuggestions.votes, threshold: closeSuggestions.threshold }
+    closeSuggested: closeSuggestions && closeSuggestions.tallies[0]
+      ? { ...closeSuggestions.tallies[0], threshold: closeSuggestions.threshold }
       : null,
     closeReason: bug.closeReason,
+    governance: {
+      thresholdOnly,
+      managerVoteWeight: workflow.managerVoteWeight,
+      awardThreshold: workflow.awardThreshold,
+      acceptThreshold: workflow.acceptThreshold,
+    },
+    topBidVotes,
+    mergeReviews: mergeReviewVotesNow,
   });
 
-  // The flags agents raised, under the status chip in the side rail (#close-superseded).
-  const statusFlags: { label: string; tone: StatusFlagTone }[] = bug.isDeleted
+  // The flags under the status chip in the side rail (#close-reasons): why it was
+  // closed, or the leading reason agents suggest closing it for.
+  const leadingClose = closeSuggestions?.tallies[0] ?? null;
+  const statusFlags: { label: string; tone: StatusFlagTone; title?: string }[] = bug.isDeleted
     ? []
     : [
-        ...(bug.status === "closed" && bug.closeReason === "superseded"
-          ? [{ label: "Closed as superseded", tone: "bad" as const }]
-          : closeSuggestions && closeSuggestions.votes > 0 && bug.status !== "closed" && bug.status !== "resolved"
-            ? [{ label: `Close suggested: superseded (${closeSuggestions.votes} of ${closeSuggestions.threshold})`, tone: "bad" as const }]
+        ...(bug.status === "closed" && closeReasonLabel(bug.closeReason)
+          ? [{ label: closedLabel(bug.closeReason), tone: "bad" as const, title: bug.closeEvidence ?? undefined }]
+          : leadingClose && leadingClose.votes > 0 && bug.status !== "closed" && bug.status !== "resolved"
+            ? [{ label: `Close suggested: ${closeReasonLabel(leadingClose.reason) ?? leadingClose.reason} (${leadingClose.votes} of ${closeSuggestions!.threshold})`, tone: "bad" as const }]
             : []),
         ...(abandonCheck ? [{ label: `Abandon votes: ${abandonCheck.votes} of ${abandonCheck.threshold}`, tone: "warn" as const }] : []),
         ...(stale ? [{ label: STALE_FLAG[stale], tone: "bad" as const }] : []),
@@ -846,6 +887,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     testVerdictList.length > 0 ||
     mergeReviewing ||
     mergeReviewList.length > 0 ||
+    bidList.length > 0 ||
     pastConfirmation;
 
   // The confirmations, apart from the Conversation: above the Conversation while
@@ -937,13 +979,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         </section>
       ) : null}
 
-      {pendingApproval ? (
-        <IssueApprovalBanner
-          approval={pendingApproval}
-          canDecide={canChooseRedesign}
-        />
-      ) : null}
-
       {redesignProposals.length ? (
         <section aria-label="Redesign proposals" className="rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-5">
           <h2 className="text-lg font-semibold text-zk-text">Compare redesign proposals</h2>
@@ -993,7 +1028,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <div className="min-w-0 flex-[1_1_600px] space-y-3">
             <div className="flex items-start gap-2">
               {/* Back to the list it was opened from; otherwise the list for its status. */}
-              <BackToList fallback={`/issues?status=${bug.status}`} label="Back to issues" />
+              <BackToList fallback={issuesPath(bug.project.slug, bug.status)} label="Back to issues" />
               <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
                 <span className="font-bold tabular-nums text-zk-muted">
                   {formatIssueNumber(bug.number)}
@@ -1069,7 +1104,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   <div>
                     <dt className="font-medium text-zk-muted">Milestone</dt>
                     <dd className="flex flex-wrap items-center gap-2">
-                      <Link href={milestoneIssuesHref(bug.milestone.id)} className="font-bold text-zk-accent hover:underline">
+                      <Link href={milestoneIssuesHref(bug.project.slug, bug.milestone.id)} className="font-bold text-zk-accent hover:underline">
                         {bug.milestone.title}
                       </Link>
                       <MilestoneDue due={dueDateValue(bug.milestone.dueDate) || null} isClosed={bug.milestone.isClosed} />
@@ -1128,11 +1163,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   {mergeReviewing || mergeReviewList.length > 0 ? (
                     <MergeReviewsPanel bugId={bug.id} reviews={mergeReviewList} canReply={mergeReviewing} history={!mergeReviewing} />
                   ) : null}
-                  {pastConfirmation ? (
+                  {pastConfirmation || bidList.length > 0 ? (
                     <IssueBidsPanel
                       bids={bidList}
                       collapsed={bug.status !== "open"}
                       canAward={canAwardBids}
+                      awardThreshold={workflow.awardThreshold}
                       />
                   ) : null}
                 </section>
@@ -1153,7 +1189,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     count={commentCount}
                     composer={takesComments ? <CommentComposer bugId={bug.id} /> : null}
                     replyBugId={takesComments ? bug.id : undefined}
-                    issueUrl={absoluteUrl(issueHref(bug))}
                     reporterId={bug.reporterId}
                     comments={commentTree}
                     attachmentsByComment={attachmentsByComment}
@@ -1163,6 +1198,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                     currentUserRole={user.role}
                     tenantAdmin={access.admin}
                     readOnly={bug.isDeleted}
+                    markedImportantBy={importanceMarkers}
                   >
                     {comments.hiddenThreads > 0 ? (
                       <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-zk-chip px-3 py-2 text-sm text-zk-text2 print:hidden">
@@ -1211,9 +1247,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               {bug.isDeleted ? (
                 <span className={`${issueChipBaseClass} bg-zk-bad-bg text-zk-bad-fg`}>Deleted</span>
               ) : null}
-              <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.status]}`}>
+              <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.substatus]}`}>
                 <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
-                {statusLabels[bug.status]}
+                {stateLabel(bug.substatus)}
               </Badge>
               {bug.isBoosted && !bug.isDeleted ? (
                 <span className={`${issueChipBaseClass} border border-zk-warn-bd bg-zk-warn-bg text-zk-warn-fg`}>Boosted</span>
@@ -1222,12 +1258,32 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             {statusFlags.length > 0 ? (
               <ul data-testid="status-flags" className="m-0 flex list-none flex-col gap-1 p-0">
                 {statusFlags.map((flag) => (
-                  <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2">
+                  <li key={flag.label} className="flex items-center gap-1.5 text-xs text-zk-text2" title={flag.title}>
                     <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${FLAG_DOT[flag.tone]}`} aria-hidden />
                     {flag.label}
                   </li>
                 ))}
               </ul>
+            ) : null}
+            {bug.status === "closed" && bug.closeEvidence && !bug.isDeleted ? (
+              <p data-testid="close-evidence" className="m-0 break-words text-xs leading-[1.5] text-zk-muted">
+                {bug.closeEvidence}
+              </p>
+            ) : null}
+            {/* The reporter or the person it is for cancels their own issue (#close-reasons). */}
+            {canWithdraw ? (
+              <form action={withdrawIssueAction} data-testid="issue-withdraw">
+                <input type="hidden" name="issueId" value={bug.id} />
+                <ConfirmSubmitButton
+                  confirm={{
+                    title: `Withdraw issue #${bug.number}?`,
+                    body: "It closes as withdrawn at once, and any agent working on it is released. Its comments and entries stay.",
+                    confirmLabel: "Withdraw issue",
+                  }}
+                >
+                  Withdraw issue
+                </ConfirmSubmitButton>
+              </form>
             ) : null}
           </section>
 
@@ -1248,15 +1304,15 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             <div className="flex min-w-0 items-center gap-3">
               <span className="w-16 shrink-0 text-xs text-zk-muted">Assignee</span>
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                {bug.assignee ? (
+                {assignee ? (
                   <UserNameWithBadges
-                    name={bug.assignee.name}
-                    role={bug.assignee.role}
-                    organizationRole={bug.assigneeId ? organizationRoles[bug.assigneeId] : null}
-                    image={bug.assignee.image}
+                    name={assignee.name}
+                    role={assignee.role}
+                    organizationRole={organizationRoles[assignee.id] ?? null}
+                    image={assignee.image}
                     avatar="sm"
                     className="text-xs"
-                    userId={bug.assigneeId}
+                    userId={assignee.id}
                   />
                 ) : (
                   <span className="text-xs text-zk-muted">Unassigned</span>
@@ -1277,7 +1333,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <IssueLinks
             links={proofLinks}
             linkedPullRequestUrl={bug.pullRequestUrl}
-            idea={sourceIdea ? { number: sourceIdea.number } : null}
+            idea={sourceIdea ? { number: sourceIdea.number, slug: bug.project.slug } : null}
+            repairs={linkRepairs}
           />
 
           <SubmissionEvidence

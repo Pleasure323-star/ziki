@@ -1,4 +1,5 @@
 import type { Status } from "@prisma/client";
+import { STATUS_OF } from "@/lib/issue-substatus";
 
 /**
  * Resolution notes (#316): the human sentence that says what happened when
@@ -83,7 +84,8 @@ export function currentResolution(
 ): Resolution | null {
   if (!latest || !isFinishedStatus(currentStatus)) return null;
   const { to, note } = readMetadata(latest.metadata);
-  if (!note || to !== currentStatus) return null;
+  // `to` is a substatus (#substatus), or a main status on older entries.
+  if (!note || (to !== currentStatus && (STATUS_OF as Record<string, string>)[to ?? ""] !== currentStatus)) return null;
   return { note, by: latest.actor.name, at: latest.createdAt, status: currentStatus };
 }
 

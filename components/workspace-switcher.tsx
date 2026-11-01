@@ -28,11 +28,14 @@ export function WorkspaceSwitcher({
   fullWidth = false,
   tone = "default",
   canManage = false,
+  orgHref = null,
 }: {
   workspaces: WorkspaceChoice[];
   activeTenantId: string | null;
-  /** The viewer administers the current workspace: link to its /org page. */
+  /** The viewer administers the current workspace: link to its organization page. */
   canManage?: boolean;
+  /** The organization page under the current project, `/<slug>/org` (#project-urls). */
+  orgHref?: string | null;
   className?: string;
   fullWidth?: boolean;
   /** "chrome" paints the control for navy chrome. "bar" is the borderless switcher in the app top bar. */
@@ -173,9 +176,9 @@ export function WorkspaceSwitcher({
           {/* Outside the listbox: links, not options. Manage opens /org for the current
               workspace; Add opens the create form on the workspaces page. */}
           <div className={`mt-1 border-t pt-1 ${chrome ? "border-surface-border" : bar ? "border-zk-divider" : "border-slate-200"}`}>
-            {canManage ? (
+            {canManage && orgHref ? (
               <Link
-                href="/org"
+                href={orgHref}
                 onClick={() => setOpen(false)}
                 className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ${bar ? "text-sm font-medium text-zk-text hover:bg-zk-chip" : chrome ? "text-xs text-slate-200 hover:bg-white/5" : "text-xs text-slate-700 hover:bg-slate-50"}`}
               >

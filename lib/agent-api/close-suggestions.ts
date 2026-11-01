@@ -1,58 +1,156 @@
 import { z } from "zod";
-import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { publish } from "@/lib/agent-api/events";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { entryDescription, entrySummary } from "@/lib/agent-api/entry-fields";
-import { abandonVoteWeight } from "@/lib/agent-api/abandon";
+import { isThresholdOnly, thresholdDecision, voteWeight, type ThresholdDecision } from "@/lib/governance";
 import { statusChangedSummary, unboostedSummary } from "@/lib/activity-log";
 import { isDone } from "@/lib/issue-state";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
+import { DuplicateLinkRefused, linkDuplicate } from "@/lib/duplicate-link";
+import {
+  closeReasonLabel,
+  closeTallies,
+  isReopenable,
+  ownsIssue,
+  VOTED_CLOSE_REASONS,
+  type CloseReason,
+  type CloseTally,
+  type VotedCloseReason,
+} from "@/lib/close-reasons";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
- * Close suggestions (#close-superseded). Any agent that notices an issue is
- * superseded (another issue or change covers it) suggests closing it, with a
- * comment saying why: one suggestion per person per issue, a manager (or
- * merger) agent's counting 3. Reaching the project's `closeThreshold` does not
- * close the issue: it goes into the managers' queue (the `close_issue` work
- * item), and a manager agent closes it with that reason.
+ * Closing an issue (#close-superseded, #close-reasons). Any agent that
+ * notices an issue should be closed suggests it, with a reason
+ * (lib/close-reasons.ts: superseded, not_reproducible, already_implemented,
+ * duplicate or not_planned), the evidence and a comment: one suggestion per
+ * person per issue, a manager (or merger) agent's counting the project's
+ * `managerVoteWeight`. Each reason is tallied apart. In a `manager`-governed
+ * project, one reason reaching the project's `closeThreshold` does not close
+ * the issue: it goes into the managers' queue (the `close_issue` work item),
+ * and a manager agent closes it with that reason and the evidence. In a
+ * threshold-only project the suggestion that reaches it closes the issue
+ * (#vote-governance).
+ *
+ * Two more ways, both without votes: the issue's owner withdraws it (reason
+ * `withdrawn`), and a manager agent reopens one
+ * closed as not reproducible, with fresh evidence.
+ *
+ * Closing releases any live claim or offer and keeps everything else:
+ * comments, judgements, deliveries and merge reviews.
  */
 type Db = PrismaClient | Prisma.TransactionClient;
 
-export const CLOSE_REASONS = ["superseded"] as const;
-export type CloseReason = (typeof CLOSE_REASONS)[number];
+const evidenceField = z
+  .string()
+  .trim()
+  .min(1, "Add the evidence: what shows it (a request id, a commit, the issue that owns it).")
+  .max(10_000);
+
+/** The issue that owns the same work: its number (`12`, `#12`) or id. */
+const duplicateOfField = z.union([z.number().int().positive(), z.string().trim().min(1).max(191)]);
+
+type IssueSink = { addIssue: (issue: { code: "custom"; path: string[]; message: string }) => void };
+
+/** `duplicateOf` goes with reason duplicate, and only with it. */
+function duplicateRule(body: { reason: string; duplicateOf?: unknown }, ctx: IssueSink) {
+  if (body.reason === "duplicate" && body.duplicateOf === undefined) {
+    ctx.addIssue({ code: "custom", path: ["duplicateOf"], message: "A duplicate names the issue that owns the same work: duplicateOf (its number or id)." });
+  }
+  if (body.reason !== "duplicate" && body.duplicateOf !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["duplicateOf"], message: "duplicateOf only goes with reason duplicate." });
+  }
+}
 
 export const closeSuggestionSchema = z
-  .object({ reason: z.enum(CLOSE_REASONS), summary: entrySummary, description: entryDescription.optional() })
+  .object({
+    reason: z.enum(VOTED_CLOSE_REASONS),
+    summary: entrySummary,
+    description: entryDescription.optional(),
+    evidence: evidenceField,
+    duplicateOf: duplicateOfField.optional(),
+  })
+  .strict()
+  .superRefine(duplicateRule);
+
+export const closeIssueSchema = z
+  .object({ reason: z.enum(VOTED_CLOSE_REASONS), evidence: evidenceField, duplicateOf: duplicateOfField.optional() })
+  .strict()
+  .superRefine(duplicateRule);
+
+/** The fresh reproduction that reopens an issue closed as not reproducible, e.g. a new request id. */
+export const reopenIssueSchema = z.object({ evidence: evidenceField }).strict();
+
+export const withdrawIssueSchema = z
+  .object({
+    projectId: z.string().trim().min(1).max(191).optional(),
+    /** Why the owner cancels it, when they say. */
+    evidence: z.string().trim().max(10_000).optional(),
+  })
   .strict();
 
-export const closeIssueSchema = z.object({ reason: z.enum(CLOSE_REASONS), summary: entrySummary }).strict();
+export type CloseSuggestionInput = z.infer<typeof closeSuggestionSchema>;
+export type CloseIssueInput = z.infer<typeof closeIssueSchema>;
 
-/** The issue in the agent's project, not deleted; 404 otherwise. */
-async function issueInProject(agent: AgentContext, projectId: string, issueRef: string) {
-  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { tenantId: agent.tenantId });
+/** Who closes, reopens or withdraws: a person, through one of their agents or in the web app. */
+type Actor = { tenantId: string; userId: string; agentId: string | null; agentName: string | null };
+
+function agentActor(agent: AgentContext): Actor {
+  return { tenantId: agent.tenantId, userId: agent.ownerId, agentId: agent.agentId, agentName: agent.name };
+}
+
+/** The issue in the tenant's project, not deleted; 404 otherwise. */
+async function issueInProject(tenantId: string, projectId: string, issueRef: string) {
+  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { tenantId });
   const bug = resolved && await prisma.bug.findFirst({
-    where: { id: resolved.id, tenantId: agent.tenantId, projectId, isDeleted: false },
+    where: { id: resolved.id, tenantId, projectId, isDeleted: false },
     select: { id: true, number: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
   return bug;
 }
 
-/** Locks the issue row and reads its status again, inside the transaction. */
-async function lockedIssue(tx: Prisma.TransactionClient, bugId: string) {
+const lockedSelect = {
+  status: true, substatus: true, isDeleted: true, isBoosted: true, closeReason: true,
+  reporterId: true, beneficiaryUserId: true, assigneeId: true,
+  createdByAgent: { select: { ownerUserId: true } },
+} satisfies Prisma.BugSelect;
+
+/** Locks the issue row and reads it again, inside the transaction. */
+async function lockedRow(tx: Prisma.TransactionClient, bugId: string) {
   await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${bugId} FOR UPDATE`;
-  const bug = await tx.bug.findUnique({ where: { id: bugId }, select: { status: true, isDeleted: true, isBoosted: true } });
+  const bug = await tx.bug.findUnique({ where: { id: bugId }, select: lockedSelect });
   if (!bug || bug.isDeleted) throw new IssueApiError(404, "Issue not found in this project.");
+  return bug;
+}
+
+/** The locked issue, refused when it is already closed or live (409 already_closed). */
+async function lockedIssue(tx: Prisma.TransactionClient, bugId: string) {
+  const bug = await lockedRow(tx, bugId);
   if (isDone(bug.status)) {
     const message = `This issue is already ${bug.status === "resolved" ? "live" : "closed"}.`;
     throw new IssueApiError(409, message, { error: "already_closed", message });
   }
   return bug;
+}
+
+/** Resolves `duplicateOf` (a number or an id) to another live issue in the tenant; 422 otherwise. */
+async function duplicateTarget(tx: Prisma.TransactionClient, tenantId: string, bugId: string, raw: string | number): Promise<string> {
+  const ref = parseIssueRef(String(raw).replace(/^#/, ""));
+  const target = await resolveIssueRef(tx, ref, { tenantId });
+  const live = target && await tx.bug.findFirst({ where: { id: target.id, tenantId, isDeleted: false }, select: { id: true } });
+  if (!live || live.id === bugId) {
+    const message = "duplicateOf must name another issue in this workspace.";
+    throw new IssueApiError(422, message, { error: "invalid_duplicate", message, field: "duplicateOf" });
+  }
+  return live.id;
 }
 
 /** The suggestions' votes for one reason on an issue, added up. */
@@ -62,24 +160,40 @@ export async function closeTally(bugId: string, reason: CloseReason, db: Db = pr
 }
 
 /**
- * `POST /api/v1/issues/{id}/close-suggestions` (#close-superseded): suggest
- * closing the issue, with a summary (at most two sentences) and an optional
- * description saying why. Refused on a closed or live issue (409
+ * `POST /api/v1/issues/{id}/close-suggestions` (#close-reasons): suggest
+ * closing the issue for a reason, with the evidence, a summary (at most two
+ * sentences) and an optional description. Reason duplicate names the issue
+ * that owns the work in `duplicateOf`. Refused on a closed or live issue (409
  * already_closed). A newer suggestion from the same person replaces theirs.
  */
-export async function suggestClose(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof closeSuggestionSchema>) {
+export async function suggestClose(agent: AgentContext, projectId: string, issueRef: string, input: CloseSuggestionInput) {
   requireLevel(agent, "working");
   assertKeyProject(agent, projectId);
-  const bug = await issueInProject(agent, projectId, issueRef);
-  const { closeThreshold } = await workflowFor(projectId);
-  const weight = abandonVoteWeight(agent.level);
+  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
+  const workflow = await workflowFor(projectId);
+  const { closeThreshold } = workflow;
+  const weight = voteWeight(agent.level, workflow.managerVoteWeight);
 
   const result = await prisma.$transaction(async (tx) => {
-    await lockedIssue(tx, bug.id);
-    const fields = { reason: input.reason, votes: weight, summary: input.summary, description: input.description ?? null, agentId: agent.agentId };
+    const fresh = await lockedIssue(tx, bug.id);
+    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.tenantId, bug.id, input.duplicateOf) : null;
+    const fields = {
+      reason: input.reason,
+      votes: weight,
+      summary: input.summary,
+      description: input.description ?? null,
+      evidence: input.evidence,
+      duplicateOfId,
+      agentId: agent.agentId,
+    };
+    // One suggestion per person, at the highest weight any of their agents cast.
+    const earlier = await tx.closeSuggestion.findUnique({
+      where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: agent.ownerId } },
+      select: { votes: true },
+    });
     await tx.closeSuggestion.upsert({
       where: { bugId_onBehalfOfUserId: { bugId: bug.id, onBehalfOfUserId: agent.ownerId } },
-      update: fields,
+      update: { ...fields, votes: Math.max(weight, earlier?.votes ?? 0) },
       create: { bugId: bug.id, onBehalfOfUserId: agent.ownerId, ...fields },
     });
     const votes = await closeTally(bug.id, input.reason, tx);
@@ -89,101 +203,275 @@ export async function suggestClose(agent: AgentContext, projectId: string, issue
       actorAgentId: agent.agentId,
       bugId: bug.id,
       projectId,
-      payload: { issueId: bug.id, issueNumber: bug.number, reason: input.reason, votes, threshold: closeThreshold },
+      payload: { issueId: bug.id, issueNumber: bug.number, reason: input.reason, evidence: input.evidence, duplicateOfId, votes, threshold: closeThreshold },
     });
-    return { issueId: bug.id, issueNumber: bug.number, reason: input.reason, votes, threshold: closeThreshold, queued: votes >= closeThreshold };
+    const reached = votes >= closeThreshold;
+    // Threshold-only (#vote-governance): the suggestion that reaches the threshold closes it.
+    if (reached && isThresholdOnly(workflow)) {
+      const decision = thresholdDecision({ userId: agent.ownerId, agentId: agent.agentId }, votes, closeThreshold);
+      const closed = await closeInTransaction(tx, agentActor(agent), projectId, bug, fresh, {
+        reason: input.reason, evidence: input.evidence, duplicateOfId, votes, threshold: closeThreshold, decision,
+      });
+      return { issueId: bug.id, issueNumber: bug.number, reason: input.reason, votes, threshold: closeThreshold, queued: false, closed: true, releasedClaimIds: closed.releasedClaimIds };
+    }
+    return { issueId: bug.id, issueNumber: bug.number, reason: input.reason, votes, threshold: closeThreshold, queued: reached, closed: false, releasedClaimIds: [] as string[] };
   });
-  await audit(agent, "issue.close_suggested", `issue:${bug.id}`, { reason: result.reason, votes: result.votes, queued: result.queued }, { bugId: bug.id });
+  await audit(agent, "issue.close_suggested", `issue:${bug.id}`, { reason: result.reason, votes: result.votes, queued: result.queued, closed: result.closed }, { bugId: bug.id });
+  if (result.closed) {
+    await audit(
+      agent,
+      "issue.closed",
+      `issue:${bug.id}`,
+      { reason: result.reason, evidence: input.evidence, votes: result.votes, threshold: result.threshold, via: "threshold", releasedClaimIds: result.releasedClaimIds },
+      { bugId: bug.id },
+    );
+  }
   return result;
 }
 
+function duplicateRefused(error: unknown): never {
+  if (error instanceof DuplicateLinkRefused) {
+    throw new IssueApiError(409, error.message, { error: "duplicate_refused", message: error.message, field: "duplicateOf" });
+  }
+  throw error;
+}
+
 /**
- * `POST /api/v1/issues/{id}/close` (#close-superseded), manager level: close
- * the issue as superseded once its suggestions reach `closeThreshold` (409
- * below_threshold before that). Releases any live claim (reason `closed`),
- * records the status change with the manager's summary as its note, and
- * publishes `issue.closed`.
+ * Closes the locked issue with `reason` and its evidence, in the caller's
+ * transaction: for a duplicate, marks it a duplicate of the other issue (the
+ * one duplicate rule, lib/duplicate-link.ts); releases any live claim or offer
+ * (reason `closed`); records the status change and publishes `issue.closed`.
+ * A manager's close, the suggestion that reaches the threshold in a
+ * threshold-only project (`decision`) and the owner's withdrawal all end here.
  */
-export async function closeIssueAsSuperseded(agent: AgentContext, projectId: string, issueRef: string, input: { summary: string }) {
+async function closeInTransaction(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  projectId: string,
+  bug: { id: string; number: number },
+  fresh: { status: Status; substatus: Substatus; isBoosted: boolean },
+  input: {
+    reason: CloseReason;
+    evidence: string | null;
+    duplicateOfId?: string | null;
+    votes?: number;
+    threshold?: number;
+    decision?: ThresholdDecision;
+  },
+) {
+  const { reason, evidence } = input;
+  if (reason === "duplicate") {
+    if (!input.duplicateOfId) throw new IssueApiError(422, "A duplicate names the issue that owns the same work.", { error: "invalid_duplicate", field: "duplicateOf" });
+    await linkDuplicate(tx, { tenantId: actor.tenantId, bugId: bug.id, targetId: input.duplicateOfId, actorId: actor.userId }).catch(duplicateRefused);
+  }
+  const claims = await tx.issueClaim.findMany({
+    where: { bugId: bug.id, status: { in: ["offered", "active"] }, releasedAt: null },
+    select: { id: true, agentId: true, beneficiaryUserId: true },
+  });
+  const now = new Date();
+  if (claims.length) {
+    await tx.issueClaim.updateMany({
+      where: { id: { in: claims.map((claim) => claim.id) } },
+      data: { status: "released", releasedAt: now, releaseReason: "closed" },
+    });
+  }
+  await tx.bug.update({
+    where: { id: bug.id },
+    data: {
+      ...moveTo("closed"),
+      closeReason: reason,
+      closeEvidence: evidence,
+      closedAt: now,
+      // A finished issue shouldn't stay pinned above open work (#256).
+      ...(fresh.isBoosted ? { isBoosted: false, boostedAt: null } : {}),
+    },
+  });
+  await tx.bugActivity.create({
+    data: {
+      bugId: bug.id,
+      actorId: actor.userId,
+      type: "status_changed",
+      summary: statusChangedSummary(fresh.substatus, "closed"),
+      metadata: {
+        field: "status", from: fresh.substatus, to: "closed", via: reason, evidence,
+        ...(input.duplicateOfId ? { duplicateOfId: input.duplicateOfId } : {}),
+        ...(input.votes !== undefined ? { votes: input.votes } : {}),
+        agentId: actor.agentId, agentName: actor.agentName,
+        // Who cast the deciding vote is the actor above; this says no manager closed it.
+        ...(input.decision ? { decidedBy: input.decision.via, threshold: input.threshold } : {}),
+      },
+    },
+  });
+  if (fresh.isBoosted) {
+    await tx.bugActivity.create({
+      data: { bugId: bug.id, actorId: actor.userId, type: "unboosted", summary: unboostedSummary(), metadata: { field: "isBoosted", to: "false" } },
+    });
+  }
+  for (const claim of claims) {
+    await publish(tx, {
+      tenantId: actor.tenantId,
+      type: "claim.released",
+      actorAgentId: claim.agentId,
+      bugId: bug.id,
+      projectId,
+      payload: { claimId: claim.id, issueId: bug.id, projectId, beneficiaryUserId: claim.beneficiaryUserId, reason: "closed" },
+    });
+  }
+  await publish(tx, {
+    tenantId: actor.tenantId,
+    type: "issue.closed",
+    actorAgentId: actor.agentId,
+    bugId: bug.id,
+    projectId,
+    payload: {
+      issueId: bug.id, issueNumber: bug.number, from: fresh.status, reason, evidence,
+      ...(input.duplicateOfId ? { duplicateOfId: input.duplicateOfId } : {}),
+      ...(input.votes !== undefined ? { votes: input.votes, threshold: input.threshold } : {}),
+      ...(reason === "withdrawn" ? { withdrawnByUserId: actor.userId } : {}),
+      ...(input.decision ?? {}),
+    },
+  });
+  return { releasedClaimIds: claims.map((claim) => claim.id), closedAt: now };
+}
+
+/**
+ * `POST /api/v1/issues/{id}/close` (#close-reasons), manager level: close the
+ * issue for `reason` (any but withdrawn) with the evidence, once the
+ * suggestions for that reason reach `closeThreshold` (409 below_threshold
+ * before that). Reason duplicate names the issue that owns the work in
+ * `duplicateOf` and marks it a duplicate. In a threshold-only project the
+ * suggestion that reaches the threshold has closed it already; this remains
+ * for a threshold lowered after the votes were cast.
+ */
+export async function closeIssue(agent: AgentContext, projectId: string, issueRef: string, input: CloseIssueInput) {
   requireLevel(agent, "manager");
   assertKeyProject(agent, projectId);
-  const bug = await issueInProject(agent, projectId, issueRef);
+  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
   const { closeThreshold } = await workflowFor(projectId);
-  const reason: CloseReason = "superseded";
+  const reason: VotedCloseReason = input.reason;
 
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await lockedIssue(tx, bug.id);
     const votes = await closeTally(bug.id, reason, tx);
     if (votes < closeThreshold) {
-      const message = `${votes} of ${closeThreshold} votes suggest closing this issue as superseded; it can be closed once they reach the threshold.`;
-      throw new IssueApiError(409, message, { error: "below_threshold", message, votes, threshold: closeThreshold });
+      const message = `${votes} of ${closeThreshold} votes suggest closing this issue as ${closeReasonLabel(reason)}; it can be closed for that reason once they reach the threshold.`;
+      throw new IssueApiError(409, message, { error: "below_threshold", message, reason, votes, threshold: closeThreshold });
     }
-    const claims = await tx.issueClaim.findMany({
-      where: { bugId: bug.id, status: { in: ["offered", "active"] }, releasedAt: null },
-      select: { id: true, agentId: true, beneficiaryUserId: true },
+    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.tenantId, bug.id, input.duplicateOf) : null;
+    const closed = await closeInTransaction(tx, agentActor(agent), projectId, bug, fresh, {
+      reason, evidence: input.evidence, duplicateOfId, votes, threshold: closeThreshold,
     });
-    const now = new Date();
-    if (claims.length) {
-      await tx.issueClaim.updateMany({
-        where: { id: { in: claims.map((claim) => claim.id) } },
-        data: { status: "released", releasedAt: now, releaseReason: "closed" },
-      });
+    return {
+      issueId: bug.id,
+      issueNumber: bug.number,
+      ...moveTo("closed"),
+      closeReason: reason,
+      closeEvidence: input.evidence,
+      duplicateOfId,
+      votes,
+      threshold: closeThreshold,
+      releasedClaimIds: closed.releasedClaimIds,
+    };
+  });
+  await audit(agent, "issue.closed", `issue:${bug.id}`, { reason, evidence: input.evidence, votes: result.votes, releasedClaimIds: result.releasedClaimIds }, { bugId: bug.id });
+  return result;
+}
+
+/**
+ * `POST /api/v1/issues/{id}/reopen` (#close-reasons), manager level, the
+ * owner's own issue included (#owner-agents): reopen an issue closed as not reproducible, with
+ * fresh evidence that reproduces it (a new request id, say). Any other close
+ * is final (409 not_reopenable). It goes back to Open when it had been
+ * confirmed, otherwise to Requires confirmation; its close reason and
+ * evidence are cleared, and the not-reproducible suggestions the new evidence
+ * answers are removed so they don't queue it again.
+ */
+export async function reopenIssue(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof reopenIssueSchema>) {
+  requireLevel(agent, "manager");
+  assertKeyProject(agent, projectId);
+  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await lockedRow(tx, bug.id);
+    if (fresh.status !== "closed" || !isReopenable(fresh.closeReason)) {
+      const message = fresh.status === "closed"
+        ? `Only an issue closed as not reproducible can be reopened; this one was closed${fresh.closeReason ? ` as ${closeReasonLabel(fresh.closeReason) ?? fresh.closeReason}` : ""}.`
+        : "Only a closed issue can be reopened.";
+      throw new IssueApiError(409, message, { error: "not_reopenable", message, status: fresh.status, closeReason: fresh.closeReason });
     }
+    const to: Substatus = (await isConfirmed(bug.id, tx)) ? "open" : "requires_confirmation";
+    const previousReason = fresh.closeReason;
     await tx.bug.update({
       where: { id: bug.id },
-      data: {
-        status: "closed",
-        closeReason: reason,
-        // A finished issue shouldn't stay pinned above open work (#256).
-        ...(fresh.isBoosted ? { isBoosted: false, boostedAt: null } : {}),
-      },
+      data: { ...moveTo(to), closeReason: null, closeEvidence: null, closedAt: null },
     });
+    const { count: clearedSuggestions } = await tx.closeSuggestion.deleteMany({ where: { bugId: bug.id, reason: "not_reproducible" } });
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
-        summary: statusChangedSummary(fresh.status, "closed"),
+        summary: statusChangedSummary("closed", to),
         metadata: {
-          field: "status", from: fresh.status, to: "closed", via: reason, votes,
-          agentId: agent.agentId, agentName: agent.name, note: input.summary,
+          field: "status", from: "closed", to, via: "reopened", previousReason, evidence: input.evidence,
+          agentId: agent.agentId, agentName: agent.name,
         },
       },
     });
-    if (fresh.isBoosted) {
-      await tx.bugActivity.create({
-        data: { bugId: bug.id, actorId: agent.ownerId, type: "unboosted", summary: unboostedSummary(), metadata: { field: "isBoosted", to: "false" } },
-      });
-    }
-    for (const claim of claims) {
-      await publish(tx, {
-        tenantId: agent.tenantId,
-        type: "claim.released",
-        actorAgentId: claim.agentId,
-        bugId: bug.id,
-        projectId,
-        payload: { claimId: claim.id, issueId: bug.id, projectId, beneficiaryUserId: claim.beneficiaryUserId, reason: "closed" },
-      });
-    }
     await publish(tx, {
       tenantId: agent.tenantId,
-      type: "issue.closed",
+      type: "issue.reopened",
       actorAgentId: agent.agentId,
       bugId: bug.id,
       projectId,
-      payload: { issueId: bug.id, issueNumber: bug.number, from: fresh.status, reason, summary: input.summary, votes, threshold: closeThreshold },
+      payload: { issueId: bug.id, issueNumber: bug.number, from: "closed", to, previousReason, evidence: input.evidence },
     });
+    return { issueId: bug.id, issueNumber: bug.number, ...moveTo(to), previousReason, evidence: input.evidence, clearedSuggestions };
+  });
+  await audit(agent, "issue.reopened", `issue:${bug.id}`, { from: "closed", to: result.substatus, previousReason: result.previousReason, evidence: input.evidence }, { bugId: bug.id });
+  return result;
+}
+
+/** Who withdraws an issue: a person, through one of their agents or in the web app. */
+export type IssueWithdrawer = { tenantId: string; userId: string; agentId: string | null; agentName: string | null };
+
+/**
+ * The issue's owner withdraws it (#close-reasons): its reporter or the person
+ * it is for, through any of their agents or in the web app. It closes at once
+ * with reason `withdrawn` and the optional evidence: no votes, no manager.
+ * Anyone else gets 403 not_issue_owner; a closed or live issue 409
+ * already_closed.
+ */
+export async function withdrawIssue(withdrawer: IssueWithdrawer, projectId: string, issueRef: string, input: { evidence?: string } = {}) {
+  const bug = await issueInProject(withdrawer.tenantId, projectId, issueRef);
+  const evidence = input.evidence?.trim() ? input.evidence.trim() : null;
+  const result = await prisma.$transaction(async (tx) => {
+    const fresh = await lockedRow(tx, bug.id);
+    if (!ownsIssue(fresh, withdrawer.userId)) {
+      const message = "Only the issue's reporter or the person it is for can withdraw it.";
+      throw new IssueApiError(403, message, { error: "not_issue_owner", message });
+    }
+    if (isDone(fresh.status)) {
+      const message = `This issue is already ${fresh.status === "resolved" ? "live" : "closed"}.`;
+      throw new IssueApiError(409, message, { error: "already_closed", message });
+    }
+    const closed = await closeInTransaction(tx, withdrawer, projectId, bug, fresh, { reason: "withdrawn", evidence });
     return {
       issueId: bug.id,
       issueNumber: bug.number,
-      status: "closed" as const,
-      closeReason: reason,
-      votes,
-      threshold: closeThreshold,
-      releasedClaimIds: claims.map((claim) => claim.id),
+      ...moveTo("closed"),
+      closeReason: "withdrawn" as const,
+      closeEvidence: evidence,
+      closedAt: closed.closedAt.toISOString(),
+      releasedClaimIds: closed.releasedClaimIds,
     };
   });
-  await audit(agent, "issue.closed", `issue:${bug.id}`, { reason, votes: result.votes, releasedClaimIds: result.releasedClaimIds }, { bugId: bug.id });
+  // The agent audit log keeps an agent's withdrawal; a person's is in the event.
+  if (withdrawer.agentId) {
+    await audit({ agentId: withdrawer.agentId, tenantId: withdrawer.tenantId }, "issue.closed", `issue:${bug.id}`, {
+      reason: "withdrawn", evidence, releasedClaimIds: result.releasedClaimIds,
+    }, { bugId: bug.id });
+  }
   return result;
 }
 
@@ -193,6 +481,9 @@ export type CloseSuggestionView = {
   votes: number;
   summary: string;
   description: string | null;
+  evidence: string | null;
+  /** For reason duplicate: the issue that owns the work. */
+  duplicateOf: { number: number } | null;
   onBehalfOfUserId: string;
   by: string;
   agentName: string | null;
@@ -201,12 +492,16 @@ export type CloseSuggestionView = {
 
 export type CloseSuggestionsData = {
   entries: CloseSuggestionView[];
-  /** The votes to close it as superseded, and the project's closeThreshold. */
-  votes: number;
+  /** Votes per reason, highest first; the first is the leading reason. */
+  tallies: CloseTally[];
+  /** The project's closeThreshold: one reason must reach it. */
   threshold: number;
+  /** True when the suggestion that reaches the threshold closes the issue (#vote-governance). */
+  thresholdOnly: boolean;
+  managerVoteWeight: number;
 };
 
-/** An issue's close suggestions for its page, oldest first, with the tally. Null for an unknown issue. */
+/** An issue's close suggestions for its page, oldest first, with the tally per reason. Null for an unknown issue. */
 export async function closeSuggestionsFor(bugId: string): Promise<CloseSuggestionsData | null> {
   const bug = await prisma.bug.findUnique({ where: { id: bugId }, select: { projectId: true } });
   if (!bug) return null;
@@ -215,7 +510,8 @@ export async function closeSuggestionsFor(bugId: string): Promise<CloseSuggestio
       where: { bugId },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: {
-        id: true, reason: true, votes: true, summary: true, description: true, onBehalfOfUserId: true, updatedAt: true,
+        id: true, reason: true, votes: true, summary: true, description: true, evidence: true, onBehalfOfUserId: true, updatedAt: true,
+        duplicateOf: { select: { number: true } },
         onBehalfOf: { select: { name: true } },
         agent: { select: { name: true } },
       },
@@ -228,11 +524,18 @@ export async function closeSuggestionsFor(bugId: string): Promise<CloseSuggestio
     votes: row.votes,
     summary: row.summary,
     description: row.description,
+    evidence: row.evidence,
+    duplicateOf: row.duplicateOf ?? null,
     onBehalfOfUserId: row.onBehalfOfUserId,
     by: row.onBehalfOf.name,
     agentName: row.agent?.name ?? null,
     updatedAt: row.updatedAt,
   }));
-  const votes = entries.filter((entry) => entry.reason === "superseded").reduce((sum, entry) => sum + entry.votes, 0);
-  return { entries, votes, threshold: workflow.closeThreshold };
+  return {
+    entries,
+    tallies: closeTallies(entries),
+    threshold: workflow.closeThreshold,
+    thresholdOnly: isThresholdOnly(workflow),
+    managerVoteWeight: workflow.managerVoteWeight,
+  };
 }

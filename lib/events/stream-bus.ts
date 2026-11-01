@@ -1,13 +1,9 @@
 /**
- * In-memory pub/sub for real-time SSE event streaming (#615).
- *
- * When events are published via `publish()`, they are broadcast to active
- * SSE subscribers filtered by tenant, project, issue, and event types.
- * Subscribers are cleaned up automatically on client disconnect.
+ * In-process notice of committed events and writes. The work feed listens to
+ * drop its cached view of a tenant (lib/agent-api/work.ts). Agents read events
+ * with `GET /api/v1/events` or receive them as webhooks.
  */
 import { EventEmitter } from "node:events";
-import type { AgentContext } from "@/lib/agents/require-agent";
-import type { EventFilters } from "@/lib/agent-api/events";
 
 export type StreamEvent = {
   id: string;
@@ -20,101 +16,10 @@ export type StreamEvent = {
   createdAt: Date | string;
 };
 
-export type StreamSubscription = {
-  id: string;
-  agent: AgentContext;
-  filters: EventFilters;
-  onEvent: (event: StreamEvent) => void;
-};
-
 class EventStreamBus extends EventEmitter {
-  private subscriptions = new Map<string, StreamSubscription>();
-  private counter = 0;
-
-  /**
-   * Subscribe a client to real-time events.
-   * @param agent - Authenticated agent context
-   * @param filters - Optional filters for event types/projects/issues
-   * @param onEvent - Callback invoked when matching events arrive
-   * @returns Subscription id for cleanup
-   */
-  subscribe(
-    agent: AgentContext,
-    filters: EventFilters,
-    onEvent: (event: StreamEvent) => void,
-  ): string {
-    const id = `sub_${Date.now()}_${this.counter++}_${Math.random().toString(36).slice(2)}`;
-    this.subscriptions.set(id, { id, agent, filters, onEvent });
-    return id;
-  }
-
-  /**
-   * Unsubscribe and cleanup a subscription.
-   * @param id - Subscription id returned from subscribe()
-   */
-  unsubscribe(id: string): void {
-    this.subscriptions.delete(id);
-  }
-
-  /**
-   * Broadcast an event to all matching subscribers.
-   * @param event - Event to broadcast
-   */
+  /** Hand a committed event to in-process listeners (the work feed's cache). */
   broadcast(event: StreamEvent): void {
-    for (const sub of this.subscriptions.values()) {
-      // Enforce tenant scoping
-      if (sub.agent.tenantId !== event.tenantId) continue;
-
-      // Enforce project scoping if key is project-scoped. An event without a
-      // project (tenant-level, or an unknown publisher) cannot be proven to
-      // belong to the key's project, so it is withheld (#607).
-      if (sub.agent.projectId && event.projectId !== sub.agent.projectId) {
-        continue;
-      }
-
-      // Apply filters
-      const filters = sub.filters;
-      if (filters.projectId && event.projectId !== filters.projectId) {
-        continue;
-      }
-      if (filters.bugId && event.bugId !== filters.bugId) {
-        continue;
-      }
-      if (filters.types?.length || filters.typePrefixes?.length) {
-        const typeMatches = filters.types?.includes(event.type) ||
-          filters.typePrefixes?.some((prefix) => event.type.startsWith(prefix));
-        if (!typeMatches) continue;
-      }
-
-      try {
-        sub.onEvent(event);
-      } catch {
-        // Remove broken subscriptions
-        this.subscriptions.delete(sub.id);
-      }
-    }
     this.emit("event", event);
-  }
-
-  /**
-   * Get number of active subscriptions (for testing/monitoring).
-   */
-  get subscriptionCount(): number {
-    return this.subscriptions.size;
-  }
-
-  /**
-   * Alias for subscription count.
-   */
-  get size(): number {
-    return this.subscriptions.size;
-  }
-
-  /**
-   * Clear all subscriptions (for testing).
-   */
-  clear(): void {
-    this.subscriptions.clear();
   }
 }
 
@@ -122,19 +27,3 @@ export const eventStreamBus = new EventStreamBus();
 
 /** Emitted with a tenant id once an agent write has committed (#work-feed), ahead of its event broadcast. */
 export const TENANT_WRITE = "tenant-write";
-
-/**
- * Create a subscription for SSE streaming with proper filtering.
- * @param agent - Authenticated agent context
- * @param filters - Event filters (types, projectId, bugId)
- * @param onEvent - Callback for matching events
- * @returns Cleanup function
- */
-export function createStreamSubscription(
-  agent: AgentContext,
-  filters: EventFilters,
-  onEvent: (event: StreamEvent) => void,
-): () => void {
-  const id = eventStreamBus.subscribe(agent, filters, onEvent);
-  return () => eventStreamBus.unsubscribe(id);
-}

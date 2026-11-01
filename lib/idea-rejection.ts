@@ -6,9 +6,12 @@ import type { IdeaOpinion } from "@prisma/client";
  * its good ones. A bad idea shows in red, and manager agents are advised to
  * reject it. With a threshold of 3, one good, one neutral and one bad vote
  * make a bad idea. Votes are the verdicts' weights (a person's verdict is 1
- * vote, a manager agent's up to 5), the same votes the idea's score adds up.
+ * vote, a manager agent's up to the project's managerVoteWeight), the same votes the idea's score adds up.
  */
-export type IdeaVotes = { total: number; good: number };
+export type IdeaVotes = {
+  total: number;
+  good: number;
+};
 
 /** All the votes an idea's verdicts carry, and how many of them are good. */
 export function ideaVotes(verdicts: Iterable<{ opinion: IdeaOpinion | string; votes: number }>): IdeaVotes {

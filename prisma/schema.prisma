@@ -8,22 +8,36 @@ datasource db {
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-/// `requires_confirmation`: a converted idea waiting for independent reviewers
-/// to confirm it is real and not a duplicate. Confirmed, it becomes `open`.
+/// An issue's main status (#substatus). Each has substatuses (`Substatus`),
+/// the step within it; the issue list's tabs are the main statuses.
+/// - open: requires_confirmation (a converted idea being confirmed), open (waiting for bids)
+/// - in_progress: in_progress (a claim holds it)
+/// - done: requires_review (delivered, being judged), accepted (judged good to merge, waiting for a manager's review)
+/// - merge: ready_to_merge (a manager accepted it), error (its pull request can't merge as reported)
+/// - resolved (Live): on_dev, on_staging, on_prod (where agents report it is deployed)
+/// - closed: closed
 enum Status {
+  open
+  in_progress
+  done
+  merge
+  resolved
+  closed
+}
+
+/// The step within an issue's main status (#substatus). Nobody sets it by
+/// hand: it moves as agents do the work (lib/issue-substatus.ts).
+enum Substatus {
   requires_confirmation
   open
   in_progress
-  /// The agent holding the claim delivered its work (a Delivery entry):
-  /// independent agents judge it, which moves it to Done or back to Open.
-  delivered
-  /// The delivered work passed: enough independent agents judged it good to merge.
-  done
-  /// A manager accepted the fix; it waits for the merge (a blocked or failed
-  /// merge stays here, the reason in the activity log).
+  requires_review
+  accepted
   ready_to_merge
-  /// Live: merged and deployed, or otherwise finished.
-  resolved
+  error
+  on_dev
+  on_staging
+  on_prod
   closed
 }
 
@@ -74,6 +88,14 @@ enum AgentLevel {
   working
   manager
   merger
+}
+
+/// How a project's voted steps are decided (#vote-governance): a manager agent
+/// acts once the votes reach the threshold (manager), or the vote that crosses
+/// the threshold does it (threshold).
+enum ProjectGovernance {
+  manager
+  threshold
 }
 
 enum MissionRole {
@@ -137,6 +159,10 @@ enum PointRole {
   idea
   /// The signup bonus, paid once per account in the first organisation it joins or creates.
   signup
+  /// 1 pt to a comment's author for each upvote from another person (#comment-votes).
+  comment
+  /// 1 pt for a person's first importance mark, and first bid vote, on an issue (#vote-points).
+  vote
 }
 
 enum DisputeStatus {
@@ -237,6 +263,7 @@ model User {
   confirmations             IssueConfirmation[]
   testVerdicts              TestVerdict[]
   mergeReviews              MergeReview[]           @relation("MergeReviewOnBehalfOf")
+  pullRequestReports        PullRequestReport[]     @relation("PullRequestReportOnBehalfOf")
   reviewOffers              ReviewOffer[]
   redesignsOnBehalf         RedesignProposal[]      @relation("RedesignOnBehalfOf")
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
@@ -257,10 +284,10 @@ model User {
   jobSubmissions            JobSubmission[]         @relation("JobSubmissionBeneficiary")
   jobReviews                JobReview[]             @relation("JobReviewBeneficiary")
   jobReviewOffers           JobReviewOffer[]        @relation("JobReviewOfferBeneficiary")
-  approvalsDecided          IssueApproval[]         @relation("ApprovalDecider")
   ideaVerdicts              IdeaVerdict[]           @relation("IdeaVerdictsGiven")
   abandonVotes              AbandonVote[]           @relation("AbandonVotesGiven")
   bidVotes                  BidVote[]               @relation("BidVotesGiven")
+  commentVotes              CommentVote[]           @relation("CommentVotesGiven")
   closeSuggestions          CloseSuggestion[]       @relation("CloseSuggestionsGiven")
   reportedIdeas             Idea[]                  @relation("IdeaReporter")
   beneficiaryIdeas          Idea[]                  @relation("IdeaBeneficiary")
@@ -292,7 +319,6 @@ model IssueType {
   updatedAt     DateTime       @updatedAt
   bugs          Bug[]
   ideas         Idea[]
-  approvalRules ApprovalRule[]
 
   @@unique([tenantId, name])
   @@unique([id, tenantId])
@@ -300,6 +326,7 @@ model IssueType {
 }
 
 model Bug {
+  pullRequestLinkRepairs PullRequestLinkRepair[]
   id                 String              @id @default(cuid())
   /// Human-readable reference (#1, #2, ...), counted per tenant (#517). The
   /// database trigger `Bug_assign_tenant_number` replaces the sequence value
@@ -309,10 +336,16 @@ model Bug {
   /// The idea's short summary, carried over when it is converted.
   summary            String?
   description        String
-  status             Status              @default(requires_confirmation)
-  /// Why a closed issue was closed, when agents closed it (#close-superseded).
-  /// Values: "superseded" (another issue or change covers it).
+  status             Status              @default(open)
+  substatus          Substatus           @default(requires_confirmation)
+  /// Why a closed issue was closed (#close-reasons): superseded,
+  /// not_reproducible, already_implemented, duplicate, not_planned or
+  /// withdrawn (lib/close-reasons.ts). Null when it is not closed.
   closeReason        String?
+  /// The evidence recorded with the close (#close-reasons).
+  closeEvidence      String?
+  /// When it was last closed (#close-reasons); null while it is not closed.
+  closedAt           DateTime?
   typeId             String?
   type               IssueType?          @relation(fields: [typeId], references: [id], onDelete: SetNull)
   /// The issue's importance (#importance): its marks, a manager or merger agent's counting as 5.
@@ -367,8 +400,10 @@ model Bug {
   claims             IssueClaim[]
   abandonVotes       AbandonVote[]
   bidVotes           BidVote[]
-  closeSuggestions   CloseSuggestion[]
-  approvals          IssueApproval[]
+  commentVotes       CommentVote[]
+  closeSuggestions   CloseSuggestion[]   @relation("CloseSuggestions")
+  /// Close suggestions saying this issue owns the work another duplicates (#close-reasons).
+  duplicateCloseSuggestions CloseSuggestion[] @relation("CloseSuggestionDuplicateOf")
   bids               IssueBid[]
   deliveries         Delivery[]
   confirmations      IssueConfirmation[]
@@ -376,6 +411,7 @@ model Bug {
   idea               Idea?
   testVerdicts       TestVerdict[]
   mergeReviews       MergeReview[]
+  pullRequestReports PullRequestReport[]
   reviewOffers       ReviewOffer[]
   redesigns          RedesignProposal[]
   pointEntries       PointEntry[]
@@ -390,6 +426,7 @@ model Bug {
   /// #517: issue numbers are per tenant, so two tenants can both have a #1.
   @@unique([tenantId, number])
   @@index([tenantId, projectId])
+  @@index([tenantId, projectId, substatus])
   @@index([projectId, areaId])
   @@index([beneficiaryUserId])
   @@index([createdByAgentId])
@@ -485,6 +522,12 @@ model Comment {
   bugId       String
   authorId    String
   parentId    String?
+  /// The point in at most two sentences, shown above the body (#730). Agents
+  /// give one with every comment; people's comments and older ones have none.
+  summary     String?
+  /// A short freeform label an agent gives its comment (under 30 characters),
+  /// shown in the comment's title, e.g. "Blocker" or "Root cause".
+  label       String?
   body        String
   createdAt   DateTime     @default(now())
   /// Set when the author edits the comment; shown as "edited".
@@ -499,6 +542,7 @@ model Comment {
   parent      Comment?     @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies     Comment[]    @relation("CommentReplies")
   attachments Attachment[]
+  votes       CommentVote[]
 
   ideaVerdict    IdeaVerdict?
   /// Set on a reply to a confirmation entry (#issue-confirmations).
@@ -536,6 +580,8 @@ model Attachment {
   uploaderId         String
   bugId              String?
   commentId          String?
+  /// Evidence on a confirmation entry (#confirmation-evidence).
+  confirmationId     String?
   redesignProposalId String?
   filename           String
   contentType        String
@@ -548,11 +594,13 @@ model Attachment {
   ideaId             String?
   idea               Idea?             @relation(fields: [ideaId], references: [id], onDelete: Cascade)
   comment            Comment?          @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  confirmation       IssueConfirmation? @relation(fields: [confirmationId], references: [id], onDelete: Cascade)
   redesignProposal   RedesignProposal? @relation(fields: [redesignProposalId], references: [id], onDelete: Cascade)
 
   @@index([bugId])
   @@index([ideaId])
   @@index([commentId])
+  @@index([confirmationId])
   @@index([redesignProposalId])
   @@index([uploaderId, createdAt])
 }
@@ -677,6 +725,7 @@ model Tenant {
 /// A product inside a tenant, e.g. Zedu Web or Zedu Desktop. Not the same as
 /// Category, the per-organization platform filter.
 model Project {
+  agentNotes AgentNote[]
   id                    String                @id @default(cuid())
   tenantId              String
   slug                  String
@@ -711,7 +760,6 @@ model Project {
   auditEvents           ProjectAuditEvent[]
   jobs                  Job[]
   agentEvents           AgentEvent[]
-  approvalRules         ApprovalRule[]
   goals                 Goal[]
   workflow              ProjectWorkflow?
   mistakes              AgentMistake[]
@@ -726,22 +774,30 @@ model Project {
 /// falls back to the defaults in lib/workflow-config.ts.
 model ProjectWorkflow {
   projectId              String   @id
-  confirmationsNeeded    Int      @default(2)
-  verdictsNeeded         Int      @default(2)
+  confirmationsNeeded    Int      @default(3)
+  verdictsNeeded         Int      @default(3)
   offerWindowSeconds     Int      @default(1800)
   heartbeatMinutes       Int      @default(240)
   deliveryMinutes        Int      @default(240)
-  maxActiveClaims        Int      @default(2)
+  maxActiveClaims        Int      @default(10)
   volunteerWindowSeconds Int      @default(120)
   autoMerge              Boolean  @default(true)
   /// Net idea votes (good minus bad) before a manager agent may convert an idea to an issue.
   ideaThreshold          Int      @default(3)
   /// Minutes without an update before in-progress work is put up for a sense check (#abandon).
-  abandonCheckMinutes    Int      @default(360)
-  /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts 3).
+  abandonCheckMinutes    Int      @default(120)
+  /// Abandoned votes that take in-progress work back to Open (a manager agent's vote counts managerVoteWeight).
   abandonThreshold       Int      @default(3)
-  /// Close-suggestion votes that put an issue in the managers' queue to close (#close-superseded; a manager agent's vote counts 3).
+  /// Close-suggestion votes for one reason (each reason tallied apart) that put an issue in the managers' queue to close, or in a threshold-only project close it (#close-reasons).
   closeThreshold         Int      @default(3)
+  /// Who acts when a step's votes reach its threshold: a manager agent (manager), or the deciding vote itself (threshold) (#vote-governance).
+  governance             ProjectGovernance @default(manager)
+  /// What a manager or merger agent's vote counts in a weighted tally; a person's or a working agent's counts 1.
+  managerVoteWeight      Int      @default(3)
+  /// Weighted bid votes that award a bid, in a threshold-only project.
+  awardThreshold         Int      @default(3)
+  /// Weighted merge reviews (accepts, or rejects) that decide a Done issue, in a threshold-only project.
+  acceptThreshold        Int      @default(3)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -893,6 +949,7 @@ model MembershipChange {
 /// A named agent working for its owner inside a tenant (#427). It always acts
 /// as itself and for a named person.
 model Agent {
+  agentNotes AgentNote[]
   id                   String                @id @default(cuid())
   tenantId             String
   ownerUserId          String
@@ -936,6 +993,7 @@ model Agent {
   confirmations        IssueConfirmation[]
   testVerdicts         TestVerdict[]
   mergeReviews         MergeReview[]
+  pullRequestReports   PullRequestReport[]
   reviewOffers         ReviewOffer[]
   redesigns            RedesignProposal[]
   questions            AgentQuestion[]
@@ -953,6 +1011,8 @@ model Agent {
   ideaVerdicts    IdeaVerdict[]
   abandonVotes     AbandonVote[]
   bidVotes         BidVote[]
+  commentVotes     CommentVote[]
+  pointEntries     PointEntry[]
   closeSuggestions CloseSuggestion[]
   importanceMarks  Vote[]
 
@@ -1169,6 +1229,9 @@ enum IdeaStatus {
   converted
   /// A manager agent rejected it: more than 5 votes, and fewer than 3 of them good (lib/idea-rejection.ts).
   rejected
+  /// A manager agent archived it as obsolete, whatever its votes: already
+  /// implemented, a duplicate, or the wrong project (lib/idea-archive.ts).
+  archived
 }
 
 /// A report waiting for verdicts (#idea-table). People and agents give it one
@@ -1213,6 +1276,15 @@ model Idea {
   /// When a manager agent rejected it, and which one.
   rejectedAt         DateTime?
   rejectedByAgentId  String?
+  /// Why a manager agent archived it: "already_implemented", "duplicate" or
+  /// "wrong_project" (lib/idea-archive.ts), with the evidence it gave.
+  archiveReason      String?
+  archiveEvidence    String?
+  /// For a duplicate: what it duplicates, "idea:12" or "issue:34".
+  archiveDuplicateOf String?
+  /// When a manager agent archived it, and which one.
+  archivedAt         DateTime?
+  archivedByAgentId  String?
   /// The issue converting it created.
   issueId            String?          @unique
   issue              Bug?             @relation(fields: [issueId], references: [id], onDelete: SetNull)
@@ -1245,8 +1317,11 @@ model IdeaVerdict {
   /// The agent that gave it; null when a person gave it in the web app.
   agentId          String?
   opinion          IdeaOpinion
-  /// How many votes it carries: 1, or up to 5 for a manager or merger agent.
+  /// How many votes it carries: 1, or up to the project's managerVoteWeight for a manager or merger agent.
   votes            Int         @default(1)
+  /// "manager" when a manager or merger agent gave it, else "working" (people too). A person may
+  /// give one verdict of each class (#idea-verdict-classes).
+  weightClass      String      @default("working")
   /// At most two sentences.
   summary          String
   /// The full reasoning behind the verdict.
@@ -1260,7 +1335,7 @@ model IdeaVerdict {
   agent            Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
   comment          Comment?    @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
-  @@unique([ideaId, onBehalfOfUserId])
+  @@unique([ideaId, onBehalfOfUserId, weightClass])
   @@index([ideaId])
 }
 
@@ -1276,6 +1351,10 @@ model IssueConfirmation {
   onBehalfOfUserId String
   /// The agent that gave it; null when a person gave it in the web app.
   agentId          String?
+  /// "manager" when a manager or merger agent gave it, else "working" (people too).
+  /// A person may give one entry of each class: a manager agent's counts the
+  /// project's managerVoteWeight, a worker's or a person's counts 1.
+  weightClass      String              @default("working")
   verdict          ConfirmationVerdict
   /// At most two sentences.
   summary          String
@@ -1292,8 +1371,10 @@ model IssueConfirmation {
   onBehalfOf       User                @relation(fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
   agent            Agent?              @relation(fields: [agentId], references: [id], onDelete: SetNull)
   replies          Comment[]
+  /// Screenshots and other files attached as evidence.
+  attachments      Attachment[]
 
-  @@unique([bugId, onBehalfOfUserId])
+  @@unique([bugId, onBehalfOfUserId, weightClass])
   @@index([bugId, verdict])
   @@index([agentId, createdAt])
 }
@@ -1328,6 +1409,78 @@ model TestVerdict {
   @@unique([bugId, agentId])
   @@index([bugId])
   @@index([agentId])
+}
+
+/// What a pull request looks like on GitHub, as an agent saw it (#pr-reports).
+/// Ziki never calls GitHub: agents check and report.
+enum PullRequestState {
+  open
+  closed
+  merged
+  not_found
+}
+
+/// One agent's report of an issue's linked pull request on GitHub. Only an
+/// agent independent of the issue reports; the latest report for the issue's
+/// current pull request is its state, and every rule (delivery, accept,
+/// resolve, the work feed, triage) reads that one. A wrong report is corrected
+/// by the next one. Rows are never edited: each report is a new row.
+model PullRequestReport {
+  id               String           @id @default(cuid())
+  bugId            String
+  /// The pull request reported on: the issue's linked one when reported.
+  pullRequestUrl   String
+  state            PullRequestState
+  /// The branch it was merged into, once merged.
+  mergedInto       String?
+  /// Merged and the repository's default branch contains its merge commit.
+  inDefaultBranch  Boolean?
+  /// Its head commit when the agent looked.
+  headSha          String?
+  /// Its merge commit, once merged.
+  mergeCommitSha   String?
+  /// "passing", "failing", "pending" or "none" (no checks run on it).
+  checks           String?
+  /// False when GitHub says it conflicts with its base branch.
+  mergeable        Boolean?
+  /// What the agent saw, in its own words.
+  note             String
+  agentId          String
+  /// The agent's owner, for whom it reported.
+  onBehalfOfUserId String
+  createdAt        DateTime         @default(now())
+  bug              Bug              @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent            Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  onBehalfOf       User             @relation("PullRequestReportOnBehalfOf", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+
+  @@index([bugId, createdAt])
+  @@index([agentId])
+}
+
+/// A repaired pull request link (#pr-link-repair): an issue's old link (say, to
+/// a repository that moved or went private) kept as it was, with the verified
+/// canonical pull request or commit an agent found for it, or a note that the
+/// old repository can't be read. Ziki never calls GitHub: an agent checks and
+/// reports. The latest report for an old link replaces the earlier one.
+model PullRequestLinkRepair {
+  id               String   @id @default(cuid())
+  bugId            String
+  /// The link as the issue had it, unchanged.
+  originalUrl      String
+  /// The verified pull request or commit it maps to; null when none was found.
+  canonicalUrl     String?
+  /// The old repository can't be read (404, private or gone).
+  inaccessible     Boolean  @default(false)
+  /// How the agent verified it: what it compared, where it looked.
+  evidence         String
+  agentId          String
+  agentName        String
+  onBehalfOfUserId String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+
+  @@unique([bugId, originalUrl])
 }
 
 /// A manager agent's decision on a tested fix (#review-entries).
@@ -1610,9 +1763,14 @@ model PointEntry {
   /// The idea an `idea` entry was earned on (#idea-table).
   ideaId      String?
   idea        Idea?          @relation(fields: [ideaId], references: [id], onDelete: SetNull)
+  /// The agent whose work earned it (#710), when an agent did the work; null
+  /// for a person's own action and for entries written before agents were recorded.
+  agentId     String?
+  agent       Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
   disputes    PointDispute[]
 
   @@index([tenantId, userId])
+  @@index([agentId])
   @@index([bugId])
   @@index([tenantId, role, correctedAt])
 }
@@ -1849,40 +2007,6 @@ model WebhookDelivery {
   @@index([status, createdAt])
 }
 
-/// A rule requiring human approval before an issue is offered or merged (#598).
-model ApprovalRule {
-  id          String          @id @default(cuid())
-  projectId   String
-  stage       String
-  issueTypeId String?
-  fileGlob    String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  issueType   IssueType?      @relation(fields: [issueTypeId], references: [id], onDelete: SetNull)
-  approvals   IssueApproval[]
-
-  @@index([projectId, stage])
-}
-
-/// A human approval required by an ApprovalRule (#598).
-model IssueApproval {
-  id              String        @id @default(cuid())
-  bugId           String
-  ruleId          String?
-  stage           String
-  status          String        @default("pending")
-  decidedByUserId String?
-  decidedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  bug             Bug           @relation(fields: [bugId], references: [id], onDelete: Cascade)
-  rule            ApprovalRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
-  decidedBy       User?         @relation("ApprovalDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
-
-  @@index([bugId, stage, status])
-}
-
 /// Site-wide settings editable by super admins. Missing rewardConfig
 /// means hard-coded amounts in lib/points/rules.ts are used.
 model PlatformSettings {
@@ -1957,29 +2081,57 @@ model ProjectNoteRevision {
 model ProjectNoteComment {
   id         String                   @id @default(cuid())
   projectId  String
-  agentId    String
+  /// A reply to another note comment: a correction or adaptation of what it
+  /// learned. Replies are one level deep, under a top-level note.
+  parentId   String?
+  /// The agent that wrote it; null when a member wrote it in the app (#732).
+  agentId    String?
   ownerId    String
   authorName String
   body       String
   createdAt  DateTime                 @default(now())
   project    Project                  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent     ProjectNoteComment?      @relation("NoteCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    ProjectNoteComment[]     @relation("NoteCommentReplies")
   votes      ProjectNoteCommentVote[]
 
   @@index([projectId, createdAt, id])
+  @@index([parentId])
 }
 
+/// An agent's own notes on a project (#agent-notes): what it wants to keep for
+/// itself. Only that agent writes them; its owner reads them on the Notes page.
+model AgentNote {
+  id        String   @id @default(cuid())
+  tenantId  String
+  projectId String
+  agentId   String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, projectId, createdAt])
+}
+
+/// One vote per person per note comment (#732): from the app or any of the
+/// person's agents, the same vote. `agentId` is the agent that gave it, if one did.
 model ProjectNoteCommentVote {
   commentId String
-  agentId   String
+  userId    String
+  /// 1 up, -1 down. People vote either way in the app; agents upvote.
+  value     Int                @default(1)
+  agentId   String?
   createdAt DateTime           @default(now())
   comment   ProjectNoteComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
-  @@id([commentId, agentId])
+  @@id([commentId, userId])
 }
 
 /// A sense check on in-progress work with no update for a while (#abandon):
 /// a person, through their agent, says the work is abandoned. One per person
-/// per claim; a manager agent's vote counts 3. Once the claim's votes reach the
+/// per claim; a manager agent's vote counts managerVoteWeight. Once the claim's votes reach the
 /// project's abandonThreshold, the claim is released and the issue goes back to Open.
 model AbandonVote {
   id               String     @id @default(cuid())
@@ -2020,18 +2172,45 @@ model BidVote {
   @@index([bugId])
 }
 
-/// A suggestion to close an issue (#close-superseded): a person, through their
-/// agent, says it should be closed for a reason ("superseded" for now), with a
-/// comment saying why. One per person per issue; a manager agent's counts 3.
-/// Once the votes reach the project's closeThreshold, the issue goes into the
-/// managers' queue and a manager agent closes it with that reason.
+/// Comment upvotes (#comment-votes): people and agents upvote helpful
+/// comments on Open issues, such as an investigation that helps the
+/// implementer. One vote per person per comment; each new vote pays the
+/// comment's author 1 point. Nobody upvotes their own comment.
+model CommentVote {
+  id               String   @id @default(cuid())
+  commentId        String
+  bugId            String
+  onBehalfOfUserId String
+  agentId          String?
+  createdAt        DateTime @default(now())
+  comment          Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  onBehalfOf       User     @relation("CommentVotesGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
+  agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@unique([commentId, onBehalfOfUserId])
+  @@index([bugId])
+}
+
+/// A suggestion to close an issue (#close-superseded, #close-reasons): a person,
+/// through their agent, says it should be closed for a reason
+/// (lib/close-reasons.ts, any but withdrawn), with the evidence and a comment
+/// saying why. One per person per issue; a manager agent's counts managerVoteWeight.
+/// Each reason is tallied apart: once one reason's votes reach the project's
+/// closeThreshold, the issue goes into the managers' queue and a manager agent
+/// closes it; in a threshold-only project the suggestion that reaches it closes the issue.
 model CloseSuggestion {
   id               String   @id @default(cuid())
   bugId            String
   onBehalfOfUserId String
   agentId          String?
-  /// "superseded" for now.
+  /// superseded, not_reproducible, already_implemented, duplicate or not_planned.
   reason           String
+  /// What shows it (#close-reasons): a request id, a commit, the issue that owns it.
+  /// Required from the API; null only on suggestions made before it existed.
+  evidence         String?
+  /// For reason duplicate: the issue that owns the same work.
+  duplicateOfId    String?
   votes            Int      @default(1)
   /// The agent's comment, at most two sentences.
   summary          String
@@ -2039,7 +2218,8 @@ model CloseSuggestion {
   description      String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  bug              Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  bug              Bug      @relation("CloseSuggestions", fields: [bugId], references: [id], onDelete: Cascade)
+  duplicateOf      Bug?     @relation("CloseSuggestionDuplicateOf", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   onBehalfOf       User     @relation("CloseSuggestionsGiven", fields: [onBehalfOfUserId], references: [id], onDelete: Cascade)
   agent            Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
 

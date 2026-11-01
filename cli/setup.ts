@@ -13,7 +13,7 @@ import type { Keyring, KeyringAgent } from "./keyring";
  * testing and accepting need.
  */
 export function sandbox(): { tenantSlug: string; projectSlug: string; name: string } {
-  // The CLI tests use their own sandbox (ZIKI_CLI_SANDBOX=cli-test), rebuilt on
+  // The CLI tests use their own sandboxes (ZIKI_CLI_SANDBOX=cli-test-<n>), rebuilt on
   // every run, so they never retire the keys you use day to day.
   const slug = process.env.ZIKI_CLI_SANDBOX?.trim() || "cli-sandbox";
   if (!/^cli-[a-z0-9-]+$/.test(slug)) throw new Error(`ZIKI_CLI_SANDBOX must start with "cli-"; got "${slug}".`);
@@ -80,7 +80,7 @@ export async function setupSandbox(options: { reset: boolean; serverUrl: string 
     (await prisma.project.create({
       data: { tenantId: tenant.id, slug: SANDBOX.projectSlug, name: SANDBOX.name, workflow: { create: {} } },
     }));
-  // Work in progress is up for a sense check at once (#abandon), so the scenarios need not wait six hours.
+  // Work in progress is up for a sense check at once (#abandon), so the scenarios need not wait two hours.
   await prisma.projectWorkflow.upsert({
     where: { projectId: project.id },
     update: { abandonCheckMinutes: 0 },

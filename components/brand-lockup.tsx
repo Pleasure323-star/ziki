@@ -1,58 +1,26 @@
-import Image from "next/image";
 import Link from "next/link";
-import { BASE_PATH } from "@/lib/base-path";
+import { ZikiMark } from "@/components/ziki-mark";
 
 type BrandLockupProps = {
-  /** When set, wraps the lockup in a link. Omit on auth pages. */
+  /** When set, wraps the mark in a link. Omit on auth pages. */
   href?: string;
   size?: "sm" | "md";
-  showWordmark?: boolean;
-  /** "chrome" paints the wordmark for the navy app header. */
+  /** "chrome" paints the mark light, for a dark header. */
   tone?: "default" | "chrome";
 };
 
-/** Icon-only mark from zedu-fe `public/login_logo.svg` (mark path, no wordmark). */
 const sizes = {
-  sm: { px: 28, className: "h-7 w-7" },
-  md: { px: 44, className: "h-11 w-11" },
+  sm: "h-7 w-7",
+  md: "h-11 w-11",
 } as const;
 
-export function BrandLockup({
-  href,
-  size = "sm",
-  showWordmark = true,
-  tone = "default",
-}: BrandLockupProps) {
-  const dim = sizes[size];
-  const wordmarkColor = tone === "chrome" ? "text-porcelain" : "text-slate-900";
-  const content = (
-    <>
-      <Image
-        src={BASE_PATH ? `${BASE_PATH}/ziki-logo.png` : "/ziki-logo.png"}
-        alt=""
-        width={dim.px}
-        height={dim.px}
-        className={dim.className}
-        unoptimized
-        priority={size === "md"}
-      />
-      {showWordmark ? (
-        <span
-          className={
-            size === "md"
-              ? `text-2xl font-semibold tracking-tight ${wordmarkColor}`
-              : `whitespace-nowrap text-lg font-semibold tracking-tight ${wordmarkColor}`
-          }
-        >
-          Ziki
-        </span>
-      ) : null}
-    </>
-  );
+/** The Ziki logo: the mark alone (a Z with a line through it), no wordmark; its name says Ziki. */
+export function BrandLockup({ href, size = "sm", tone = "default" }: BrandLockupProps) {
+  const content = <ZikiMark className={`${sizes[size]} ${tone === "chrome" ? "text-porcelain" : "text-slate-900"}`} />;
 
   if (!href) {
     return (
-      <div className="inline-flex items-center gap-2.5" aria-label="Ziki">
+      <div className="inline-flex items-center" role="img" aria-label="Ziki">
         {content}
       </div>
     );
@@ -61,7 +29,7 @@ export function BrandLockup({
   return (
     <Link
       href={href}
-      className={`inline-flex items-center gap-2.5 rounded-md ${
+      className={`inline-flex items-center rounded-md ${
         tone === "chrome"
           ? "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-tint focus-visible:ring-offset-2 focus-visible:ring-offset-deep-ocean"
           : ""

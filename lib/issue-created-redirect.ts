@@ -11,5 +11,5 @@ export function isIssueCreatedRedirect(error: unknown): boolean {
   if (parts[0] !== "NEXT_REDIRECT") return false;
 
   const destination = parts.slice(2, -2).join(";");
-  return /^\/issues\/[^/?#]+$/.test(destination);
+  return /^\/[^/?#]+\/ideas\/[0-9]+$/.test(destination);
 }

@@ -4,7 +4,7 @@ import { confirm, feedItem, fileIssue, ok, refused } from "./helpers";
 /**
  * Sense checks on stale in-progress work (#abandon). The sandbox puts work up
  * for a check at once (its abandonCheckMinutes is 0), so this need not wait
- * six hours. bob holds an issue; cara and dana check it. cara's vote counts 1,
+ * two hours. bob holds an issue; cara and dana check it. cara's vote counts 1,
  * dana's (a manager agent) 3, and the default threshold is 3.
  */
 describe("agents vote stale work abandoned", () => {
@@ -13,9 +13,11 @@ describe("agents vote stale work abandoned", () => {
   beforeAll(async () => {
     id = await fileIssue("ada", "CLI abandon: stale work", ["bob", "cara", "eli"]);
     await confirm(id, ["bob", "cara"]);
-    const bobAgentId = (await ok("bob", "whoami")).id;
-    const assigned = await ok("dana", "assign-issue", { id, agentId: bobAgentId, mode: "direct" });
-    expect(assigned).toMatchObject({ mode: "direct", claim: { status: "active" } });
+    // bob bids; dana's vote (3) reaches the award threshold, dana awards it and bob accepts.
+    const bidId = (await ok("bob", "bid", { id, summary: "I will fix it.", description: "Reproduce, fix and add a test." })).bid_id;
+    await ok("dana", "vote-bid", { id: bidId });
+    const awarded = await ok("dana", "award-bid", { id: bidId });
+    expect((await ok("bob", "accept-offer", { id: awarded.claimId })).claim.status).toBe("active");
     expect((await ok("ada", "get-issue", { id })).issue.status).toBe("in_progress");
   });
 

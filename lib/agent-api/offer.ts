@@ -11,12 +11,13 @@ import { assigneeChangedSummary, statusChangedSummary } from "@/lib/activity-log
 import { ensureWatching } from "@/lib/watch";
 import { deliveryDeadline, deliveryWindowMinutes } from "@/lib/claim-deadline";
 import { parseIssueRef, resolveIssueRef } from "@/lib/issue-ref";
+import { moveTo } from "@/lib/issue-substatus";
 
 /**
- * Offers (#bids-only-offers). Only a manager (or merger) agent makes an offer,
- * by awarding a bid (lib/agent-api/bid.ts `awardBid`; the assign route,
- * lib/agent-api/assign.ts, is the same choice made by name). Nothing offers an
- * issue automatically or in turn. An offer the agent does not accept in the
+ * Offers (#bids-only-offers). Only awarding a bid makes an offer: any agent
+ * awards a bid whose votes reached the project's awardThreshold
+ * (lib/agent-api/bid.ts `awardBid`), or in a threshold-only project the vote
+ * that reaches it does. Nothing else offers an issue. An offer the agent does not accept in the
  * project's window expires, and a declined, expired or released offer leaves
  * the issue in Open for bids.
  */
@@ -99,12 +100,12 @@ export async function sweepExpiredOffers(tenantId?: string, projectId?: string):
 export async function acceptOffer(agent: AgentContext, claimId: string) {
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const claim = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
+      const claim = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!claim || claim.bug.tenantId !== agent.tenantId) throw new IssueApiError(404, "Offer not found.");
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} AND "tenantId" = ${agent.tenantId} FOR UPDATE`;
       if (!locked.length) throw new IssueApiError(404, "Offer not found.");
       await tx.$queryRaw`SELECT "id" FROM "IssueClaim" WHERE "id" = ${claimId} FOR UPDATE`;
-      const fresh = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, status: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
+      const fresh = await tx.issueClaim.findUnique({ where: { id: claimId }, include: { beneficiary: { select: { name: true } }, bug: { select: { id: true, title: true, substatus: true, assigneeId: true, tenantId: true, projectId: true, areaId: true, voteCount: true, assignee: { select: { name: true } } } } } });
       if (!fresh || fresh.agentId !== agent.agentId) throw new IssueApiError(409, "This offer is no longer available to this agent.");
       if (fresh.status === "released" && fresh.releaseReason === "expired") throw new IssueApiError(410, "This offer expired and has been released.");
       if (fresh.status !== "offered" || fresh.releasedAt) throw new IssueApiError(409, "This offer is no longer available to this agent.");
@@ -128,7 +129,8 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
       await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${fresh.beneficiaryUserId} FOR UPDATE`;
       const activeClaims = await tx.issueClaim.count({ where: {
         beneficiaryUserId: fresh.beneficiaryUserId, status: "active", releasedAt: null,
-        bug: { tenantId: agent.tenantId, projectId: fresh.bug.projectId, isDeleted: false },
+        // #760: delivered work (Done, Merge) no longer takes a slot; only work In progress does.
+        bug: { tenantId: agent.tenantId, projectId: fresh.bug.projectId, isDeleted: false, status: "in_progress" },
       } });
       if (activeClaims >= workflow.maxActiveClaims) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "capacity" } });
@@ -136,7 +138,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "capacity" } });
         return { unavailable: true as const };
       }
-      if (fresh.bug.status !== "open" || !canAssignTicket({ actorId: fresh.beneficiaryUserId, actorRole: "user", currentAssigneeId: fresh.bug.assigneeId, targetAssigneeId: fresh.beneficiaryUserId, claimed: true })) {
+      if (fresh.bug.substatus !== "open" || !canAssignTicket({ actorId: fresh.beneficiaryUserId, actorRole: "user", currentAssigneeId: fresh.bug.assigneeId, targetAssigneeId: fresh.beneficiaryUserId, claimed: true })) {
         await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "released", releasedAt: now, releaseReason: "unavailable" } });
         await publish(tx, { tenantId: agent.tenantId, type: "claim.released", actorAgentId: agent.agentId, bugId: fresh.bugId,
           payload: { claimId: fresh.id, issueId: fresh.bugId, beneficiaryUserId: fresh.beneficiaryUserId, reason: "unavailable" } });
@@ -144,7 +146,7 @@ export async function acceptOffer(agent: AgentContext, claimId: string) {
       }
       const deliverBy = deliveryDeadline(now, deliveryWindowMinutes(workflow.deliveryMinutes));
       await tx.issueClaim.update({ where: { id: fresh.id }, data: { status: "active", claimedAt: now, lastHeartbeatAt: now, deliverBy } });
-      const issue = await tx.bug.update({ where: { id: fresh.bugId }, data: { assigneeId: fresh.beneficiaryUserId, status: "in_progress" }, select: { id: true, assigneeId: true, status: true } });
+      const issue = await tx.bug.update({ where: { id: fresh.bugId }, data: { assigneeId: fresh.beneficiaryUserId, ...moveTo("in_progress") }, select: { id: true, assigneeId: true, status: true, substatus: true } });
       await tx.bugActivity.createMany({ data: [
         ...(fresh.bug.assigneeId !== fresh.beneficiaryUserId ? [{ bugId: fresh.bugId, actorId: fresh.beneficiaryUserId, type: "assignee_changed" as const, summary: assigneeChangedSummary(fresh.bug.assignee?.name ?? null, fresh.beneficiary.name), metadata: { field: "assignee", from: fresh.bug.assigneeId, to: fresh.beneficiaryUserId } }] : []),
         { bugId: fresh.bugId, actorId: fresh.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("open", "in_progress"), metadata: { field: "status", from: "open", to: "in_progress" } },
@@ -190,8 +192,8 @@ export const releaseSchema = z.object({
  *   penalised the way going quiet is.
  * - An active claim's issue goes back to open and unassigned, unless a person
  *   has reassigned or resolved it since.
- * - Nobody is offered it in turn: the issue waits in Open for bids, and a
- *   manager agent awards one.
+ * - Nobody is offered it in turn: the issue waits in Open for bids, and once
+ *   a bid has enough votes any agent awards it.
  */
 export async function releaseClaim(agent: AgentContext, projectId: string, issueRef: string, reason?: string) {
   return prisma.$transaction(async (tx) => {
@@ -219,7 +221,7 @@ export async function releaseClaim(agent: AgentContext, projectId: string, issue
       const otherOpen = await tx.issueClaim.count({ where: { bugId, releasedAt: null, id: { not: claim.id } } });
       // A delivered fix stays where it got to (#one-status): only an undelivered one goes back to Open.
       if (!otherOpen && bug.status === "in_progress" && !bug.pullRequestUrl && bug.assigneeId === claim.beneficiaryUserId) {
-        await tx.bug.update({ where: { id: bugId }, data: { assigneeId: null, status: "open" } });
+        await tx.bug.update({ where: { id: bugId }, data: { assigneeId: null, ...moveTo("open") } });
         await tx.bugActivity.createMany({ data: [
           { bugId, actorId: claim.beneficiaryUserId, type: "assignee_changed", summary: assigneeChangedSummary(claim.beneficiary.name, null), metadata: { field: "assignee", from: claim.beneficiaryUserId, to: null } },
           { bugId, actorId: claim.beneficiaryUserId, type: "status_changed", summary: statusChangedSummary("in_progress", "open"), metadata: { field: "status", from: "in_progress", to: "open" } },

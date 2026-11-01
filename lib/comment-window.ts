@@ -60,6 +60,7 @@ export type CommentWindow = {
 const commentInclude = {
   author: { select: { name: true, role: true, image: true } },
   agent: { select: { name: true } },
+  votes: { select: { onBehalfOfUserId: true } },
   parent: {
     select: {
       id: true,

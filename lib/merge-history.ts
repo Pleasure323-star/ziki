@@ -1,5 +1,5 @@
 import { DEPLOY_STAGES, type DeployStage } from "@/lib/deploy-stage";
-import { parsePullRequestUrl } from "@/lib/github/merge-pr";
+import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 
 /**
  * Merge history: where each completed issue's fix has got to on the

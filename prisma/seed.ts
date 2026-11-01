@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, Status } from "@prisma/client";
+import { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -153,6 +153,7 @@ async function seedDemoData() {
     title: string;
     description: string;
     status: Status;
+    substatus: Substatus;
     reporterId: string;
     assigneeId?: string;
     proofLinks?: string[];
@@ -162,6 +163,7 @@ async function seedDemoData() {
       description:
         "Tapping Sign in on iPhone 14 (iOS 18) does nothing. Console shows no network request. Repro: clear site data, open /login, enter credentials, tap button. Proof: first link is the frozen button; second is a screen recording of the tap.",
       status: "open",
+      substatus: "open",
       reporterId: cara.id,
       assigneeId: bob.id,
       proofLinks: [
@@ -174,6 +176,7 @@ async function seedDemoData() {
       description:
         "Selecting status=in_progress then opening a bug and going back loses the filter. Expected: preserve query params.",
       status: "in_progress",
+      substatus: "in_progress",
       reporterId: alice.id,
       assigneeId: alice.id,
     },
@@ -182,6 +185,7 @@ async function seedDemoData() {
       description:
         "Running pnpm db:seed against a non-local DATABASE_URL deletes all rows. Add an environment guard before deleteMany. Screenshot shows wipe on staging.",
       status: "open",
+      substatus: "open",
       reporterId: bob.id,
       proofLinks: ["https://example.com/proof/seed-wipe-staging.png"],
     },
@@ -190,6 +194,7 @@ async function seedDemoData() {
       description:
         "Detail page renders createdAt without local timezone. Prefer relative time or locale formatting.",
       status: "resolved",
+      substatus: "on_prod",
       reporterId: cara.id,
       assigneeId: alice.id,
     },
@@ -198,6 +203,7 @@ async function seedDemoData() {
       description:
         "Cannot unassign a bug once assigned. Need an Unassigned option that sets assigneeId null.",
       status: "open",
+      substatus: "open",
       reporterId: bob.id,
       assigneeId: cara.id,
     },
@@ -206,6 +212,7 @@ async function seedDemoData() {
       description:
         "When filters match nothing, show Clear filters CTA instead of a blank panel.",
       status: "closed",
+      substatus: "closed",
       reporterId: alice.id,
       assigneeId: bob.id,
     },
@@ -214,6 +221,7 @@ async function seedDemoData() {
       description:
         "Yellow status badge on white background is ~2.8:1. Darken text or badge background. Link shows contrast check.",
       status: "in_progress",
+      substatus: "in_progress",
       reporterId: cara.id,
       assigneeId: bob.id,
       proofLinks: ["https://example.com/proof/contrast-audit.png"],
@@ -223,6 +231,7 @@ async function seedDemoData() {
       description:
         "Trimming is missing on the server for description-only-whitespace. Zod trim should reject it.",
       status: "open",
+      substatus: "open",
       reporterId: alice.id,
     },
   ];

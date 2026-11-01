@@ -13,7 +13,7 @@ export default function AppNotFound() {
       code="404"
       title="We couldn't find that page"
       actions={
-        <Link href="/issues" className={primaryActionClass}>
+        <Link href="/dashboard" className={primaryActionClass}>
           Go to issues
         </Link>
       }

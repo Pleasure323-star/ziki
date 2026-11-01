@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth-helpers";
+import { firstProjectSlugFor } from "@/lib/project-route";
+import { orgPath } from "@/lib/project-paths";
 import { openInvitesFor, viewInvite } from "@/lib/invites";
 import { prisma } from "@/lib/prisma";
 import { isSuperAdmin } from "@/lib/roles";
@@ -40,6 +42,7 @@ export default async function TenantsPage({
   }>;
 }) {
   const user = await requireUser();
+  const projectSlug = await firstProjectSlugFor(user.id);
   // In-app invite notifications (#443) link here with the invite's id.
   const {
     invite: inviteParam,
@@ -180,10 +183,10 @@ export default async function TenantsPage({
                     <p className="mt-0.5 text-xs text-zk-muted">
                       {/* #537: the slug tells tenants with the same name apart. */}
                       <span className="font-mono">{tenant.slug}</span> · {MEMBERSHIP_ROLE_LABELS[tenant.role]}
-                      {current ? (
+                      {current && projectSlug ? (
                         <>
                           {" · "}
-                          <Link href="/org" className="text-zk-accent hover:underline">
+                          <Link href={orgPath(projectSlug)} className="text-zk-accent hover:underline">
                             {tenant.role === "member" ? "Members and projects" : "Manage organization"}
                           </Link>
                         </>

@@ -50,7 +50,6 @@ describe("tool table matches the API", () => {
       ...(tool.body ?? []),
       ...Object.values(tool.headers ?? {}),
       ...(tool.file ? [tool.file.filename, tool.file.data] : []),
-      ...(tool.streamSeconds ? [tool.streamSeconds] : []),
     ]);
     if (tool.projectScoped) routed.add("projectId");
     const inputs = Object.keys(tool.input);
@@ -84,8 +83,8 @@ describe("buildRequest", () => {
   it("sends only provided query and body fields", () => {
     const list = buildRequest(tool("ziki_list_issues"), { status: "open", limit: 5 }, { projectId: null });
     expect(list.query).toEqual({ status: "open", limit: 5 });
-    const comment = buildRequest(tool("ziki_comment"), { id: "i", body: "hi" }, { projectId: "p" });
-    expect(comment.body).toEqual({ body: "hi" });
+    const comment = buildRequest(tool("ziki_comment"), { id: "i", summary: "Hello.", body: "hi" }, { projectId: "p" });
+    expect(comment.body).toEqual({ summary: "Hello.", body: "hi" });
   });
 
   it("sends the idempotency key as a header, deriving a stable one unless given (#633)", () => {
@@ -143,7 +142,7 @@ describe("buildRequest", () => {
   });
 
   it("rejects input the route would reject", () => {
-    expect(() => buildRequest(tool("ziki_comment"), { id: "i", body: "x".repeat(2001) }, { projectId: null })).toThrow();
+    expect(() => buildRequest(tool("ziki_comment"), { id: "i", body: "x".repeat(10001) }, { projectId: null })).toThrow();
     expect(() => buildRequest(tool("ziki_ask_owner"), { body: "hi" }, { projectId: null })).toThrow();
   });
 });

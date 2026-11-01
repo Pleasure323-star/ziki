@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
 import {
   assertIndependentReviewer,
-  reviewerCreditConflict,
   ReviewerNotIndependentError,
   type ReviewedBug,
 } from "@/lib/agents/independence";
@@ -12,12 +11,14 @@ import { hasLevel } from "@/lib/agents/levels";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { publish } from "@/lib/agent-api/events";
 import { handleTestVerdictSubmitted } from "@/lib/agent-api/review-offer";
-import { parsePullRequestUrl, type GitHubClient, type PullRequest } from "@/lib/github/merge-pr";
-import { combineProblems, notifyAuthor, readinessClient, readinessProblems } from "@/lib/agent-api/pr-readiness";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { prGate } from "@/lib/agent-api/pr-gate";
+import { gateReport, latestPullRequestReport, notifyAuthor, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { conflictComment } from "@/lib/agent-api/merge-conflict";
 import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { parseIssueRef } from "@/lib/issue-ref";
+import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -40,11 +41,13 @@ import { parseIssueRef } from "@/lib/issue-ref";
  *   Nobody gives a bare verdict. Replies are plain comments with
  *   `testVerdictId`. Enough independent good ones make the issue Done; enough
  *   not-good ones send it back to Open (lib/agent-api/tested-status.ts).
- * - "Good to merge" is only recorded when the pull request is ready: every check
- *   on its head commit is green, CodeRabbit has no unresolved review threads,
- *   and it doesn't conflict with its base branch (#255). Otherwise nothing is
- *   recorded: the caller gets every reason and what the author has to do, and
- *   the author is told. A "not good to merge" verdict is always recorded.
+ * - "Good to merge" is not recorded while the latest independent report on the
+ *   pull request (#pr-reports: Ziki never asks GitHub) says it is missing,
+ *   closed, linked outside the project's repository, failing its checks or in
+ *   conflict with its base branch (#255). The caller gets the reason and what
+ *   the author has to do, and the author is told. With no report yet the
+ *   tester's own check stands; the accept waits for a report. A "not good to
+ *   merge" verdict is always recorded.
  * - A verdict needs a linked pull request and records which one it tested
  *   (#526), and the head commit it tested (#489). Linking a different PR means
  *   the old verdicts no longer count.
@@ -77,6 +80,7 @@ const reviewedBugSelect = {
   title: true,
   tenantId: true,
   status: true,
+  substatus: true,
   pullRequestUrl: true,
   pullRequestHeadSha: true,
   beneficiaryUserId: true,
@@ -84,7 +88,7 @@ const reviewedBugSelect = {
   reporterId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  project: { select: { githubInstallationId: true } },
+  project: { select: { repoUrl: true } },
   claims: {
     select: {
       status: true,
@@ -139,23 +143,20 @@ export type SubmitTestVerdictResult =
   | { status: 403; error: "insufficient_level" | "fixer_cannot_verdict" | "not_independent"; message: string }
   | { status: 404; error: "not_found"; message: string }
   | { status: 409; error: "not_delivered" | "already_verdicted" | "enough_verdicts"; message: string }
-  /** "Good to merge" was not recorded because the pull request isn't ready (#255). */
+  /** "Good to merge" was not recorded because the reported pull request isn't ready (#255, #pr-reports). */
   | {
       status: 409;
       error: "not_ready";
-      missing: "github_app" | "pull_request" | "deployment_verification" | "review_threads" | "merge_conflict";
+      missing: "pull_request" | "deployment_verification" | "merge_conflict";
       message: string;
       /** What the fix's author has to do before a tester reports again. */
       todo: string;
     };
 
-export type SubmitTestVerdictDeps = { client?: GitHubClient | null };
-
 export async function submitTestVerdict(
   agent: AgentContext,
-  bugId: string,
+  issueRef: string,
   rawBody: unknown,
-  deps: SubmitTestVerdictDeps = {},
 ): Promise<SubmitTestVerdictResult> {
   if (!hasLevel(agent.level, "working")) {
     return {
@@ -169,21 +170,24 @@ export async function submitTestVerdict(
   if (!parsed.success) return invalidVerdict(parsed.error);
   const body = parsed.data;
 
+  // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
+  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
+  if (!bugId) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
   const bug = await prisma.bug.findFirst({
     where: { id: bugId, tenantId: agent.tenantId, isDeleted: false },
     select: reviewedBugSelect,
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue in this agent's tenant." };
 
-  // #delivered-step: delivered work is judged at Delivered, and a judgement can
-  // still change at Done (#529); before delivery, and once a manager has
-  // accepted it, there is nothing to judge.
-  if ((bug.status !== "delivered" && bug.status !== "done") || !bug.pullRequestUrl) {
+  // #delivered-step: delivered work is judged at Done · Requires review, and a
+  // judgement can still change at Done · Accepted (#529); before delivery, and
+  // once a manager has accepted it, there is nothing to judge.
+  if (bug.status !== "done" || !bug.pullRequestUrl) {
     return {
       status: 409,
       error: "not_delivered",
       message:
-        "Judgements are given on delivered work: the issue must be Delivered (or Done, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
+        "Judgements are given on delivered work: the issue must be Done · Requires review (or Done · Accepted, to change a judgement). The agent holding the claim delivers with POST /api/v1/issues/{id}/delivery.",
     };
   }
   const pullRequestUrl = bug.pullRequestUrl;
@@ -220,18 +224,11 @@ export async function submitTestVerdict(
       };
     }
   }
-  if (reviewerCreditConflict(onBehalfOfUserId, bug as ReviewedBug)) {
-    return {
-      status: 403,
-      error: "not_independent",
-      message: "onBehalfOfUserId must be independent of the issue's reporter, solver, and claim beneficiary.",
-    };
-  }
 
   // #727: a Done issue already has the good judgements it needs. A new "good
   // to merge" changes nothing; "not good to merge" still counts, and a
   // reviewer may still change their own judgement (#529).
-  if (body.goodToMerge && bug.status === "done") {
+  if (body.goodToMerge && bug.substatus === "accepted") {
     const own = await prisma.testVerdict.findFirst({ where: { bugId: bug.id, agentId: agent.agentId }, select: { id: true } });
     if (!own) {
       return {
@@ -243,9 +240,9 @@ export async function submitTestVerdict(
     }
   }
 
-  // A tester only says "good to merge" about a pull request that is ready.
+  // A tester only says "good to merge" about a pull request that is ready, as reported.
   if (body.goodToMerge) {
-    const block = await readyBlock(bug, deps, headSha);
+    const block = readyBlock(bug, await latestPullRequestReport(bug.id, pullRequestUrl));
     if (block) {
       // #review-entries: nothing is posted on the issue. The caller gets the
       // reason and what to do; the author is told.
@@ -380,50 +377,43 @@ export async function submitTestVerdict(
 }
 
 /**
- * Why a tester can't say "good to merge" yet: GitHub can't be asked, or the
- * pull request has red checks, open CodeRabbit threads or a merge conflict.
- * Null when it is ready.
+ * Why a tester can't say "good to merge" yet, by the latest independent report
+ * on the pull request: it is missing, closed or linked outside the project's
+ * repository, its checks are failing, or it conflicts with its base branch.
+ * Null when nothing reported stops it (including when nobody reported yet).
  */
-async function readyBlock(
+function readyBlock(
   bug: LoadedBug,
-  deps: SubmitTestVerdictDeps,
-  testedHeadSha: string | null | undefined,
-): Promise<{
-  missing: "github_app" | "pull_request" | "deployment_verification" | "review_threads" | "merge_conflict";
+  report: StoredPullRequestReport | null,
+): {
+  missing: "pull_request" | "deployment_verification" | "merge_conflict";
   message: string;
   todo: string;
-} | null> {
-  const client = deps.client !== undefined ? deps.client : readinessClient(bug.project?.githubInstallationId);
-  if (!client) {
-    return {
-      missing: "github_app",
-      message:
-        "The GitHub App is not set up for this project, so Ziki can't check that the checks are green, CodeRabbit's threads are resolved and there is no merge conflict.",
-      todo: "A tenant admin installs the Ziki GitHub App on this project's repository and sets the repository on the project. Then report again.",
-    };
+} | null {
+  const gate = prGate(gateReport(report), {
+    pullRequestUrl: bug.pullRequestUrl,
+    pullRequestHeadSha: bug.pullRequestHeadSha,
+    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+  });
+  const reason = gate.reason ?? "";
+  if (gate.broken) {
+    return { missing: "pull_request", message: reason, todo: "The author fixes the pull request (a new one, or a repaired link). Then judge it again." };
   }
-  const ref = parsePullRequestUrl(bug.pullRequestUrl);
-  if (!ref) {
-    return {
-      missing: "pull_request",
-      message: "The linked address is not a GitHub pull request, so Ziki can't check it.",
-      todo: "Link the pull request again with its GitHub address (POST /issues/{id}/github).",
-    };
+  if (report?.state === "open" && !gate.needsReport) {
+    if (report.mergeable === false) {
+      const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
+      const note = conflictComment(claim?.agent.name);
+      return { missing: "merge_conflict", message: note.reason, todo: note.todo };
+    }
+    if (report.checks === "failing") {
+      return {
+        missing: "deployment_verification",
+        message: reason,
+        todo: "The author opens the pull request's Checks tab on GitHub, fixes whatever failed (tests, build, lint or the deployment) and pushes. Then an independent agent reports it again.",
+      };
+    }
   }
-  let pullRequest: PullRequest;
-  try {
-    pullRequest = await client.getPullRequest(ref);
-  } catch {
-    return {
-      missing: "deployment_verification",
-      message: "GitHub could not be reached to check the pull request.",
-      todo: "Nothing is wrong with the fix. Report again in a few minutes.",
-    };
-  }
-  const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
-  return combineProblems(
-    await readinessProblems(client, ref, pullRequest, testedHeadSha || pullRequest.headSha, claim?.agent.name),
-  );
+  return null;
 }
 
 /** One test verdict as the API and the issue page show it, with its replies. */

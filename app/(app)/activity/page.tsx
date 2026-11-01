@@ -8,10 +8,9 @@ import { parseEscalationBody } from "@/lib/agent-questions";
 import { statusLabel } from "@/lib/labels";
 import { issueHref } from "@/lib/issue-ref";
 import { LocalTime } from "@/components/local-time";
-import { IssueApprovalBanner } from "@/components/issue-approval-banner";
 import { EscalationTypeBadge, QuickResolveButtons } from "@/app/(app)/inbox/escalation-controls";
 
-export const metadata = { title: "Human–Agent Activity & Approvals" };
+export const metadata = { title: "Human–Agent Activity" };
 const panel = "space-y-4 rounded-2xl border border-zk-border bg-zk-surface p-4 sm:p-6";
 const link = "font-semibold text-zk-accent underline-offset-2 hover:underline";
 
@@ -35,12 +34,12 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   if (!isAgentPlatformEnabled()) return <p>The agent platform is not enabled in this environment.</p>;
   const params = await searchParams;
   const data = await loadAgentCenter(user.id, await currentTenantIdFor(user.id), params);
-  if (!data) return <div className={panel}><h1 className="text-2xl font-bold">Activity &amp; Approvals</h1><p>Join a workspace to view agent activity.</p><Link className={link} href="/tenants">Workspaces</Link></div>;
+  if (!data) return <div className={panel}><h1 className="text-2xl font-bold">Activity</h1><p>Join a workspace to view agent activity.</p><Link className={link} href="/tenants">Workspaces</Link></div>;
   const filters = activityFilters(params);
 
   return <div className="mx-auto max-w-5xl space-y-6 text-zk-text">
     <header className="space-y-2">
-      <h1 className="text-2xl font-extrabold">Human–Agent Activity &amp; Approvals</h1>
+      <h1 className="text-2xl font-extrabold">Human–Agent Activity</h1>
       <p className="text-sm text-zk-text2">{data.isAdmin ? "Workspace work and activity. Private escalations are limited to your own requests." : "Your agents’ work, requests and activity in this workspace."}</p>
     </header>
     <form method="get" className={`${panel} flex flex-wrap items-end gap-3`}>
@@ -57,7 +56,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
       <h2 id="attention-heading" className="text-xl font-bold">Needs Attention</h2>
       <div id="questions" className="space-y-3">
         <h3 className="font-bold">Your escalation responses</h3>
-        <p className="text-sm text-zk-text2">Replies guide your agent and can resume a paused claim. They do not grant pipeline approval.</p>
+        <p className="text-sm text-zk-text2">Replies guide your agent and can resume a paused claim.</p>
         {!data.questions.items.length ? <p className="text-sm text-zk-muted">No unanswered escalations on this page.</p> : null}
         {data.questions.items.map((question) => {
           const parsed = parseEscalationBody(question.body);
@@ -70,16 +69,6 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
           </article>;
         })}
         <Pages params={params} stream="questions" next={data.questions.next} />
-      </div>
-      <div id="approvals" className="space-y-3 border-t border-zk-border pt-4">
-        <h3 className="font-bold">Pipeline approvals</h3>
-        <p className="text-sm text-zk-text2">Workspace owners and admins decide these gates. Approval may automatically resume an offer or merge. Requests belong to an issue and stage, not an assigned agent.</p>
-        {!data.isAdmin ? <p className="text-sm text-zk-muted">Workspace owner or admin access is required to review this queue.</p> : !data.approvals.items.length ? <p className="text-sm text-zk-muted">No pending pipeline approvals on this page.</p> : null}
-        {data.approvals.items.map((approval) => <article key={approval.id} className="space-y-2">
-          <IssueLinks bug={approval.bug} /><LocalTime date={approval.createdAt} />
-          <IssueApprovalBanner approval={approval} canDecide={data.isAdmin} />
-        </article>)}
-        <Pages params={params} stream="approvals" next={data.approvals.next} />
       </div>
     </section>
 

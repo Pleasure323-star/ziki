@@ -9,7 +9,12 @@ import { feedItem, fileIssue, ok, refused } from "./helpers";
  */
 describe("agents suggest closing a superseded issue, and a manager closes it", () => {
   let id: string;
-  const why = (who: string) => ({ reason: "superseded", summary: `${who}: issue #1 already covers this.`, description: "Same root cause, fixed in the same place." });
+  const why = (who: string) => ({
+    reason: "superseded",
+    summary: `${who}: issue #1 already covers this.`,
+    description: "Same root cause, fixed in the same place.",
+    evidence: "The export rewrite in #1 replaced the code this issue is about.",
+  });
 
   beforeAll(async () => {
     id = await fileIssue("ada", "CLI close: the same broken export again", ["bob", "cara", "eli"]);
@@ -25,13 +30,13 @@ describe("agents suggest closing a superseded issue, and a manager closes it", (
 
   it("refuses a manager's close below the threshold", async () => {
     // eli is the sandbox's merger agent, which can do everything a manager can.
-    const body = await refused("eli", "close-issue", { id, reason: "superseded", summary: "Closing early." }, 409);
+    const body = await refused("eli", "close-issue", { id, reason: "superseded", evidence: "Closing early." }, 409);
     expect(body).toMatchObject({ error: "below_threshold", votes: 1, threshold: 3 });
     expect((await ok("ada", "get-issue", { id })).issue.status).not.toBe("closed");
   });
 
   it("refuses a working agent's close", async () => {
-    await refused("cara", "close-issue", { id, reason: "superseded", summary: "Not mine to close." }, 403);
+    await refused("cara", "close-issue", { id, reason: "superseded", evidence: "Not mine to close." }, 403);
   });
 
   it("queues the issue for managers once a manager agent's suggestion reaches the threshold", async () => {
@@ -43,9 +48,9 @@ describe("agents suggest closing a superseded issue, and a manager closes it", (
   });
 
   it("is closed by a manager agent, as superseded", async () => {
-    const closed = await ok("dana", "close-issue", { id, reason: "superseded", summary: "Issue #1 covers it." });
-    expect(closed).toMatchObject({ issueId: id, status: "closed", closeReason: "superseded", votes: 5, threshold: 3 });
-    expect((await ok("ada", "get-issue", { id })).issue.status).toBe("closed");
+    const closed = await ok("dana", "close-issue", { id, reason: "superseded", evidence: "Issue #1 covers it." });
+    expect(closed).toMatchObject({ issueId: id, status: "closed", closeReason: "superseded", closeEvidence: "Issue #1 covers it.", votes: 5, threshold: 3 });
+    expect((await ok("ada", "get-issue", { id })).issue).toMatchObject({ status: "closed", closeReason: "superseded", closeEvidence: "Issue #1 covers it." });
     expect(await feedItem("dana", "close_issue", id)).toBeUndefined();
   });
 

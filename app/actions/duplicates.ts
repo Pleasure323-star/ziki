@@ -8,14 +8,13 @@ import { bugInTenant, currentTenantIdFor } from "@/lib/tenant-context";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantAccess } from "@/lib/tenant-access";
 import { formatIssueNumber } from "@/lib/issue-number";
-import { duplicateLinkProblem, parseIssueRef, type LinkSide } from "@/lib/duplicates";
+import { parseIssueRef } from "@/lib/duplicates";
+import { DuplicateLinkRefused, linkDuplicate } from "@/lib/duplicate-link";
 import { escapeSearchQuery } from "@/lib/search";
 
 export type DuplicateActionResult = { ok?: true; error?: string };
 
 export type DuplicateCandidate = { id: string; number: number; title: string; status: Status };
-
-class LinkRefused extends Error {}
 
 const DUPLICATE_FORBIDDEN = "Only an owner or admin of this organization can change duplicates.";
 
@@ -28,7 +27,7 @@ async function requireOrgAdmin() {
 }
 
 function revalidate(...bugIds: (string | null | undefined)[]) {
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidatePath("/bugs");
   for (const id of new Set(bugIds)) {
     if (id) {
@@ -71,47 +70,12 @@ export async function markDuplicateAction(
 
   let previous: string | null = null;
   try {
-    await prisma.$transaction(async (tx) => {
-      const rows = await tx.$queryRaw<LinkSide[]>`
-        SELECT "id", "number", "isDeleted", "duplicateOfId" FROM "Bug"
-        WHERE "id" IN (${bugId}, ${target.id}) AND "tenantId" = ${tenantId}
-        ORDER BY "id"
-        FOR UPDATE`;
-      const bug = rows.find((r) => r.id === bugId);
-      if (!bug) throw new LinkRefused("This issue no longer exists.");
-      const to = rows.find((r) => r.id === target.id) ?? null;
-
-      const incoming = await tx.bug.count({ where: { duplicateOfId: bugId } });
-      const canonical = to?.duplicateOfId
-        ? await tx.bug.findUnique({ where: { id: to.duplicateOfId }, select: { number: true } })
-        : null;
-      const problem = duplicateLinkProblem(bug, to, incoming, canonical);
-      if (problem) throw new LinkRefused(problem);
-      if (!to || bug.duplicateOfId === to.id) return;
-
-      previous = bug.duplicateOfId;
-      await tx.bug.update({ where: { id: bugId }, data: { duplicateOfId: to.id } });
-      await tx.bugActivity.createMany({
-        data: [
-          {
-            bugId,
-            actorId: admin.id,
-            type: "duplicate_changed",
-            summary: `marked this as a duplicate of ${formatIssueNumber(to.number)}`,
-            metadata: { field: "duplicateOf", from: previous, to: to.id },
-          },
-          {
-            bugId: to.id,
-            actorId: admin.id,
-            type: "duplicate_changed",
-            summary: `marked ${formatIssueNumber(bug.number)} as a duplicate of this issue`,
-            metadata: { field: "duplicates", to: bugId },
-          },
-        ],
-      });
-    });
+    const linked = await prisma.$transaction((tx) =>
+      linkDuplicate(tx, { tenantId: tenantId!, bugId, targetId: target.id, actorId: admin.id }),
+    );
+    if (!linked.unchanged) previous = linked.previous;
   } catch (error) {
-    if (error instanceof LinkRefused) return { error: error.message };
+    if (error instanceof DuplicateLinkRefused) return { error: error.message };
     throw error;
   }
 

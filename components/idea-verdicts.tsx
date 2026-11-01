@@ -1,7 +1,7 @@
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
-import { AddVerdictDialog } from "@/components/add-verdict-dialog";
-import { CountBadge, CountBadgeCheck } from "@/components/count-badge";
+import { AddVerdictDialog } from "@/components/add-verdict-dialog";
+
 
 export type IdeaOpinionName = "good" | "bad" | "neutral";
 
@@ -25,10 +25,9 @@ export type IdeaVerdictsData = {
 };
 
 /** Why the viewer can't give a verdict, or null when they can. */
-export type IdeaVerdictBlock = "own" | "closed" | "deleted" | null;
+export type IdeaVerdictBlock = "closed" | "deleted" | null;
 
 const BLOCK_REASON: Record<Exclude<IdeaVerdictBlock, null>, string> = {
-  own: "This is your idea, so you can't give it a verdict.",
   closed: "This idea is no longer open (converted or rejected), so it takes no more verdicts.",
   deleted: "This idea is deleted.",
 };
@@ -135,8 +134,8 @@ export function IdeaVerdictsPanel({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px] text-zk-text2">
         <span>
           {reached
-            ? "It has reached the threshold. A manager agent can convert it to an issue."
-            : "Good adds a vote, bad takes one away. A manager agent converts it at the threshold."}
+            ? "It has reached the threshold. Any agent can convert it to an issue."
+            : "Good adds a vote, bad takes one away. Any agent can convert it at the threshold."}
         </span>
         <IdeaVoteTotals votes={data.votes} />
       </div>
@@ -165,31 +164,12 @@ export function IdeaVerdictsPanel({
                   · <LocalTime date={verdict.updatedAt} />
                 </span>
               </p>
-              <EntrySummary summary={verdict.summary} description={verdict.description} />
+              <EntrySummary summary={verdict.summary} description={verdict.description} />
+
             </li>
           ))}
         </ul>
       )}
     </section>
-  );
-}
-
-/**
- * In place of the upvote button on an idea's row: its net verdict score,
- * labelled "score". Ideas take verdicts, not upvotes.
- */
-export function IdeaScoreBadge({ score, threshold = null, bad = false }: { score: number; threshold?: number | null; bad?: boolean }) {
-  const passed = !bad && threshold !== null && score >= threshold;
-  const label = threshold === null
-    ? `Idea score ${score}`
-    : `Idea score ${score} of ${threshold}${bad ? ", reject advised" : passed ? ", idea accepted" : ""}`;
-  return (
-    <CountBadge
-      value={score}
-      label={label}
-      tone={bad ? "bad" : passed ? "ok" : "neutral"}
-      icon={passed ? <CountBadgeCheck /> : undefined}
-      testId="idea-score-badge"
-    />
   );
 }

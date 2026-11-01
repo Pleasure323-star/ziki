@@ -17,9 +17,8 @@ export type CategoryActionResult = {
 
 function revalidatePlatforms() {
   expireTag(TAGS.platforms);
-  revalidatePath("/org/platforms");
-  revalidatePath("/issues/new");
-  revalidatePath("/issues");
+  revalidatePath("/[project]/org", "layout");
+  revalidatePath("/[project]", "layout");
   revalidatePath("/bugs/new");
   revalidatePath("/bugs");
 }

@@ -6,8 +6,14 @@ import { countedMergeVerdicts, deliveredClaim } from "@/lib/agent-api/merge-verd
 import { reviewerConflict } from "@/lib/agents/independence";
 import { workflowFor } from "@/lib/workflow";
 
-/** The two merge queues: tested fixes waiting for a manager's accept, and accepted ones waiting to merge. */
-export type MergeQueueStatus = "done" | "ready_to_merge";
+/**
+ * The two merge queues (#substatus): tested fixes waiting for a manager's
+ * accept (Done · Accepted), and accepted ones waiting to merge (Merge: Ready
+ * to merge or Error).
+ */
+export type MergeQueueStatus = "accepted" | "merge";
+
+const queueWhere = (queue: MergeQueueStatus) => (queue === "accepted" ? { substatus: "accepted" as const } : { status: "merge" as const });
 
 export type ReadyToMergeIssue = {
   id: string;
@@ -27,10 +33,10 @@ export type ReadyToMergeIssue = {
 
 /**
  * Confirmed issues with a linked pull request at one merge step, that this
- * agent is independent of: `done` (tested, waiting for a manager's accept,
+ * agent is independent of: `accepted` (tested, waiting for a manager's accept,
  * which also needs enough independent good-to-merge verdicts on the linked
- * pull request) or `ready_to_merge` (accepted, waiting for the merge, blocked
- * and failed merges included).
+ * pull request) or `merge` (accepted, waiting for the merge, Error
+ * included).
  */
 export async function findReadyToMergeIssues(
   agent: AgentContext,
@@ -44,7 +50,7 @@ export async function findReadyToMergeIssues(
   const confirmed = await confirmedIssueIds(prisma, {
     tenantId: agent.tenantId,
     projectId,
-    status,
+    ...queueWhere(status),
     pullRequestUrl: { not: null },
   });
   if (confirmed.size === 0) return [];
@@ -56,7 +62,7 @@ export async function findReadyToMergeIssues(
       tenantId: agent.tenantId,
       projectId,
       isDeleted: false,
-      status,
+      ...queueWhere(status),
       pullRequestUrl: { not: null },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -92,7 +98,7 @@ export async function findReadyToMergeIssues(
           headSha: true,
           onBehalfOfUserId: true,
           pullRequestUrl: true,
-          agent: { select: { id: true, ownerUserId: true } },
+          agent: { select: { id: true, ownerUserId: true, level: true } },
         },
       },
     },
@@ -104,9 +110,9 @@ export async function findReadyToMergeIssues(
     const claim = deliveredClaim(bug);
     // The same verdict rule as the merge gate (merge.ts), on the linked PR only.
     const onLinkedPr = bug.testVerdicts.filter((verdict) => verdict.pullRequestUrl === bug.pullRequestUrl);
-    const { reviewers } = countedMergeVerdicts(onLinkedPr, claim, bug);
+    const { weight } = countedMergeVerdicts(onLinkedPr, claim, bug);
 
-    if (status === "done" && reviewers.length < verdictsNeeded) continue;
+    if (status === "accepted" && weight < verdictsNeeded) continue;
 
     if (reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug)) continue;
 
@@ -119,7 +125,7 @@ export async function findReadyToMergeIssues(
       pullRequestHeadSha: bug.pullRequestHeadSha,
       status,
       claim: claim ? { agentId: claim.agentId, beneficiaryUserId: claim.beneficiaryUserId } : null,
-      verdictsCount: reviewers.length,
+      verdictsCount: weight,
       createdAt: bug.createdAt,
     });
   }

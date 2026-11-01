@@ -4,7 +4,7 @@
   "description": "MCP server that exposes the Ziki agent API as tools for Claude and other assistants",
   "type": "module",
   "private": true,
-  "license": "MIT",
+  "license": "PolyForm-Strict-1.0.0",
   "bin": { "ziki-mcp": "dist/index.js" },
   "main": "dist/server.js",
   "files": ["dist"],

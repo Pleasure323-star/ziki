@@ -1,8 +1,10 @@
 import type { IssueStage } from "@/lib/issue-stage";
 import type { MergePath } from "@/lib/merge-history";
 import { MergePathChips } from "@/components/merge-path";
-import { ElapsedTime } from "@/components/elapsed-time";
-import { CountBadge, CountBadgeCheck } from "@/components/count-badge";
+import { ElapsedTime } from "@/components/elapsed-time";
+import { closedLabel } from "@/lib/close-reasons";
+import type { Substatus } from "@prisma/client";
+import { substatusLabel } from "@/lib/labels";
 
 const icon = "h-3 w-3 shrink-0";
 
@@ -56,22 +58,8 @@ export type IssueRowWork = {
  * (bots), Ready for bids, who is working on it and for how long, Delivered, Done, Ready to merge,
  * or Live / Closed. A live fix shows its dev → staging → main chips from merge history instead.
  */
-/**
- * On the Requires confirmation tab, in the row's left column: how many
- * independent people confirmed the issue so far, out of how many it needs.
- * Once it is confirmed the badge turns green with a checkmark.
- */
-export function ConfirmationCountBadge({ accepts, needed, confirmed }: { accepts: number; needed: number; confirmed: boolean }) {
-  const label = confirmed
-    ? `Confirmed: ${accepts} of ${needed} confirmations`
-    : `${accepts} of ${needed} confirmations so far`;
-  return (
-    <CountBadge value={accepts} label={label} tone={confirmed ? "ok" : "neutral"} icon={confirmed ? <CountBadgeCheck /> : undefined} testId="confirmation-count" />
-  );
-}
-
 export function IssueRowStatus({
-  status,
+  substatus,
   stage,
   botConfirmations,
   work,
@@ -81,8 +69,9 @@ export function IssueRowStatus({
   confirmed = false,
   closeReason = null,
 }: {
-  status: string;
-  /** Why a closed issue was closed, when agents closed it (#close-superseded). */
+  /** The issue's substatus (#substatus): the row says which step of its status it is at. */
+  substatus: string;
+  /** Why a closed issue was closed (#close-reasons): shown as "Closed: not reproducible". */
   closeReason?: string | null;
   stage: IssueStage | undefined;
   botConfirmations: number;
@@ -96,35 +85,43 @@ export function IssueRowStatus({
   /** Where the merged fix has got to; null or absent before it merges. */
   mergePath?: MergePath | null;
 }) {
-  const finished = status === "resolved" || status === "closed";
+  const live = substatus === "on_dev" || substatus === "on_staging" || substatus === "on_prod";
+  const finished = live || substatus === "closed";
   if (mergePath && finished) {
     return <MergePathChips path={mergePath} compact />;
   }
   if (finished) {
     return (
-      <span className={`issue-row-status inline-flex items-center gap-1 ${status === "resolved" ? "text-zk-ok-fg" : "text-zk-muted"}`}>
-        <CheckIcon /> {status === "resolved" ? "Live" : closeReason === "superseded" ? "Closed · superseded" : "Closed"}
+      <span className={`issue-row-status inline-flex items-center gap-1 ${live ? "text-zk-ok-fg" : "text-zk-muted"}`}>
+        <CheckIcon /> {live ? substatusLabel[substatus as Substatus] : closedLabel(closeReason)}
       </span>
     );
   }
-  if (status === "delivered") {
+  if (substatus === "requires_review") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-purple-700 dark:text-purple-300">
-        <CheckIcon /> Delivered
+        <CheckIcon /> Requires review
       </span>
     );
   }
-  if (status === "done") {
+  if (substatus === "accepted") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-sky-600 dark:text-sky-400">
-        <CheckIcon /> Done
+        <CheckIcon /> Accepted
       </span>
     );
   }
-  if (status === "ready_to_merge") {
+  if (substatus === "ready_to_merge") {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
         <CheckIcon /> Ready to merge
+      </span>
+    );
+  }
+  if (substatus === "error") {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-medium text-zk-bad-fg">
+        Error
       </span>
     );
   }
@@ -146,7 +143,7 @@ export function IssueRowStatus({
       </span>
     );
   }
-  if (status === "open" && offeredTo) {
+  if (substatus === "open" && offeredTo) {
     return (
       <span className="issue-row-status inline-flex min-w-0 flex-col items-start gap-0.5">
         <span className="inline-flex items-center gap-1 font-medium text-zk-warn-fg">
@@ -181,7 +178,7 @@ export function IssueRowStatus({
         title={`Confirmed by ${bots} so far`}
       >
         <span className="text-zk-accent"><BotIcon /></span>
-        <span>Not confirmed</span>
+        <span>Awaiting Confirmation</span>
         <span className="sr-only"> Confirmed by {bots}.</span>
       </span>
     );
@@ -191,22 +188,33 @@ export function IssueRowStatus({
 
 /**
  * An idea's row status (#idea-table): its score; "Idea accepted" once it
- * reaches the threshold (a manager agent converts it); "Idea rejected" once a
+ * reaches the threshold (any agent converts it); "Idea rejected" once a
  * manager agent rejected it (#idea-rejected).
  */
 export function IdeaRowStatus({
   score,
   threshold,
   rejected = false,
+  archived = null,
   bad = false,
 }: {
   score: number;
   threshold: number | null;
   rejected?: boolean;
+  /** A manager agent archived it (#idea-archive): the reason in words. */
+  archived?: string | null;
   /** More bad and neutral votes than good, at the threshold: manager agents are advised to reject it. */
   bad?: boolean;
 }) {
   const text = threshold === null ? `${score}` : `${score}/${threshold}`;
+  if (archived) {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-muted" title={`Archived by a manager agent: ${archived}`}>
+        <Svg><path d="M3 7h18M5 7v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7M9 11h6M4 4h16v3H4z" /></Svg> Archived{" "}
+        <span className="font-normal">({archived})</span>
+      </span>
+    );
+  }
   if (rejected) {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg" title={`Score ${score}: a manager agent rejected it`}>
@@ -230,12 +238,12 @@ export function IdeaRowStatus({
       </span>
     );
   }
-  // At the threshold a manager agent can convert it: say so plainly, in green.
+  // At the threshold any agent can convert it: say so plainly, in green.
   if (threshold !== null && score >= threshold) {
     return (
       <span
         className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-ok-fg"
-        title={`Score ${score} of ${threshold}: accepted, a manager agent converts it to an issue`}
+        title={`Score ${score} of ${threshold}: accepted, any agent can convert it to an issue`}
       >
         <CheckCircleIcon /> Idea accepted{" "}
         <span className="tabular-nums font-normal">

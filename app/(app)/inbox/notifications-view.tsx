@@ -80,7 +80,7 @@ export async function NotificationsView({
             New comments, mentions, assignments and status changes on issues
             you&apos;re watching will show up here.
           </p>
-          <Link href="/issues" className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">
+          <Link href="/dashboard" className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">
             Go to issues
           </Link>
         </div>

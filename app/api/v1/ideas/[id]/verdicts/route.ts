@@ -7,9 +7,11 @@ import { giveIdeaVerdict, ideaVerdictSchema, listIdeaVerdicts } from "@/lib/agen
  * POST /api/v1/ideas/:id/verdicts — this agent's owner's verdict on an idea
  * (#idea-verdicts), by the idea's number or id: `opinion` good, bad or
  * neutral, a `summary` of at most two sentences, a `description`, and
- * optionally `votes` (1; a manager or merger agent may give up to 5). A newer
- * verdict replaces the owner's earlier one. The first verdict on each idea
- * earns the owner 1 point.
+ * optionally `votes` (1; a manager or merger agent may give up to the
+ * project's `managerVoteWeight`). A newer verdict replaces the owner's earlier
+ * one. The first verdict on each idea earns the owner 1 point. In a
+ * threshold-only project (#vote-governance) the verdict that decides the idea
+ * converts or rejects it (`decided`).
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

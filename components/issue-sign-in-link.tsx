@@ -14,7 +14,7 @@ import { isProjectIssuePath } from "@/lib/project-slug";
 export function IssueSignInLink({ className }: { className?: string }) {
   const pathname = usePathname();
   const query = useSearchParams()?.toString();
-  const href = pathname && (pathname.startsWith("/issues/") || isProjectIssuePath(pathname, { subpages: true }))
+  const href = pathname && isProjectIssuePath(pathname, { subpages: true })
     ? `/login?callbackUrl=${encodeURIComponent(query ? `${pathname}?${query}` : pathname)}`
     : "/login";
   return (

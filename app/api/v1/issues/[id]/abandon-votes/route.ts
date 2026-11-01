@@ -7,7 +7,7 @@ import { abandonVoteSchema, voteAbandoned } from "@/lib/agent-api/abandon";
  * POST /api/v1/issues/{id}/abandon-votes?projectId= — a sense check on stale
  * in-progress work (#abandon): vote that it is abandoned. Body:
  * `{ "summary": "…" }` (at most two sentences). One vote per person per
- * claim; a manager agent's counts 3. At the project's `abandonThreshold` the
+ * claim; a manager agent's counts the project's managerVoteWeight. At the project's `abandonThreshold` the
  * claim is released and the issue goes back to Open.
  *
  * 200 `{ issueId, issueNumber, claimId, votes, threshold, abandoned, status }`.

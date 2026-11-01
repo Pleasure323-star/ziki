@@ -8,7 +8,7 @@ export interface PaginationControlsProps {
   from: number;
   to: number;
   queryParams: Record<string, string | undefined>;
-  basePath?: string;
+  basePath: string;
   itemLabel?: string;
 }
 
@@ -19,7 +19,7 @@ export function PaginationControls({
   from,
   to,
   queryParams,
-  basePath = "/issues",
+  basePath,
   itemLabel = "issue",
 }: PaginationControlsProps) {
   if (totalCount === 0) return null;

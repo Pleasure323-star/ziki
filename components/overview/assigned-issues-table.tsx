@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Status } from "@prisma/client";
-import { OverviewVote } from "@/components/overview/overview-vote";
+import { IdeaScoreVoteBadge, ImportanceVoteBadge } from "@/components/vote-badge";
 import { formatIssueNumber } from "@/lib/issue-number";
 import { formatTimeAgo } from "@/lib/format";
 import { issueStageLabels, type IssueStage } from "@/lib/issue-stage";
@@ -42,7 +42,7 @@ function typeIconPath(typeName: string | null): string {
   return "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5";
 }
 
-export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[] }) {
+export function AssignedIssuesTable({ issues, allHref }: { issues: OverviewAssignedIssue[]; allHref: string }) {
   const countLabel = issues.length === 1 ? "1 issue" : `${issues.length} issues`;
 
   return (
@@ -58,7 +58,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
           <span className="text-[13px] text-zk-muted">{countLabel} · sorted by importance</span>
         </div>
         <Link
-          href="/issues?mine=assigned"
+          href={allHref}
           className="inline-flex h-9 items-center rounded-full border border-zk-border bg-zk-surface px-3.5 text-[13px] font-bold text-zk-accent transition hover:bg-zk-tint"
         >
           View all issues
@@ -99,20 +99,9 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
                   >
                     {typeof issue.ideaScore === "number" ? (
                       // Ideas take verdicts, not importance marks.
-                      <span
-                        className="inline-flex h-9 w-[52px] shrink-0 flex-col items-center justify-center rounded-full border border-dashed border-zk-border text-zk-text"
-                        aria-label={`Idea score ${issue.ideaScore}`}
-                        title={`Idea score ${issue.ideaScore}`}
-                      >
-                        <span className="text-[13px] font-bold leading-none tabular-nums">{issue.ideaScore}</span>
-                        <span className="text-[9.5px] leading-tight text-zk-muted">score</span>
-                      </span>
+                      <IdeaScoreVoteBadge score={issue.ideaScore} />
                     ) : (
-                      <OverviewVote
-                        bugId={issue.id}
-                        voteCount={issue.voteCount}
-                        voted={issue.userVoted}
-                      />
+                      <ImportanceVoteBadge bugId={issue.id} count={issue.voteCount} voted={issue.userVoted} votable />
                     )}
                     <Link
                       href={issue.path}

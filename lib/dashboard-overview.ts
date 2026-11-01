@@ -16,7 +16,7 @@ import { pointTotals, tenantRankFor, type PointTotals } from "@/lib/points/leade
  * The two sets are disjoint and together cover every issue, which the unit
  * tests pin down.
  */
-export const UNRESOLVED_STATUSES = ["requires_confirmation", "open", "in_progress"] as const;
+export const UNRESOLVED_STATUSES = ["open", "in_progress", "done", "merge"] as const;
 export const RESOLVED_STATUSES = ["resolved", "closed"] as const;
 
 export type UnresolvedStatus = (typeof UNRESOLVED_STATUSES)[number];
@@ -79,7 +79,7 @@ export function firstCloseForTenant(tenantId: string): Prisma.Sql {
     FROM "BugActivity" a
     INNER JOIN "Bug" bug ON bug."id" = a."bugId"
     WHERE a.type = 'status_changed'
-      AND a.metadata ->> 'to' IN ('resolved', 'closed')
+      AND a.metadata ->> 'to' IN ('resolved', 'on_dev', 'on_staging', 'on_prod', 'closed')
       AND bug."tenantId" = ${tenantId}
       AND bug."isDeleted" = false
     GROUP BY a."bugId"
