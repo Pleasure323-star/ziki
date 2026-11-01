@@ -39,6 +39,7 @@ const defaultProps = {
   ],
   types: [{ id: "t1", name: "Bug" }, { id: "t2", name: "Feature" }],
   isAdmin: false,
+  projectSlug: "acme",
 } as Parameters<typeof CreateBugForm>[0];
 
 let capturedFormData: FormData | null = null;

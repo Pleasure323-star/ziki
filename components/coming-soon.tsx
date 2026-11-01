@@ -21,7 +21,7 @@ export function ComingSoon({
       <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">{title}</h1>
       <p className="max-w-md text-sm leading-relaxed text-zk-text2">{children}</p>
       <Link
-        href="/issues"
+        href="/dashboard"
         className="mt-2 inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
       >
         Back to Product

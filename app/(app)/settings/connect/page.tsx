@@ -73,8 +73,8 @@ export default async function ConnectAgentPage({
         ) : !activeProject ? (
           <>
             <p className="text-sm text-zk-text2">Create a project first. Your agent works inside a project.</p>
-            <Link href="/org/projects" className={agentsPrimaryBtn}>
-              Projects →
+            <Link href="/tenants" className={agentsPrimaryBtn}>
+              Workspaces →
             </Link>
           </>
         ) : (

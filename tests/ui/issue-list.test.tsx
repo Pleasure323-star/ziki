@@ -23,13 +23,21 @@ const groupBy = vi.hoisted(() => vi.fn(async (_args: { by: string[]; where?: Rec
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
-  usePathname: () => "/issues",
+  usePathname: () => "/acme/issues/all",
+  useParams: () => ({ project: "acme" }),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/auth", () => ({ auth: vi.fn(async () => ({ user: { id: "dave" } })) }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser: vi.fn(async () => ({ id: "dave", role: "user" })) }));
+// #project-urls: the slug in the address picks the project and checks access.
+vi.mock("@/lib/project-route", () => ({
+  requireProject: vi.fn(async () => ({
+    user: { id: "dave", role: "user" },
+    tenantId: "tenant-acme",
+    project: { id: "project-acme", slug: "acme", name: "Acme Web", goal: null, tenantId: "tenant-acme" },
+  })),
+}));
 vi.mock("@/lib/tenant-access", () => ({ currentTenantAccess: vi.fn(async () => ({ membershipRole: "member" })) }));
-vi.mock("@/lib/project-context", () => ({ activeProjectIdFor: vi.fn(async () => "project-acme") }));
 vi.mock("@/lib/lookups", () => ({
   getIssueTypes: vi.fn(async () => []),
   getPlatforms: vi.fn(async () => [
@@ -75,7 +83,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import BugsPage from "@/app/(app)/issues/(list)/page";
+import { IssuesList } from "@/app/(app)/[project]/issues/_list/issues-list";
 
 const BUG = {
   id: "bug-1",
@@ -114,8 +122,10 @@ const IDEA = {
   _count: { verdicts: 3 },
 };
 
-async function renderList(params: Record<string, string> = {}) {
-  const page = (await BugsPage({ searchParams: Promise.resolve(params) })) as ReactElement;
+/** Renders `/acme/issues/<status>`, or `/acme/ideas` when no status is given. */
+async function renderList({ status, ...query }: Record<string, string> = {}) {
+  const returnTo = status ? `/acme/issues/${status}` : "/acme/ideas";
+  const page = (await IssuesList({ slug: "acme", status, returnTo, searchParams: Promise.resolve(query) })) as ReactElement;
   return renderToStaticMarkup(page);
 }
 
@@ -144,8 +154,7 @@ describe("issue list layout", () => {
     expect(html).toContain("Login button does nothing");
     // #project-urls: a row opens the issue at /<project-slug>/<number>.
     expect(html).toContain('href="/acme/7"');
-    expect(html).not.toContain('href="/issues/7"');
-    expect(html).toContain('href="/issues/new?from=%2Fissues"');
+    expect(html).toContain('href="/acme/issues/new?from=');
   });
 
   it("says no issues match when the project has issues but the filters hide them", async () => {
@@ -162,7 +171,7 @@ describe("issue list layout", () => {
     expect(ideaFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ tenantId: "tenant-acme", projectId: "project-acme", status: "open", isDeleted: false }),
     }));
-    expect(html).toContain('href="/ideas/12"');
+    expect(html).toContain('href="/acme/ideas/12"');
     expect(html).toContain("Idea #12");
     expect(html).toContain('aria-label="Idea score 2 of 4"');
     expect(html).toContain("3 verdicts");
@@ -174,7 +183,8 @@ describe("issue list layout", () => {
   it("keeps search and scope when switching status, and resets paging and intake", async () => {
     const html = await renderList({ q: "login", platform: "cat-web", mine: "assigned", stage: "reported", page: "2", status: "open" });
     const list = statusList(html);
-    expect(list).toContain('href="/issues?q=login&amp;platform=cat-web&amp;mine=assigned&amp;status=in_progress"');
+    // #project-urls: the status is the path, the rest stays in the query.
+    expect(list).toContain('href="/acme/issues/in-progress?q=login&amp;platform=cat-web&amp;mine=assigned"');
     expect(list).not.toContain("page=");
     expect(list).not.toContain("stage=");
     const statusCount = groupBy.mock.calls.find(([args]) => args?.by?.[0] === "status");

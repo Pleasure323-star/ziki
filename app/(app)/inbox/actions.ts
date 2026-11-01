@@ -36,7 +36,7 @@ export async function answerEscalationAction(
   revalidatePath(`/inbox/escalations/${escalationId}`);
   revalidatePath("/questions");
   revalidatePath(`/questions/${escalationId}`);
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   return { ok: true };
 }
 
@@ -65,6 +65,6 @@ export async function quickResolveEscalationAction(
   revalidatePath("/activity");
   revalidatePath("/inbox");
   revalidatePath(`/inbox/escalations/${escalationId}`);
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   return { ok: true };
 }

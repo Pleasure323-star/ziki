@@ -36,7 +36,8 @@ const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
 import { COMMENT_UPVOTE_POINTS, IDEA_CONTRIBUTION_POINTS } from "@/lib/points/rules";
 import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
-import { ideaPath, issuePath } from "@/lib/issue-ref";
+import { issuePath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 import { eventStreamBus, TENANT_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 
 /**
@@ -898,7 +899,7 @@ const apiPath = (id: string, tail: string, projectId: string) => `/api/v1/issues
 const ideaApiPath = (id: string, tail: string, projectId: string) => `/api/v1/ideas/${id}/${tail}?projectId=${projectId}`;
 /** Every issue in a feed is in the feed's project, so its URL is `/<project-slug>/<number>` (#project-urls). */
 const issueRefIn = (projectSlug: string) => (issue: IssueRef) => ({ id: issue.id, number: issue.number, title: issue.title, url: absoluteUrl(issuePath(projectSlug, issue.number)) });
-const ideaRef = (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(idea.number)) });
+const ideaRefIn = (projectSlug: string) => (idea: IssueRef) => ({ id: idea.id, number: idea.number, title: idea.title, url: absoluteUrl(ideaPath(projectSlug, idea.number)) });
 const plus = (ms: number) => new Date(ms).toISOString();
 
 /** Every item this agent sees, in the order it should act on them. */
@@ -906,6 +907,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   const items: WorkItem[] = [];
   const pid = work.project.id;
   const issueRef = issueRefIn(work.project.slug);
+  const ideaRef = ideaRefIn(work.project.slug);
   const owner = agent.ownerId;
   const actor = { id: agent.agentId, ownerUserId: owner };
   const can = (role: AgentLevel) => hasLevel(agent.level, role);

@@ -2,13 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
+import { ideasPath, orgPath } from "@/lib/project-paths";
 import type { AgentLevel } from "@prisma/client";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
 import {
   MANAGE_AGENTS_HREF,
-  ORGANIZATION_HREF,
   SITE_ADMIN_HREF,
   agentPageHref,
   isNavItemActive,
@@ -153,7 +153,9 @@ function TopNavLink({
  * The workspace areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the Dashboard; the points pill opens Ranking.
  */
-function TopNav({ pathname }: { pathname: string | null }) {
+function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: string | null }) {
+  // Product opens the project the page is in, or the first one (#project-urls).
+  const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
   return (
     <nav
       aria-label="Workspace"
@@ -161,7 +163,7 @@ function TopNav({ pathname }: { pathname: string | null }) {
       // clear of the home indicator. From lg it sits inline in the top bar.
       className="flex items-center max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-40 max-lg:justify-around max-lg:border-t max-lg:border-zk-border max-lg:bg-zk-surface max-lg:px-2 max-lg:pt-1.5 max-lg:pb-[max(0.375rem,env(safe-area-inset-bottom))] max-lg:shadow-[0_-1px_3px_rgba(0,0,0,0.04)] lg:gap-1"
     >
-      <TopNavLink href="/issues" active={isNavItemActive(pathname, "/issues")} label="Product">
+      <TopNavLink href={productHref} active={Boolean(projectSlug && pathname?.startsWith(`/${projectSlug}`))} label="Product">
         <NavIcon>
           <circle cx="12" cy="12" r="9" />
           <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
@@ -421,7 +423,10 @@ export function AppHeader({
   agents = [],
   reportFormUrl,
   organizationAdmin = false,
+  defaultProjectSlug = null,
 }: {
+  /** The first project in the current workspace, for pages whose URL names none yet. */
+  defaultProjectSlug?: string | null;
   userName?: string | null;
   userImage?: string | null;
   role?: AppRole | null;
@@ -442,6 +447,7 @@ export function AppHeader({
   organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const projectSlug = useParams<{ project?: string }>()?.project ?? defaultProjectSlug;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
@@ -464,17 +470,17 @@ export function AppHeader({
         {/* Below lg the nav lives in the bottom strip, leaving one row here.
             The logo is the way to the Dashboard; phones show just its mark. */}
         <div className="flex min-w-0 items-center gap-2">
-          <Link href="/dashboard" aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
+          <Link href={projectSlug ? `/${encodeURIComponent(projectSlug)}/dashboard` : "/dashboard"} aria-label="Ziki" className={`flex shrink-0 items-center gap-2 rounded-full ${linkFocus}`}>
             <ZikiMark className="h-7 w-auto text-electric-blue-strong max-sm:h-6" />
             <span aria-hidden="true" className="pr-1 text-[15px] font-semibold tracking-[-0.02em] text-zk-text max-sm:hidden">
               ziki
             </span>
           </Link>
           <span aria-hidden="true" className="h-[18px] w-px shrink-0 bg-zk-border max-sm:hidden" />
-          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} tone="bar" className="min-w-0 max-sm:max-w-44" />
+          <WorkspaceSwitcher workspaces={workspaces} activeTenantId={activeTenantId} canManage={organizationAdmin} orgHref={projectSlug ? orgPath(projectSlug) : null} tone="bar" className="min-w-0 max-sm:max-w-44" />
         </div>
 
-        <TopNav pathname={pathname} />
+        <TopNav pathname={pathname} projectSlug={projectSlug} />
 
         {/* Phones and tablets: min-w-0 lets the group narrow so its flex-wrap
             breaks the chips onto rows (no sideways scroll at 360px or 768px).
@@ -522,9 +528,10 @@ export function AppHeader({
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
                   Activity
                 </MenuLink>
-                {organizationAdmin ? (
-                  <MenuLink href={ORGANIZATION_HREF} active={isNavItemActive(pathname, ORGANIZATION_HREF)}>
-                    Organization
+                {/* Every member can open the organization area; only owners and admins see its controls. */}
+                {projectSlug ? (
+                  <MenuLink href={orgPath(projectSlug)} active={Boolean(pathname?.startsWith(orgPath(projectSlug)))}>
+                    Organization settings
                   </MenuLink>
                 ) : null}
                 {isSuperAdmin(role) ? (

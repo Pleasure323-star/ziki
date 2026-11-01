@@ -24,6 +24,41 @@ function field(formData: FormData, name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+/** What a one-tap entry from the issue list says, since every entry carries a summary and a description. */
+const QUICK_ENTRY = {
+  confirm: { summary: "Confirmed from the issue list.", description: "Confirmed with one tap from the issue list, without a written reason." },
+  reject: { summary: "Rejected from the issue list.", description: "Rejected with one tap from the issue list, without a written reason." },
+} as const;
+
+/**
+ * A person confirms or rejects an issue at Requires confirmation with one tap
+ * on the issue list's badge (owner's decision, 2026-11-01): no text to write.
+ * It is the same entry as giveConfirmationAction's, with a fixed summary and
+ * description saying it came from the list. Agents still explain theirs.
+ */
+export async function quickConfirmationAction(bugId: string, verdict: "confirm" | "reject"): Promise<ConfirmationActionResult> {
+  const user = await requireUser();
+  const limit = await consumeRateLimit(`confirmation:${user.id}`, ACTION_RATE_LIMITS.addComment);
+  if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
+
+  const tenantId = await currentTenantIdFor(user.id);
+  if (!tenantId || typeof bugId !== "string" || !bugId || (verdict !== "confirm" && verdict !== "reject")) return { error: "Issue not found" };
+  const bug = await prisma.bug.findFirst({ where: { id: bugId, tenantId, isDeleted: false }, select: { id: true, projectId: true } });
+  if (!bug) return { error: "Issue not found" };
+
+  try {
+    const input = parseConfirmation({ verdict, ...QUICK_ENTRY[verdict] });
+    const given = await giveConfirmation({ tenantId, userId: user.id }, { tenantId, projectId: bug.projectId }, bug.id, input);
+    revalidatePath("/[project]", "layout");
+    revalidateIssue();
+    return { ok: true, replaced: given.replaced, confirmed: given.confirmed, confirmations: given.confirmations, confirmationsNeeded: given.confirmationsNeeded };
+  } catch (error) {
+    if (error instanceof IssueApiError) return { error: error.message };
+    console.error("[confirmation] quick entry failed", error);
+    return { error: "Could not save that. Please try again." };
+  }
+}
+
 /**
  * A person gives an issue at Requires confirmation their confirmation entry
  * from the web app (#issue-confirmations): confirm, reject or neutral, a
@@ -60,7 +95,7 @@ export async function giveConfirmationAction(
   try {
     const input = parseConfirmation(body);
     const given = await giveConfirmation({ tenantId, userId }, { tenantId, projectId: bug.projectId }, bug.id, input);
-    revalidatePath("/issues");
+    revalidatePath("/[project]", "layout");
     revalidateIssue();
     return {
       ok: true,

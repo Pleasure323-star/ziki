@@ -3,5 +3,5 @@
  * so a stored URL can never become an open redirect ("//evil", "https://...").
  */
 export function safeNotificationPath(url: string): string {
-  return url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\") ? url : "/issues";
+  return url.startsWith("/") && !url.startsWith("//") && !url.startsWith("/\\") ? url : "/dashboard";
 }

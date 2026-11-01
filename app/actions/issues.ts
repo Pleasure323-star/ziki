@@ -78,7 +78,6 @@ import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link"
 import {
   bugInTenant,
   currentTenantIdFor,
-  defaultProjectIdFor,
   NO_TENANT_MESSAGE,
 } from "@/lib/tenant-context";
 import { currentTenantAccess } from "@/lib/tenant-access";
@@ -104,7 +103,7 @@ import {
   mentionedAgents,
   type MentionedAgent,
 } from "@/lib/agent-mentions";
-import { ideaPath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 import { ENTRY_SUBSTATUS, moveTo } from "@/lib/issue-substatus";
 
 export type ActionResult = {
@@ -238,10 +237,15 @@ export async function createBugAction(
 
   // #425: the idea goes into the reporter's tenant. No membership, no idea.
   const tenantId = await currentTenantIdFor(userId);
-  const projectId = tenantId ? await defaultProjectIdFor(prisma, tenantId) : null;
-  if (!tenantId || !projectId) {
+  // #project-urls: the project the form was opened in, and only if it is in this workspace.
+  const requestedProjectId = typeof formData.get("projectId") === "string" ? String(formData.get("projectId")) : "";
+  const targetProject = tenantId && requestedProjectId
+    ? await prisma.project.findFirst({ where: { id: requestedProjectId, tenantId, archivedAt: null }, select: { id: true, slug: true } })
+    : null;
+  if (!tenantId || !targetProject) {
     return { error: NO_TENANT_MESSAGE };
   }
+  const projectId = targetProject.id;
 
   if (typeId) {
     const issueType = await issueTypeForCreate(typeId, tenantId);
@@ -335,8 +339,8 @@ export async function createBugAction(
     throw error;
   }
 
-  revalidatePath("/issues");
-  redirect(ideaPath(idea.number));
+  revalidatePath("/[project]", "layout");
+  redirect(ideaPath(targetProject.slug, idea.number));
 }
 
 /** Updates status (assignee/admin) and type/assignee (admin) and logs activity. */
@@ -844,7 +848,7 @@ export async function updateBugAction(
   }
   if (events.length > 0) notifyLater(...events);
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -933,7 +937,7 @@ export async function reopenAgentResolvedAction(bugId: string): Promise<ActionRe
   });
   if (!reopened) return { error: "The issue's status changed meanwhile. Refresh and try again." };
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1132,7 +1136,7 @@ export async function editBugContentAction(
     });
   }
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1257,7 +1261,7 @@ export async function editProofLinksAction(
     }
   });
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1412,7 +1416,7 @@ export async function addCommentAction(
   });
   notifyLater(...events);
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1526,7 +1530,7 @@ export async function toggleVoteAction(
     };
   });
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1599,11 +1603,11 @@ export async function deleteBugAction(bugId: string): Promise<ActionResult> {
     return { error: TICKET_DELETION_ERRORS.failed };
   }
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
-  redirect("/issues");
+  redirect("/dashboard");
 }
 
 /**
@@ -1678,7 +1682,7 @@ export async function restoreBugAction(bugId: string): Promise<ActionResult> {
     return { error: TICKET_DELETION_ERRORS.failedRestore };
   }
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1749,7 +1753,7 @@ export async function toggleBoostBugAction(
     return { error: TICKET_BOOST_ERRORS.failed };
   }
 
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidateIssue();
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
@@ -1871,7 +1875,7 @@ export async function selfAssignBugAction(
   });
 
   revalidateIssue();
-  revalidatePath("/issues");
+  revalidatePath("/[project]", "layout");
   revalidatePath(`/bugs/${bugId}`);
   revalidatePath("/bugs");
   return { ok: true };

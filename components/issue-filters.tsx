@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { issuesPath, statusFromSegment } from "@/lib/project-paths";
 import { statuses } from "@/lib/validations/issue";
 import { statusLabel } from "@/lib/labels";
 import { FINISHED_STATUS_FILTER, statusFilterLabel } from "@/lib/issue-state";
@@ -85,8 +86,20 @@ const FILTER_PARAMS = [
   MILESTONE_PARAM,
 ];
 
+/**
+ * The list URL for `params`: the status is the path (`/<slug>/issues/open`,
+ * #project-urls) and everything else stays in the query.
+ */
+function listHref(slug: string, params: URLSearchParams): string {
+  const next = new URLSearchParams(params.toString());
+  const status = next.get("status") || "all";
+  next.delete("status");
+  return issuesPath(slug, status, next);
+}
+
 /** The issues URL with `changes` applied and paging reset. */
 function hrefWithChanges(
+  slug: string,
   params: URLSearchParams,
   changes: Record<string, string>,
 ): string {
@@ -96,8 +109,7 @@ function hrefWithChanges(
     else next.delete(key);
   }
   next.delete("page");
-  const qs = next.toString();
-  return qs ? `/issues?${qs}` : "/issues";
+  return listHref(slug, next);
 }
 
 export function IssueFilters({
@@ -108,10 +120,7 @@ export function IssueFilters({
   shortcutsEnabled = true,
   stageCounts,
   compact = false,
-  trailing,
 }: {
-  /** Extra controls at the end of the search/filter/sort row (the platform menu). */
-  trailing?: ReactNode;
   tagTypes?: TagType[];
   platforms?: PlatformOption[];
   /** #289: open milestones first; closed ones stay selectable for history. */
@@ -124,7 +133,17 @@ export function IssueFilters({
   compact?: boolean;
 }) {
   const router = useRouter();
-  const params = useSearchParams();
+  const { project: slug } = useParams<{ project: string }>();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The status tab is in the path; the filters read it as if it were `?status=`.
+  const pathStatus = statusFromSegment(pathname?.split("/").filter(Boolean)[2] ?? "") ?? "all";
+  const params = useMemo(() => {
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    next.delete("status");
+    if (pathStatus !== "all") next.set("status", pathStatus);
+    return next;
+  }, [searchParams, pathStatus]);
   // #690: while a navigation kicked off from this control is in flight, expose
   // a busy state so typing/searching gets visible + announced feedback.
   const [isSearching, startSearchTransition] = useTransition();
@@ -218,7 +237,7 @@ export function IssueFilters({
     if (Object.entries(changes).every(([key, value]) => (params.get(key) ?? "") === value)) {
       return;
     }
-    const href = hrefWithChanges(params, changes);
+    const href = hrefWithChanges(slug, params, changes);
     startSearchTransition(() => {
       if (replace) router.replace(href);
       else router.push(href);
@@ -273,7 +292,7 @@ export function IssueFilters({
         skipLiveRef.current = null;
         return;
       }
-      const href = hrefWithChanges(new URLSearchParams(paramsString), { q: trimmed });
+      const href = hrefWithChanges(slug, new URLSearchParams(paramsString), { q: trimmed });
       startSearchTransition(() => {
         if (livePushedRef.current) router.replace(href);
         else {
@@ -283,7 +302,7 @@ export function IssueFilters({
       });
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [text, currentQuery, paramsString, router, startSearchTransition]);
+  }, [text, currentQuery, paramsString, router, startSearchTransition, slug]);
 
   // Matching issue titles for the dropdown (#671), also debounced.
   useEffect(() => {
@@ -377,8 +396,7 @@ export function IssueFilters({
     if (rest) next.set(TAGS_PARAM, rest);
     else next.delete(TAGS_PARAM);
     next.delete("page");
-    const qs = next.toString();
-    return qs ? `/issues?${qs}` : "/issues";
+    return listHref(slug, next);
   }
 
   const currentSort = parseBugSort(
@@ -418,7 +436,8 @@ export function IssueFilters({
     setOpen(false);
     setActive(-1);
     setFilterOpen(false);
-    router.push("/issues");
+    // The compact toolbar sits under the status tabs, so clearing keeps the tab.
+    router.push(issuesPath(slug, compact ? pathStatus : "all"));
   }
 
   const milestoneValue =
@@ -648,7 +667,6 @@ export function IssueFilters({
           </div>
           )}
         </div>
-        {trailing}
       </div>
 
       {selectedTags.length > 0 ? (

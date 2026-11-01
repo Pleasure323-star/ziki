@@ -1,26 +1,16 @@
-import { notFound, redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth-helpers";
-import { isReservedProjectSlug } from "@/lib/project-slug";
-import { activeProjectIdFor } from "@/lib/project-context";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { redirect } from "next/navigation";
+import { requireProject } from "@/lib/project-route";
+import { ideasPath } from "@/lib/project-paths";
 
 type Props = { params: Promise<{ project: string }> };
 
 /**
- * `/<project-slug>`: that project's issues (#project-urls). The issue list
- * shows the active project, so this opens the list with the project made
- * active (`/projects/<slug>/open` sets it). A slug no project in the viewer's
- * organisation has is a 404, like any other unknown top-level address.
+ * `/<project-slug>`: the project's home, its Ideas list (#project-urls). The
+ * slug picks the project and lib/project-route.ts checks access: a project you
+ * can't see is a 404, like any unknown address.
  */
 export default async function ProjectHomePage({ params }: Props) {
   const { project: slug } = await params;
-  const user = await requireUser();
-  const tenantId = await currentTenantIdFor(user.id);
-  const project = tenantId && !isReservedProjectSlug(slug)
-    ? await prisma.project.findFirst({ where: { tenantId, slug, archivedAt: null }, select: { id: true, slug: true } })
-    : null;
-  if (!project) notFound();
-  if ((await activeProjectIdFor(prisma, tenantId)) === project.id) redirect("/issues");
-  redirect(`/projects/${encodeURIComponent(project.slug)}/open`);
+  const { project } = await requireProject(slug, `/${slug}`);
+  redirect(ideasPath(project.slug));
 }

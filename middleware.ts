@@ -12,12 +12,6 @@ import { isProjectIssuePath } from "@/lib/project-slug";
  */
 const { auth } = NextAuth(authConfig);
 
-/**
- * Old issue detail paths, which redirect to `/<project-slug>/<number>`
- * (matched by isProjectIssuePath) — enough for unfurl bots to hit generateMetadata.
- */
-const ISSUE_DETAIL_PATH = /^\/(?:issues|bugs)\/[^/]+\/?$/;
-
 /** A project's agent work feed: `/<project-slug>/work`. */
 const PROJECT_WORK_PATH = /^\/[^/]+\/work\/?$/;
 
@@ -31,7 +25,7 @@ export function isPublicPath(
     pathWithoutBase.startsWith("/forgot-password") ||
     pathWithoutBase.startsWith("/reset-password");
   const isIssuePreview =
-    (ISSUE_DETAIL_PATH.test(pathWithoutBase) || isProjectIssuePath(pathWithoutBase)) &&
+    isProjectIssuePath(pathWithoutBase) &&
     isLinkPreviewBot(userAgent);
 
   return (
@@ -65,16 +59,6 @@ export default auth((req) => {
   const pathWithoutBase = toAppPath(req.nextUrl.pathname);
   const isLoggedIn = !!req.auth?.user;
 
-  // Seamless backwards compatibility: redirect /bugs and /bugs/* to /issues and /issues/*
-  if (pathWithoutBase === "/bugs" || pathWithoutBase.startsWith("/bugs/")) {
-    const newPath = pathWithoutBase.replace(/^\/bugs/, "/issues");
-    const targetUrl = new URL(
-      BASE_PATH ? `${BASE_PATH}${newPath}` : newPath,
-      req.nextUrl.origin,
-    );
-    targetUrl.search = req.nextUrl.search;
-    return NextResponse.redirect(targetUrl, 308);
-  }
   if (pathWithoutBase.startsWith("/api/bugs/")) {
     const newPath = pathWithoutBase.replace(/^\/api\/bugs\//, "/api/issues/");
     const targetUrl = new URL(

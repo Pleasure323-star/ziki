@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { issuesPath } from "@/lib/project-paths";
 import Image from "next/image";
 import { Suspense } from "react";
 import type { Metadata } from "next";
@@ -1019,7 +1020,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <div className="min-w-0 flex-[1_1_600px] space-y-3">
             <div className="flex items-start gap-2">
               {/* Back to the list it was opened from; otherwise the list for its status. */}
-              <BackToList fallback={`/issues?status=${bug.status}`} label="Back to issues" />
+              <BackToList fallback={issuesPath(bug.project.slug, bug.status)} label="Back to issues" />
               <h1 className="min-w-0 break-words text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">
                 <span className="font-bold tabular-nums text-zk-muted">
                   {formatIssueNumber(bug.number)}
@@ -1095,7 +1096,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                   <div>
                     <dt className="font-medium text-zk-muted">Milestone</dt>
                     <dd className="flex flex-wrap items-center gap-2">
-                      <Link href={milestoneIssuesHref(bug.milestone.id)} className="font-bold text-zk-accent hover:underline">
+                      <Link href={milestoneIssuesHref(bug.project.slug, bug.milestone.id)} className="font-bold text-zk-accent hover:underline">
                         {bug.milestone.title}
                       </Link>
                       <MilestoneDue due={dueDateValue(bug.milestone.dueDate) || null} isClosed={bug.milestone.isClosed} />
@@ -1325,7 +1326,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <IssueLinks
             links={proofLinks}
             linkedPullRequestUrl={bug.pullRequestUrl}
-            idea={sourceIdea ? { number: sourceIdea.number } : null}
+            idea={sourceIdea ? { number: sourceIdea.number, slug: bug.project.slug } : null}
           />
 
           <SubmissionEvidence

@@ -33,7 +33,7 @@ export function IssueTenantSwitch({
           Switch to {tenant.name} and open the issue
         </button>
       </form>
-      <Link href="/issues" className="inline-flex text-sm font-medium text-teal-700 hover:underline">
+      <Link href="/dashboard" className="inline-flex text-sm font-medium text-teal-700 hover:underline">
         Back to issues
       </Link>
     </div>
