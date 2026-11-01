@@ -58,36 +58,6 @@ export type IssueRowWork = {
  * (bots), Ready for bids, who is working on it and for how long, Delivered, Done, Ready to merge,
  * or Live / Closed. A live fix shows its dev → staging → main chips from merge history instead.
  */
-/**
- * On the Requires confirmation tab, in the row's left column: how many
- * independent people confirmed the issue so far, out of how many it needs.
- * Once it is confirmed the badge turns green with a checkmark.
- */
-/** Confirmations on a Requires confirmation row: confirms (up) and rejects (down), green once confirmed. */
-export function ConfirmationCountBadge({ accepts, rejects, needed, confirmed }: { accepts: number; rejects: number; needed: number; confirmed: boolean }) {
-  const label = `${confirmed ? "Confirmed: " : ""}${accepts} confirm${accepts === 1 ? "" : "s"}, ${rejects} reject${rejects === 1 ? "" : "s"}; ${needed} needed`;
-  return (
-    <span
-      data-testid="confirmation-count"
-      data-tone={confirmed ? "ok" : "neutral"}
-      aria-label={label}
-      title={label}
-      className={`inline-flex h-[42px] w-[42px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] border-[1.5px] font-mono text-[11.5px] font-semibold tabular-nums leading-none ${
-        confirmed ? "border-transparent bg-zk-ok-bg text-zk-ok-fg" : "border-zk-border bg-zk-surface text-zk-text2"
-      }`}
-    >
-      <span className="inline-flex items-center gap-0.5 text-zk-ok-fg" data-testid="confirmation-accepts">
-        <svg aria-hidden="true" viewBox="0 0 10 10" className="h-2 w-2" fill="currentColor"><path d="M5 1.5 9 8H1z" /></svg>
-        {accepts}
-      </span>
-      <span className="inline-flex items-center gap-0.5 text-zk-bad-fg" data-testid="confirmation-rejects">
-        <svg aria-hidden="true" viewBox="0 0 10 10" className="h-2 w-2" fill="currentColor"><path d="M5 8.5 1 2h8z" /></svg>
-        {rejects}
-      </span>
-    </span>
-  );
-}
-
 export function IssueRowStatus({
   substatus,
   stage,

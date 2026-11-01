@@ -1,18 +1,13 @@
-import { cookies } from "next/headers";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { ZEDU_SLUG } from "@/lib/tenant";
-import { appCookieOptions } from "@/lib/cookie-options";
 
 /**
- * The project the person is currently working in (#426).
- *
- * The choice lives in a cookie so it survives navigation, but it is only a
- * hint: every read validates it against the person's current tenant. A stale
- * or forged cookie falls back to the tenant's Zedu project, then its oldest.
+ * A workspace's projects, and its default one (#426): the Zedu project, else
+ * the oldest. Pages that show a project take it from their URL's slug
+ * (lib/project-route.ts, #project-urls); nothing remembers a project in a
+ * cookie. The default is for workspace-level work with no project in its
+ * address yet.
  */
-
-export const ACTIVE_PROJECT_COOKIE = "ziki_active_project";
-export const ACTIVE_PROJECT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -55,16 +50,7 @@ export async function projectsForTenant(
   }
 }
 
-async function activeProjectIdFromCookie(): Promise<string | null> {
-  try {
-    return (await cookies()).get(ACTIVE_PROJECT_COOKIE)?.value ?? null;
-  } catch {
-    // Unit tests and non-request callers have no cookie jar; use the default.
-    return null;
-  }
-}
-
-/** The projects this tenant can switch between, and the active one. */
+/** The tenant's projects, and its default one. */
 export async function projectContextFor(
   db: Db,
   tenantId: string | null,
@@ -73,23 +59,17 @@ export async function projectContextFor(
 
   try {
     const projects = await projectsForTenant(db, tenantId);
-    const requestedId = await activeProjectIdFromCookie();
-    return { projects, activeProjectId: pickProjectId(projects, requestedId) };
+    return { projects, activeProjectId: pickProjectId(projects) };
   } catch (error) {
     console.error("[project-context] projectContextFor failed", error);
     return { projects: [], activeProjectId: null };
   }
 }
 
-/** The project new issues go into, and the list is filtered by. */
+/** The tenant's default project: Zedu, else the oldest. */
 export async function activeProjectIdFor(
   db: Db,
   tenantId: string | null,
 ): Promise<string | null> {
   return (await projectContextFor(db, tenantId)).activeProjectId;
-}
-
-/** Remember the project on this device; server actions validate it first. */
-export async function setActiveProjectCookie(projectId: string): Promise<void> {
-  (await cookies()).set(ACTIVE_PROJECT_COOKIE, projectId, appCookieOptions(ACTIVE_PROJECT_COOKIE_MAX_AGE));
 }

@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { newIssuePath, orgPath } from "@/lib/project-paths";
 
 /**
  * The "getting started" checklist a new workspace's owner sees on the issues
@@ -27,6 +28,8 @@ type Db = Pick<PrismaClient, "project" | "bug" | "membership" | "tenantInvite">;
 export async function gettingStartedFor(
   db: Db,
   tenantId: string,
+  /** The project the checklist is shown in, for its links (#project-urls). */
+  slug: string,
   { now = new Date() }: { now?: Date } = {},
 ): Promise<{ steps: GettingStartedStep[]; complete: boolean }> {
   const [projects, issues, members, pendingInvites] = await Promise.all([
@@ -47,21 +50,21 @@ export async function gettingStartedFor(
       id: "project",
       label: "Set up a project",
       hint: "One product you track, such as a web app. A platform such as Web or Mobile is a label on an issue, not its own project.",
-      href: "/org/projects",
+      href: orgPath(slug, "projects"),
       done: projects > 0,
     },
     {
       id: "issue",
       label: "Report the first issue",
       hint: "Say what you expected, what happened instead, and how to make it happen again.",
-      href: "/issues/new",
+      href: newIssuePath(slug),
       done: issues > 0,
     },
     {
       id: "invite",
       label: "Invite a teammate",
       hint: "Send an email invite or share an invite link from the organization's Invites tab.",
-      href: "/org/invites",
+      href: orgPath(slug, "invites"),
       done: members > 1 || pendingInvites > 0,
     },
   ];

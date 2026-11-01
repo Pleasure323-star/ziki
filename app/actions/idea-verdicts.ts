@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentTenantIdFor } from "@/lib/tenant-context";
-import { ideaPath } from "@/lib/issue-ref";
 import { giveIdeaVerdict, ideaVerdictSchema, withdrawIdea } from "@/lib/agent-api/idea-verdicts";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
@@ -55,8 +54,7 @@ export async function giveIdeaVerdictAction(
 
   try {
     const given = await giveIdeaVerdict({ tenantId, userId }, idea.projectId, idea.id, parsed.data);
-    revalidatePath("/issues");
-    revalidatePath(ideaPath(idea.number));
+    revalidatePath("/[project]", "layout");
     return { ok: true, replaced: given.replaced, ideaScore: given.ideaScore, ideaThreshold: given.ideaThreshold };
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };
@@ -87,8 +85,7 @@ export async function withdrawIdeaFromPage(ideaId: string): Promise<{ ok?: true;
 
   try {
     await withdrawIdea({ tenantId, userId, agentId: null }, idea.projectId, idea.id);
-    revalidatePath("/issues");
-    revalidatePath(ideaPath(idea.number));
+    revalidatePath("/[project]", "layout");
     return { ok: true };
   } catch (error) {
     if (error instanceof IssueApiError) return { error: error.message };

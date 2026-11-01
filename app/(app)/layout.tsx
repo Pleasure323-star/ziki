@@ -13,6 +13,7 @@ import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-r
 import type { WorkspaceChoice } from "@/components/workspace-switcher";
 import { prisma } from "@/lib/prisma";
 import { currentTenantIdFor } from "@/lib/tenant-context";
+import { firstProjectSlugFor } from "@/lib/project-route";
 import { tenantsForUser } from "@/lib/tenants";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
@@ -67,6 +68,8 @@ export default async function AppLayout({
   } catch (error) {
     console.error("[layout] workspace context failed", error);
   }
+  // For links on pages whose URL names no project yet (#project-urls).
+  const defaultProjectSlug = await firstProjectSlugFor(user.id).catch(() => null);
   // A missing Notification table must not take down every signed-in page.
   let unreadCount = 0;
   try {
@@ -138,6 +141,7 @@ export default async function AppLayout({
           userId={user.id}
           workspaces={workspaces}
           activeTenantId={activeTenantId}
+          defaultProjectSlug={defaultProjectSlug}
           points={points}
           solvedTasks={solvedTasks}
           targetPoints={targetPoints}

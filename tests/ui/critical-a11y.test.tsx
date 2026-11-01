@@ -27,6 +27,7 @@ vi.mock("@/app/(app)/questions/actions", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({ project: "acme" }),
 }));
 
 beforeAll(() => {
@@ -88,7 +89,7 @@ describe("component accessibility (axe)", () => {
 
   it("CreateBugForm has no violations", async () => {
     const { container } = render(
-      <CreateBugForm
+      <CreateBugForm projectSlug="acme"
         users={users}
         categories={[{ id: "c1", name: "macOS" }]}
         types={[{ id: "t1", name: "Bug" }]}
@@ -100,14 +101,14 @@ describe("component accessibility (axe)", () => {
 
   it("CreateBugForm quick report in the modal has no violations (#report-modal)", async () => {
     const { container } = render(
-      <CreateBugForm
+      <CreateBugForm projectSlug="acme"
         users={users}
         categories={[{ id: "c1", name: "macOS" }]}
         types={[{ id: "t1", name: "Bug" }]}
         isAdmin={false}
         currentUserId="u1"
         variant="modal"
-        reportedFrom="/issues"
+        reportedFrom="/acme/issues/open"
       />,
     );
     await expectNoA11yViolations(container);

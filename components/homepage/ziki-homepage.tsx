@@ -44,7 +44,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
                 <div className="mt-8 flex flex-wrap items-center gap-4">
                   {isSignedIn ? (
                     <Link
-                      href="/issues"
+                      href="/dashboard"
                       className="inline-flex items-center justify-center rounded-xl bg-teal-600 px-6 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-teal-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
                     >
                       Enter Workspace
@@ -639,7 +639,7 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
             <div className="mt-8 flex justify-center gap-4">
               {isSignedIn ? (
                 <Link
-                  href="/issues"
+                  href="/dashboard"
                   className="rounded-xl bg-teal-500 px-6 py-3.5 text-base font-semibold text-slate-950 shadow-md transition hover:bg-teal-400"
                 >
                   Go to Workspace
@@ -681,10 +681,10 @@ export function ZikiHomepage({ user }: ZikiHomepageProps) {
               <h4 className="font-semibold text-slate-900 text-sm">Platform</h4>
               <ul className="mt-3 space-y-2">
                 <li>
-                  <Link href="/issues" className="hover:text-slate-900 transition-colors">Issues List</Link>
+                  <Link href="/dashboard" className="hover:text-slate-900 transition-colors">Issues List</Link>
                 </li>
                 <li>
-                  <Link href="/org/projects" className="hover:text-slate-900 transition-colors">Projects</Link>
+                  <Link href="/dashboard" className="hover:text-slate-900 transition-colors">Projects</Link>
                 </li>
                 <li>
                   <Link href="/leaderboard" className="hover:text-slate-900 transition-colors">Leaderboard</Link>

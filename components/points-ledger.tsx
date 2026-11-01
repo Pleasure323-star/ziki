@@ -28,7 +28,7 @@ export function PointsLedger({ page, profileId, from, to, error }: {
             <tbody>{page.items.map(entry => <tr key={entry.id} className="border-t border-zk-border">
               <td className="whitespace-nowrap px-2 py-2"><LocalTime date={entry.createdAt} /></td>
               <td className="px-2 py-2">{entry.source}</td><td className="px-2 py-2">{entry.role}</td>
-              <td className="min-w-40 px-2 py-2">{entry.issue ? <Link className="rounded text-zk-accent underline focus-visible:outline-2 focus-visible:outline-offset-2" href={entry.issue.path}>#{entry.issue.number} {entry.issue.title}</Link> : entry.idea ? <Link className="rounded text-zk-accent underline focus-visible:outline-2 focus-visible:outline-offset-2" href={`/ideas/${entry.idea.number}`}>Idea #{entry.idea.number} {entry.idea.title}</Link> : "Unavailable or non-issue source"}</td>
+              <td className="min-w-40 px-2 py-2">{entry.issue ? <Link className="rounded text-zk-accent underline focus-visible:outline-2 focus-visible:outline-offset-2" href={entry.issue.path}>#{entry.issue.number} {entry.issue.title}</Link> : entry.idea ? <Link className="rounded text-zk-accent underline focus-visible:outline-2 focus-visible:outline-offset-2" href={entry.idea.path}>Idea #{entry.idea.number} {entry.idea.title}</Link> : "Unavailable or non-issue source"}</td>
               <td className="px-2 py-2 font-medium tabular-nums">{entry.points > 0 ? "+" : ""}{formatPoints(entry.points)}</td>
             </tr>)}</tbody>
           </table>

@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { formatProofLinkLabel } from "@/lib/proof-links";
-import { ideaPath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 
 export type IssueLinksProps = {
   links: string[];
   /** The issue's attached pull request, shown here even when it is not in the link list. */
   linkedPullRequestUrl?: string | null;
   /** The idea the issue was converted from. */
-  idea?: { number: number } | null;
+  idea?: { number: number; slug: string } | null;
 };
 
 function ExternalLinkIcon({ className }: { className: string }) {
@@ -64,7 +64,7 @@ export function IssueLinks({ links: proofLinks, linkedPullRequestUrl, idea = nul
           <div className="flex min-w-0 items-baseline gap-3">
             <dt className="w-16 shrink-0 whitespace-nowrap text-xs leading-5 text-zk-muted">Idea</dt>
             <dd className="m-0 min-w-0">
-              <Link href={ideaPath(idea.number)} data-testid="source-idea-link" className="text-xs font-medium leading-5 text-zk-accent hover:underline">
+              <Link href={ideaPath(idea.slug, idea.number)} data-testid="source-idea-link" className="text-xs font-medium leading-5 text-zk-accent hover:underline">
                 Idea #{idea.number}
               </Link>
             </dd>

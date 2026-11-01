@@ -159,11 +159,11 @@ function agentTarget(event: Extract<NotificationEvent, AgentBase>, issuePath: st
     case "tenant_invite":
       return { path: `/tenants?invite=${encodeURIComponent(event.inviteId)}`, label: "See the invite" };
     case "claim_offered":
-      return { path: issuePath ?? "/issues", label: "Open the issue" };
+      return { path: issuePath ?? "/dashboard", label: "Open the issue" };
     case "reviewer_eligible":
       return { path: "/settings/agents", label: "Manage agents" };
     case "merge_failed":
-      return { path: issuePath ?? "/issues", label: "Open the issue" };
+      return { path: issuePath ?? "/dashboard", label: "Open the issue" };
   }
 }
 
@@ -253,7 +253,7 @@ export function planNotifications(event: NotificationEvent, siteUrl: string, iss
     event.kind === "comment_added" || event.kind === "mentioned" ? event.commentId : undefined;
   // The query lets the page load down to the comment's thread even when
   // it's older than the default window (#280).
-  const issueAddress = issuePath ?? "/issues";
+  const issueAddress = issuePath ?? "/dashboard";
   const path = commentId
     ? commentPermalinkPath(issueAddress, commentId)
     : issueAddress;

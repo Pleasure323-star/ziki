@@ -1,29 +1,7 @@
-import { isSuperAdmin, type AppRole } from "@/lib/roles";
-import { isAgentPlatformEnabled } from "@/lib/feature-flags";
-import { isProjectIssuePath } from "@/lib/project-slug";
-
-export type HeaderNavSubItem = {
-  href: string;
-  label: string;
-  description?: string;
-  badge?: number;
-};
-
-export type HeaderNavItem = {
-  href: string;
-  label: string;
-  badge?: number;
-  children?: HeaderNavSubItem[];
-};
-
-/** #444: pick another tenant, create one, or accept an invite. */
-export const SWITCH_TENANT_LINK: HeaderNavItem = { href: "/tenants", label: "Switch workspace" };
+import type { AppRole } from "@/lib/roles";
 
 /** Site staff pages: site roles and platform points. Super admins only. */
 export const SITE_ADMIN_HREF = "/admin/users";
-
-/** The current organization's admin area: members, invites, projects, taxonomy, settings. */
-export const ORGANIZATION_HREF = "/org";
 
 /** Manage agents: the person's own agents, on a page of its own outside Settings. */
 export const MANAGE_AGENTS_HREF = "/agents";
@@ -31,39 +9,6 @@ export const MANAGE_AGENTS_HREF = "/agents";
 /** One agent's own page, addressed by its name. Agents in the Agents menu open here. */
 export function agentPageHref(agentName: string): string {
   return `/settings/agent/${encodeURIComponent(agentName)}`;
-}
-
-/** Links shown in the header for the role the user is currently viewing as (#761). */
-export function headerNavItems(
-  role?: AppRole | null,
-  options?: { agentPlatform?: boolean; pendingEscalations?: number },
-): HeaderNavItem[] {
-  const pending =
-    typeof options?.pendingEscalations === "number" && options.pendingEscalations > 0
-      ? options.pendingEscalations
-      : undefined;
-
-  const items: HeaderNavItem[] = [
-    // Post-login landing: the workspace overview.
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/issues", label: "Issues" },
-  ];
-
-  if (options?.agentPlatform ?? isAgentPlatformEnabled()) {
-    items.push({
-      href: "/inbox",
-      label: "Inbox",
-      ...(pending ? { badge: pending } : {}),
-    });
-  } else {
-    items.push({ href: "/docs", label: "API Docs" });
-  }
-
-  if (isSuperAdmin(role)) {
-    items.push({ href: SITE_ADMIN_HREF, label: "Site admin" });
-  }
-
-  return items;
 }
 
 /**
@@ -79,20 +24,6 @@ export function isNavItemActive(pathname: string | null, href: string): boolean 
       (path === "/settings" || path.startsWith("/settings/")) &&
       path !== "/settings/profile" &&
       !path.startsWith("/settings/profile/")
-    );
-  }
-  if (href === "/issues" || href === "/bugs") {
-    return (
-      path === "/notes" ||
-      path === "/issues" ||
-      path === "/bugs" ||
-      // An idea opens from the Ideas tab, so it stays in Product (#idea-table).
-      path.startsWith("/ideas/") ||
-      ((path.startsWith("/issues/") || path.startsWith("/bugs/")) &&
-        path !== "/issues/new" &&
-        path !== "/bugs/new") ||
-      // An issue's own page, `/<project-slug>/<number>` (#project-urls).
-      isProjectIssuePath(path, { subpages: true })
     );
   }
   if (href === "/inbox") {

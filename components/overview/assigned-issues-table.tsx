@@ -42,7 +42,7 @@ function typeIconPath(typeName: string | null): string {
   return "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5";
 }
 
-export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[] }) {
+export function AssignedIssuesTable({ issues, allHref }: { issues: OverviewAssignedIssue[]; allHref: string }) {
   const countLabel = issues.length === 1 ? "1 issue" : `${issues.length} issues`;
 
   return (
@@ -58,7 +58,7 @@ export function AssignedIssuesTable({ issues }: { issues: OverviewAssignedIssue[
           <span className="text-[13px] text-zk-muted">{countLabel} · sorted by importance</span>
         </div>
         <Link
-          href="/issues?mine=assigned"
+          href={allHref}
           className="inline-flex h-9 items-center rounded-full border border-zk-border bg-zk-surface px-3.5 text-[13px] font-bold text-zk-accent transition hover:bg-zk-tint"
         >
           View all issues

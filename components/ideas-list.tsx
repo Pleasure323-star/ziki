@@ -2,7 +2,7 @@ import Link from "next/link";
 import { IdeaScoreBadge } from "@/components/idea-verdicts";
 import { IdeaRowStatus } from "@/components/issue-row-status";
 import { LocalTime } from "@/components/local-time";
-import { ideaPath } from "@/lib/issue-ref";
+import { ideaPath } from "@/lib/project-paths";
 
 export type IdeaListRow = {
   id: string;
@@ -48,21 +48,25 @@ function SortHeading({ label, column, sort, sortHref, className }: {
   );
 }
 
+/** One Good or Bad column: the heading and the counts under it share this width, on one line. */
+const VOTE_COLUMN = "w-16 shrink-0 whitespace-nowrap text-center";
+
 /** The good and bad vote counts on a row (#724), with names a screen reader reads. */
 function VoteCounts({ good, bad }: { good: number; bad: number }) {
   return (
     <>
-      <span className="w-[44px] shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-ok-fg" title={`${good} good`} data-testid="idea-good-votes">
+      <span className={`${VOTE_COLUMN} font-mono text-[13px] font-semibold tabular-nums text-zk-ok-fg`} title={`${good} good`} data-testid="idea-good-votes">
         <span className="sr-only">Good votes: </span>{good}
       </span>
-      <span className="w-[44px] shrink-0 text-center font-mono text-[13px] font-semibold tabular-nums text-zk-bad-fg" title={`${bad} bad`} data-testid="idea-bad-votes">
+      <span className={`${VOTE_COLUMN} font-mono text-[13px] font-semibold tabular-nums text-zk-bad-fg`} title={`${bad} bad`} data-testid="idea-bad-votes">
         <span className="sr-only">Bad votes: </span>{bad}
       </span>
     </>
   );
 }
 
-export function IdeasList({ ideas, empty, sort, sortHref }: {
+export function IdeasList({ slug, ideas, empty, sort, sortHref }: {
+  slug: string;
   ideas: IdeaListRow[];
   empty?: string;
   sort?: "good" | "bad" | null;
@@ -85,8 +89,11 @@ export function IdeasList({ ideas, empty, sort, sortHref }: {
           <div className="issues-table-heading">
             <span className="w-[52px]">Score</span>
             <span className="min-w-0 flex-1">Idea</span>
-            <SortHeading label={<><span aria-hidden="true">✓ </span>Good</>} column="good" sort={sort} sortHref={sortHref} className="hidden w-[44px] shrink-0 text-center md:inline" />
-            <SortHeading label={<><span aria-hidden="true">✕ </span>Bad</>} column="bad" sort={sort} sortHref={sortHref} className="hidden w-[44px] shrink-0 text-center md:inline" />
+            {/* The same box as the row's counts (VoteCounts), so each number sits under its heading. */}
+            <span className="hidden shrink-0 items-center md:flex">
+              <SortHeading label={<><span aria-hidden="true">✓ </span>Good</>} column="good" sort={sort} sortHref={sortHref} className={VOTE_COLUMN} />
+              <SortHeading label={<><span aria-hidden="true">✕ </span>Bad</>} column="bad" sort={sort} sortHref={sortHref} className={VOTE_COLUMN} />
+            </span>
             <span className="issues-status-cell">Status</span>
           </div>
           <ul>
@@ -102,7 +109,7 @@ export function IdeasList({ ideas, empty, sort, sortHref }: {
                   <IdeaScoreBadge score={idea.score} threshold={idea.threshold} bad={idea.bad} />
                 </div>
                 <Link
-                  href={ideaPath(idea.number)}
+                  href={ideaPath(slug, idea.number)}
                   className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
                 >
                   <span className="issues-row-title text-sm font-semibold leading-snug text-zk-text">{idea.title}</span>
@@ -121,7 +128,7 @@ export function IdeasList({ ideas, empty, sort, sortHref }: {
                     </span>
                   </span>
                 </Link>
-                <span className="hidden items-center md:flex">
+                <span className="hidden shrink-0 items-center md:flex">
                   <VoteCounts good={idea.good} bad={idea.badVotes} />
                 </span>
                 <span className="issues-status-cell" aria-hidden="true">

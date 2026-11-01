@@ -9,7 +9,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/tenant-context", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/tenant-context")>()),
   currentTenantIdFor: vi.fn(),
-  defaultProjectIdFor: vi.fn(async () => "project-zedu"),
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
@@ -29,6 +28,11 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     bug: { findUnique: vi.fn(), create: vi.fn() },
     idea: { create: vi.fn() },
+    // #project-urls: the form names its project; only one in the reporter's tenant is used.
+    project: {
+      findFirst: vi.fn(async ({ where }: { where: { id: string; tenantId: string } }) =>
+        where.id === "project-zedu" && where.tenantId === "tenant-zedu" ? { id: "project-zedu", slug: "zedu" } : null),
+    },
     projectArea: { findFirst: vi.fn() },
     user: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
@@ -60,6 +64,7 @@ const report = form({
   title: "Login button does nothing",
   description: "Clicking Login on the sign-in page does nothing at all, on Chrome and Firefox.",
   proofLinks: "",
+  projectId: "project-zedu",
 });
 
 describe("issue actions are tenant-scoped (#425)", () => {
@@ -87,6 +92,18 @@ describe("issue actions are tenant-scoped (#425)", () => {
     });
   });
 
+  it("refuses a project from another tenant", async () => {
+    tenantOf.mockResolvedValue("tenant-zedu");
+    const result = await createBugAction(form({
+      title: "Login button does nothing",
+      description: "Clicking Login on the sign-in page does nothing at all, on Chrome and Firefox.",
+      proofLinks: "",
+      projectId: "project-acme",
+    }));
+    expect(result).toEqual({ error: NO_TENANT_MESSAGE });
+    expect(db.idea.create).not.toHaveBeenCalled();
+  });
+
   it("rejects an area from another project before saving", async () => {
     tenantOf.mockResolvedValue("tenant-zedu");
     db.projectArea.findFirst.mockResolvedValue(null);
@@ -94,6 +111,7 @@ describe("issue actions are tenant-scoped (#425)", () => {
       title: "Login button does nothing",
       description: "Clicking Login on the sign-in page does nothing at all, on Chrome and Firefox.",
       proofLinks: "",
+      projectId: "project-zedu",
       areaId: "foreign-area",
     }));
     expect(result).toMatchObject({ error: expect.any(String), field: "areaId" });

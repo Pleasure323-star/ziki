@@ -232,7 +232,7 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
 
       // Keep a stale token (#655). Edge middleware never reads the database, so
       // dropping the session here leaves the cookie in place and /login bounces
-      // straight back to /issues. requireUser compares sessionVersion and role,
+      // straight back to /dashboard. requireUser compares sessionVersion and role,
       // then /session-expired is what actually clears the cookie.
       const userId = (token.id ?? token.sub) as string | undefined;
       if (userId && !user) {

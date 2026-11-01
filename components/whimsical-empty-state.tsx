@@ -3,8 +3,8 @@ import Link from "next/link";
 interface WhimsicalEmptyStateProps {
   title?: string;
   description?: string;
-  clearHref?: string;
-  createHref?: string;
+  clearHref: string;
+  createHref: string;
   showClear?: boolean;
   showCreate?: boolean;
 }
@@ -12,8 +12,8 @@ interface WhimsicalEmptyStateProps {
 export function WhimsicalEmptyState({
   title = "It's quiet in here... No issues match this filter.",
   description = "Maybe the bugs went into hiding, or they've all been squashed! Try clearing your filters or create a new issue.",
-  clearHref = "/issues",
-  createHref = "/issues/new",
+  clearHref,
+  createHref,
   showClear = true,
   showCreate = true,
 }: WhimsicalEmptyStateProps) {

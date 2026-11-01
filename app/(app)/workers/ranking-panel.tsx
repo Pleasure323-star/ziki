@@ -209,7 +209,7 @@ export default async function RankingPanel({
             <Link href="/workers" className={primaryActionClass}>
               Try again
             </Link>
-            <Link href="/issues" className={secondaryActionClass}>
+            <Link href="/dashboard" className={secondaryActionClass}>
               Go to issues
             </Link>
           </>

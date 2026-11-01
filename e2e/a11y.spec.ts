@@ -1,5 +1,5 @@
 import { expectNoA11yViolations } from "./axe";
-import { fileIssue, test } from "./fixtures";
+import { fileIssue, test, PROJECT } from "./fixtures";
 
 /**
  * Real-browser accessibility gate (#A11Y). The jsdom unit tests cover the
@@ -24,12 +24,12 @@ test.describe("accessibility", () => {
     test.use({ as: "user" });
 
     test("the issue list", async ({ page }) => {
-      await page.goto("/issues");
+      await page.goto(`${PROJECT}/issues/open`);
       await expectNoA11yViolations(page);
     });
 
     test("the report form", async ({ page }) => {
-      await page.goto("/issues/new");
+      await page.goto(`${PROJECT}/issues/new`);
       await expectNoA11yViolations(page);
     });
 
@@ -58,10 +58,10 @@ test.describe("accessibility", () => {
     test.use({ as: "admin" });
 
     test("the organization admin screens", async ({ page }) => {
-      await page.goto("/org/members");
+      await page.goto(`${PROJECT}/org/members`);
       await expectNoA11yViolations(page);
 
-      await page.goto("/org/platforms");
+      await page.goto(`${PROJECT}/org/platforms`);
       await expectNoA11yViolations(page);
     });
   });

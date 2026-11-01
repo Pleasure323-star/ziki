@@ -11,7 +11,7 @@ export default function Forbidden() {
         code="403"
         title="You don't have access to this page"
         actions={
-          <Link href="/issues" className={primaryActionClass}>
+          <Link href="/dashboard" className={primaryActionClass}>
             Go to issues
           </Link>
         }

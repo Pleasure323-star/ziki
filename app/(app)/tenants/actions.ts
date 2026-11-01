@@ -18,7 +18,6 @@ import {
 import { acceptShareLink, createShareLink, revokeShareLink } from "@/lib/share-invites";
 import { prisma } from "@/lib/prisma";
 import { issueHref } from "@/lib/issue-ref";
-import { setActiveProjectCookie } from "@/lib/project-context";
 import { RATE_LIMIT_MESSAGE, consumeRateLimit } from "@/lib/rate-limit";
 import {
   CREATE_TENANT_RATE_LIMIT,
@@ -32,6 +31,8 @@ import {
   setTenantArchived,
   type PromoteOwnerResult,
 } from "@/lib/tenants";
+import { refererProjectSlug } from "@/lib/referer-path";
+import { ideasPath, orgPath } from "@/lib/project-paths";
 
 /**
  * The tenant picker's actions (#444), and the organization admin's actions
@@ -40,8 +41,11 @@ import {
  */
 
 /** The organization admin area. It always shows the tenant this device is working in. */
-const ORG_SETTINGS_PATH = "/org/settings";
-const ORG_INVITES_PATH = "/org/invites";
+/** The org Settings page the action came from (`/<slug>/org/settings`, #project-urls). */
+async function orgSettingsPath(): Promise<string> {
+  const slug = await refererProjectSlug();
+  return slug ? orgPath(slug, "settings") : "/dashboard";
+}
 
 export type TenantFormResult = {
   error?: string;
@@ -51,12 +55,13 @@ export type TenantFormResult = {
   duplicateName?: string;
 };
 
-/** Work in this tenant on this device, and go to its issues. */
+/** Work in this tenant on this device, and open its project (#project-urls): the one given, else its first. */
 async function enterTenant(tenantId: string, projectId?: string): Promise<never> {
   await setActiveTenantCookie(tenantId);
-  if (projectId) await setActiveProjectCookie(projectId);
   revalidatePath("/", "layout");
-  redirect("/issues");
+  const project = projectId ? await prisma.project.findFirst({ where: { id: projectId, tenantId, archivedAt: null }, select: { slug: true } }) : null;
+  // /dashboard opens the first project of the workspace just made current.
+  redirect(project ? ideasPath(project.slug) : "/dashboard");
 }
 
 /**
@@ -82,15 +87,14 @@ export async function switchTenantForIssueAction(formData: FormData): Promise<vo
   const user = await requireUser();
   const issueId = String(formData.get("issueId") ?? "");
   const tenant = await memberTenantById(prisma, user.id, String(formData.get("tenantId") ?? ""));
-  if (!tenant || tenant.archivedAt) redirect("/issues");
+  if (!tenant || tenant.archivedAt) redirect("/dashboard");
   await setActiveTenantCookie(tenant.id);
-  await setActiveProjectCookie("");
   revalidatePath("/", "layout");
   const bug = await prisma.bug.findFirst({
     where: { id: issueId, tenantId: tenant.id },
     select: { number: true, project: { select: { slug: true } } },
   });
-  redirect(bug ? issueHref(bug) : "/issues");
+  redirect(bug ? issueHref(bug) : "/dashboard");
 }
 
 /** Create a tenant owned by the person, with its first project, and enter it. */
@@ -132,11 +136,11 @@ export async function renameTenantAction(formData: FormData): Promise<void> {
 
   const result = await renameTenant(prisma, user.id, tenantId, formData.get("name"));
   if (!result.ok) {
-    redirect(`${ORG_SETTINGS_PATH}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${await orgSettingsPath()}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
-  redirect(`${ORG_SETTINGS_PATH}?notice=${encodeURIComponent("Organization renamed.")}`);
+  redirect(`${await orgSettingsPath()}?notice=${encodeURIComponent("Organization renamed.")}`);
 }
 
 /**
@@ -152,7 +156,7 @@ export async function setTenantArchivedAction(formData: FormData): Promise<void>
   const archived = String(formData.get("archived") ?? "") === "true";
   const result = await setTenantArchived(prisma, user.id, tenantId, archived);
   if (!result.ok) {
-    redirect(`${archived ? ORG_SETTINGS_PATH : "/tenants"}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${archived ? await orgSettingsPath() : "/tenants"}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
@@ -168,7 +172,7 @@ export async function deleteTenantAction(formData: FormData): Promise<void> {
 
   const result = await deleteTenant(prisma, user.id, tenantId, formData.get("confirmName"));
   if (!result.ok) {
-    redirect(`${ORG_SETTINGS_PATH}?error=${encodeURIComponent(result.error)}`);
+    redirect(`${await orgSettingsPath()}?error=${encodeURIComponent(result.error)}`);
   }
 
   revalidatePath("/", "layout");
@@ -219,7 +223,7 @@ export async function createInviteAction(
     });
   }
 
-  revalidatePath(ORG_INVITES_PATH);
+  revalidatePath("/[project]/org", "layout");
   return {
     ok: true,
     email: result.invite.email,
@@ -251,7 +255,7 @@ export async function createShareLinkAction(
   });
   if (!result.ok) return result;
 
-  revalidatePath(ORG_INVITES_PATH);
+  revalidatePath("/[project]/org", "layout");
   return { ok: true, url: result.url };
 }
 
@@ -259,7 +263,7 @@ export async function createShareLinkAction(
 export async function revokeShareLinkAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeShareLink(prisma, user, String(formData.get("linkId") ?? ""));
-  if (result.ok) revalidatePath(ORG_INVITES_PATH);
+  if (result.ok) revalidatePath("/[project]/org", "layout");
 }
 
 /**
@@ -283,7 +287,7 @@ export async function acceptShareLinkAction(formData: FormData): Promise<void> {
 export async function revokeInviteAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const result = await revokeInvite(prisma, user, String(formData.get("inviteId") ?? ""));
-  if (result.ok) revalidatePath(ORG_INVITES_PATH);
+  if (result.ok) revalidatePath("/[project]/org", "layout");
 }
 
 export type AcceptInviteActionResult = { error?: string };
